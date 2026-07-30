@@ -10,12 +10,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ASSET_ROOT = ROOT / "demo_assets" / "baby_audio"
 MANIFEST = ASSET_ROOT / "manifest.json"
+SHOWCASE_ROOT = ASSET_ROOT / "warning-demo"
+SHOWCASE_MANIFEST = SHOWCASE_ROOT / "showcase-manifest.json"
 
 
 class BabyDemoAssetTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        cls.showcase = json.loads(SHOWCASE_MANIFEST.read_text(encoding="utf-8"))
 
     def test_manifest_is_explicit_about_proxy_identity_and_license(self):
         self.assertEqual(
@@ -71,8 +74,84 @@ class BabyDemoAssetTests(unittest.TestCase):
                     self.assertEqual(wav.getframerate(), record["sample_rate_hz"])
                     self.assertAlmostEqual(duration, record["duration_seconds"], places=2)
 
-        actual = sorted(path.resolve() for path in ASSET_ROOT.rglob("*.wav"))
-        self.assertEqual(sorted(declared), actual)
+        for record in self.showcase["assets"]:
+            path = SHOWCASE_ROOT / record["path"]
+            declared.append(path.resolve())
+            self.assertTrue(path.is_file(), record["path"])
+            self.assertEqual(
+                hashlib.sha256(path.read_bytes()).hexdigest(),
+                record["asset_sha256"],
+            )
+            with wave.open(str(path), "rb") as wav:
+                duration = wav.getnframes() / wav.getframerate()
+                self.assertEqual(
+                    wav.getnchannels(),
+                    record["format"]["channels"],
+                )
+                self.assertEqual(
+                    wav.getframerate(),
+                    record["format"]["sample_rate_hz"],
+                )
+                self.assertAlmostEqual(
+                    duration,
+                    record["format"]["duration_seconds"],
+                    places=2,
+                )
+
+        for record in self.showcase["supporting_files"]:
+            path = SHOWCASE_ROOT / record["path"]
+            declared.append(path.resolve())
+            self.assertTrue(path.is_file(), record["path"])
+            self.assertEqual(
+                hashlib.sha256(path.read_bytes()).hexdigest(),
+                record["sha256"],
+            )
+            with wave.open(str(path), "rb") as wav:
+                duration = wav.getnframes() / wav.getframerate()
+                self.assertEqual(wav.getnchannels(), record["channels"])
+                self.assertEqual(wav.getframerate(), record["sample_rate_hz"])
+                self.assertAlmostEqual(duration, record["duration_seconds"], places=2)
+
+        curated_group_wavs = sorted(
+            path.resolve()
+            for group in self.manifest["groups"]
+            for path in (ASSET_ROOT / group["directory"]).rglob("*.wav")
+        )
+        curated_declared = sorted(
+            (ASSET_ROOT / record["path"]).resolve()
+            for group in self.manifest["groups"]
+            for record in group["records"]
+        )
+        self.assertEqual(curated_declared, curated_group_wavs)
+
+    def test_showcase_has_three_distinct_verified_latching_sources(self):
+        records = self.showcase["assets"]
+        self.assertEqual([record["order"] for record in records], [1, 2, 3])
+        self.assertEqual(
+            [Path(record["source_recording"]).name for record in records],
+            ["07-X4.wav", "13-X7.wav", "15-X8.wav"],
+        )
+        self.assertEqual(len({record["source_sha256"] for record in records}), 3)
+        for record in records:
+            probe = record["six_second_quiet_probe"]
+            self.assertEqual(probe["cry_gate_status"], "infant_cry_detected")
+            self.assertEqual(probe["identity_status"], "match")
+            self.assertEqual(probe["profile"], "Demo Baby")
+            self.assertEqual(probe["chunk_status"], "guidance_latched")
+            for subtitle_key in ("subtitle", "distinct_output_spike_subtitle"):
+                subtitle = SHOWCASE_ROOT / record[subtitle_key]
+                self.assertTrue(subtitle.is_file(), record[subtitle_key])
+
+        distinct = self.showcase["validated_distinct_output_spike"]["result"]
+        self.assertEqual((distinct["passed"], distinct["tested"]), (3, 3))
+        self.assertEqual(
+            [item["recommendation"] for item in distinct["outputs"]],
+            [
+                "What helped before: offered bottle.",
+                "What helped before: held baby upright.",
+                "What helped before: turned on white noise.",
+            ],
+        )
 
 
 if __name__ == "__main__":

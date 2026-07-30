@@ -1,0 +1,22 @@
+1
+00:00:00,000 --> 00:00:04,500
+A six-second segment is being checked for an infant-cry-like sound.
+
+2
+00:00:04,500 --> 00:00:09,000
+The cry gate fired, and the profile matcher selected Demo Baby.
+
+3
+00:00:09,000 --> 00:00:14,000
+The ranking combines this cry pattern with the current time.
+No current caregiver note was supplied.
+
+4
+00:00:14,000 --> 00:00:21,000
+The best prior incident was at 6:45 PM.
+Swaddling and white noise were recorded, and the caregiver said the baby settled.
+
+5
+00:00:21,000 --> 00:00:27,000
+What helped before: white noise.
+This is a memory-based suggestion, not a diagnosis.
