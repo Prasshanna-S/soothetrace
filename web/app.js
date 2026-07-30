@@ -1150,6 +1150,31 @@ function syncChipPressed() {
   }
 }
 
+/* The background is a child's bedroom wall of stickers: the owner's 3D object
+   library scattered at whisper opacity, a few drifting very slowly. Purely
+   decorative, pointer-blind, and it hides itself wherever a file is missing. */
+const STICKERS = [
+  ["duck",      "stk-1 drift-a"], ["teddy",   "stk-2"],         ["stroller", "stk-3 drift-b"],
+  ["crib",      "stk-4"],         ["bottle",  "stk-5 drift-b"], ["rattle",   "stk-6"],
+  ["stack",     "stk-7 drift-a"], ["ring",    "stk-8"],         ["bathtub",  "stk-9"],
+  ["mittens",   "stk-10 drift-b"],["booties", "stk-11"],        ["sippy",    "stk-12 drift-a"],
+  ["bib",       "stk-13"],        ["onesie",  "stk-14"],
+];
+
+function initStickerWall() {
+  const ambient = $("ambient");
+  if (!ambient) return;
+  for (const [name, cls] of STICKERS) {
+    const img = document.createElement("img");
+    img.alt = "";
+    img.className = "stk " + cls;
+    img.onerror = () => { img.remove(); };
+    const bundled = (typeof BUNDLED_IMAGES !== "undefined") && BUNDLED_IMAGES["lib/" + name];
+    img.src = bundled || (IMAGE_DIR + "lib/" + name + ".png");
+    ambient.appendChild(img);
+  }
+}
+
 function initStaticIcons() {
   for (const img of document.querySelectorAll("img[data-icon]")) {
     const key = img.dataset.icon;
@@ -1204,6 +1229,7 @@ ui.profileSwitch.addEventListener("click", () => {
 });
 
 initChips();
+initStickerWall();
 initStaticIcons();
 initSettled();
 initPreview();

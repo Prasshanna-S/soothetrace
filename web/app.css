@@ -101,11 +101,49 @@ body {
     radial-gradient(34% 26% at 8% 88%, rgba(243, 217, 107, .10), transparent 70%);
 }
 #ambient .am { position: fixed; }
-.am-1 { width: 80px;  top: calc(var(--sat) + 88px); left: -16px; opacity: .5; }
-.am-2 { width: 24px;  top: calc(var(--sat) + 58px); right: 40px; opacity: .75; }
-.am-3 { width: 32px;  top: 44%; left: 18px; opacity: .45; }
-.am-4 { width: 18px;  top: 56%; right: 26px; opacity: .65; }
-.am-5 { width: 104px; bottom: 132px; right: -28px; opacity: .4; }
+.am-1 { width: 80px;  top: calc(var(--sat) + 88px); left: -16px; opacity: .4; }
+.am-2 { width: 24px;  top: calc(var(--sat) + 58px); right: 40px; opacity: .6; }
+.am-3 { width: 32px;  top: 44%; left: 18px; opacity: .35; }
+.am-4 { width: 18px;  top: 56%; right: 26px; opacity: .5; }
+.am-5 { width: 104px; bottom: 132px; right: -28px; opacity: .3; }
+
+/* the sticker wall: scattered like a real nursery wall, faded into the paint.
+   Sizes and tilts vary; a few drift very slowly. */
+#ambient .stk {
+  position: fixed;
+  opacity: .07;
+  filter: saturate(.9);
+  will-change: transform;
+}
+.stk-1  { width: 92px;  top: 7%;  left: 6%;   transform: rotate(-9deg); }
+.stk-2  { width: 74px;  top: 5%;  left: 42%;  transform: rotate(7deg); }
+.stk-3  { width: 100px; top: 9%;  right: 7%;  transform: rotate(6deg); }
+.stk-4  { width: 84px;  top: 30%; left: 15%;  transform: rotate(5deg); }
+.stk-5  { width: 60px;  top: 27%; right: 20%; transform: rotate(-11deg); }
+.stk-6  { width: 66px;  top: 45%; left: 4%;   transform: rotate(12deg); }
+.stk-7  { width: 78px;  top: 49%; right: 5%;  transform: rotate(-6deg); }
+.stk-8  { width: 58px;  top: 41%; left: 46%;  transform: rotate(10deg); }
+.stk-9  { width: 96px;  top: 66%; left: 12%;  transform: rotate(-5deg); }
+.stk-10 { width: 62px;  top: 63%; right: 14%; transform: rotate(9deg); }
+.stk-11 { width: 70px;  bottom: 9%; left: 30%; transform: rotate(-8deg); }
+.stk-12 { width: 56px;  bottom: 13%; right: 30%; transform: rotate(12deg); }
+.stk-13 { width: 72px;  bottom: 5%;  left: 6%;  transform: rotate(6deg); }
+.stk-14 { width: 80px;  bottom: 6%;  right: 6%; transform: rotate(-10deg); }
+
+@keyframes drift-a {
+  from { translate: 0 0; }
+  50%  { translate: 0 -9px; }
+  to   { translate: 0 0; }
+}
+@keyframes drift-b {
+  from { translate: 0 0; }
+  50%  { translate: 0 7px; }
+  to   { translate: 0 0; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .drift-a { animation: drift-a 16s ease-in-out infinite; }
+  .drift-b { animation: drift-b 21s ease-in-out infinite; }
+}
 
 /* --------------------------------------------------------------- shell --- */
 
