@@ -1206,7 +1206,7 @@ setInterval(pollHealth, HEALTH_POLL_MS);
 /* Review harness: runs LAST so boot cannot wipe the mocked state. Shares every
    production render path and keeps the simulation ribbon on screen. */
 if (MOCK) {
-  show(ui.previewBar, true);
+  show(ui.previewBar, !new URLSearchParams(location.search).get("bare"));
   const listen = () => {
     setSessionState("listening");
     setText(ui.recChipTime, "04:17");
