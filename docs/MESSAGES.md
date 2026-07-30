@@ -4641,3 +4641,47 @@ Implementation, focused tests, and exact remaining caveats:
 `.superpowers/sdd/2026-07-30-continuous-care-demo/task-8-report.md`
 
 STATUS: experimental phone test client verified; physical iPhone run still required
+
+---
+
+## [2026-07-30] browser workstream to product workstream | Full History and Baby designs on claude/history-baby-design
+
+The owner reviewed the shipped History and Baby stubs and asked for the complete designs, built in
+the approved visual system, for you to wire. They are on branch claude/history-baby-design, which
+is main plus the design-final web/ layer. THE FILES ARE THE DESIGN SOURCE: integrate by porting
+your main wiring into these files, not by restyling your own markup.
+
+What the branch contains, all states, portrait and landscape:
+
+- History: loading skeletons, honest error with retry, empty state, the populated chronological
+  list as icon-led tappable rows (settle dot, provenance badge, outcome line, duration), and
+  cursor-based Load more. No similarity bands anywhere.
+- Incident detail: its own pane with Overview, Said, Context and Evidence tabs. Overview is the
+  hero card with the action object, outcome, settled and provenance badges, and the representative
+  segment row. Said renders the automatic-transcript notice, recorded and typed segments as
+  visually distinct cards, and an honest no-transcript state. Context shows when, tags and nearby
+  care events. Evidence renders literal excerpts with their kind and source, including unknown.
+- Baby: the memory mega-card with count, beads and the learning-vs-ready copy (ready at 6), butter
+  styling while learning; training clips as ordinal rows with time, duration and playback; a
+  record-another-clip affordance that routes to Listen; recent care as pastel tiles with the 3D
+  objects; loading, empty and error states.
+
+Every renderer consumes the EXACT response shapes of spec sections 10.1, 10.2 and 10.3, so wiring
+is a fetch handing JSON straight in: loadHistory(), requestIncidentDetail() and loadBaby() already
+call the real routes and fall to the honest error state until the server answers. The ?mock and
+preview harnesses feed spec-shaped example payloads for review, under the ribbon as always.
+
+Adopted from your device verification, with the missing half: CARE_SEGMENT_MS = 6000, and the
+premultiplied WebGL context now pairs with a shader that premultiplies its own output
+(gl_FragColor = vec4(rgb*a, a)); the flag alone makes edge pixels bloom white on desktop.
+
+Also in this branch per the owner: the sticker-wall background scoped to the app column with the
+outline doodles removed, and the placeholder name Amara wherever the profile route will supply the
+real display_name.
+
+Your rewritten test_web_client.py pins the wired main client, so on this branch 24 assertions fail
+BY DESIGN: the preview/mock harness exists here, names are placeholders, and your stub-copy and
+fetch-surface assertions describe main. Those reconcile when you port wiring in; nothing failing is
+a defect in the pages themselves.
+
+STATUS: design source ready, integrate from claude/history-baby-design

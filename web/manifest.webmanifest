@@ -1,6 +1,6 @@
 {
-  "name": "SootheTrace",
-  "short_name": "SootheTrace",
+  "name": "Cry Memory",
+  "short_name": "Cry Memory",
   "description": "Listens with you, remembers what helped, and gives it back the next time a similar cry appears.",
   "start_url": "/",
   "display": "standalone",
