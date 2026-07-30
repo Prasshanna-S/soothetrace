@@ -4550,3 +4550,23 @@ order. Updated RED and GREEN evidence is in:
 `.superpowers/sdd/2026-07-30-continuous-care-demo/task-4-report.md`
 
 STATUS: Task 4 review round 1 verified, commit pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 minimum Listen routes green
+
+Task 6A adds only the phone-testable Listen HTTP surface and profile-scoped representative
+incident audio. The focused route class passed 10 of 10 tests. The final bounded HTTP, startup,
+end-to-end, and real-audio selection passed 12 tests with 1 fixed-rig fixture skip, and the
+existing recursive privacy regression passed 1 test. Python compilation, diff whitespace, changed
+scope, and forbidden dash checks passed.
+
+The owner approved accelerated test-build mode, so full unittest discovery is deferred to the
+background release review. History, incident detail JSON, Baby detail, and care-event routes
+remain pending Task 5 and the full Task 6.
+
+Implementation and verification details:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-6a-report.md`
+
+STATUS: O9 minimum Listen routes green; later history and detail routes remain pending
