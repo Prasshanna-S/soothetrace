@@ -77,8 +77,25 @@ class PhoneCareMarkupTests(unittest.TestCase):
         "outcome-tags",
         "btn-save-outcome",
         "btn-discard",
-        "history-limited",
-        "baby-limited",
+        "history-status",
+        "history-list",
+        "btn-history-more",
+        "history-detail",
+        "baby-status",
+        "baby-summary",
+        "baby-training",
+        "btn-delete-visitor-data",
+        "page-human",
+        "tab-human",
+        "human-consent",
+        "btn-human-consent",
+        "btn-new-human-session",
+        "human-file",
+        "btn-human-record",
+        "human-status",
+        "human-result",
+        "human-participants",
+        "human-timeline",
     )
 
     def setUp(self):
@@ -92,12 +109,12 @@ class PhoneCareMarkupTests(unittest.TestCase):
                 self.assertEqual(1, self.ids.count(element_id))
         self.assertEqual(len(self.ids), len(set(self.ids)))
 
-    def test_accelerated_pages_are_honest_about_their_limits(self):
-        """History and Baby must not look populated before their routes exist."""
+    def test_history_baby_and_human_pages_are_real_states(self):
+        """The approved routes replace the former placeholder screens."""
         lowered = self.html.lower()
-        self.assertIn("limited in this test build", lowered)
-        self.assertIn("history", lowered)
-        self.assertIn("baby", lowered)
+        self.assertNotIn("limited in this test build", lowered)
+        self.assertNotIn("profile details are next", lowered)
+        self.assertIn("human baby", lowered)
 
     def test_no_profile_or_care_result_is_hard_coded(self):
         """The visible baby and guidance must come from the server."""
@@ -158,6 +175,24 @@ class PhoneCareScriptTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.js)
         self.assertIn('"delete"', self.compact)
+
+    def test_client_uses_profile_visitor_and_human_surfaces(self):
+        """Each complete screen has an explicit server boundary."""
+        for fragment in (
+            '"/api/visitor-session"',
+            '"/api/visitor-session/consent"',
+            '"/api/profiles/"',
+            '"/incidents"',
+            '"/api/live-sessions"',
+            '"/observations"',
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.js)
+
+    def test_server_latch_is_visible_without_client_delay(self):
+        """A returned grounded decision must replace the status immediately."""
+        self.assertNotIn("DECISION_REVEAL_MS", self.js)
+        self.assertNotIn("scheduleDecisionReveal", self.js)
 
     def test_capture_is_audio_only_and_uses_complete_six_second_files(self):
         """Video or timeslice fragments would violate the demo and decode contract."""

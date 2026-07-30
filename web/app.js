@@ -40,7 +40,6 @@ const CARE_SEGMENT_MS = 6000;       // conservative validated prototype window
 const MAX_PENDING_SEGMENTS = 1;     // one completed blob may wait, no more
 const HEALTH_POLL_MS = 4000;
 const UPLOAD_RETRY_MS = 850;
-const DECISION_REVEAL_MS = 1200;
 
 const RECORDER_MIME_CANDIDATES = [
   "audio/mp4;codecs=mp4a.40.2",
@@ -121,8 +120,8 @@ function slotImage(img, slotName, fallbackIconKey) {
 const $ = (id) => document.getElementById(id);
 const ui = {
   body: document.body,
-  pages: { listen: $("page-listen"), history: $("page-history"), baby: $("page-baby") },
-  tabs: { listen: $("tab-listen"), history: $("tab-history"), baby: $("tab-baby") },
+  pages: { listen: $("page-listen"), history: $("page-history"), baby: $("page-baby"), human: $("page-human") },
+  tabs: { listen: $("tab-listen"), history: $("tab-history"), baby: $("tab-baby"), human: $("tab-human") },
   listen: $("page-listen"),
   healthPill: $("health-pill"),
   healthText: $("health-text"),
@@ -168,6 +167,25 @@ const ui = {
   listenName: $("listen-name"),
   historyProfileName: $("history-profile-name"),
   babyTitle: $("baby-title"),
+  historyStatus: $("history-status"),
+  historyList: $("history-list"),
+  historyMore: $("btn-history-more"),
+  historyDetail: $("history-detail"),
+  babyStatus: $("baby-status"),
+  babySummary: $("baby-summary"),
+  babyTraining: $("baby-training"),
+  deleteVisitorData: $("btn-delete-visitor-data"),
+  humanConsent: $("human-consent"),
+  humanConsentButton: $("btn-human-consent"),
+  humanWorkspace: $("human-workspace"),
+  newHumanSession: $("btn-new-human-session"),
+  humanRecord: $("btn-human-record"),
+  humanFile: $("human-file"),
+  humanStatus: $("human-status"),
+  humanResult: $("human-result"),
+  humanParticipants: $("human-participants"),
+  humanTimeline: $("human-timeline"),
+  finishHumanSession: $("btn-finish-human-session"),
 };
 
 const setText = (node, value) => { if (node) node.textContent = value == null ? "" : String(value); };
@@ -369,9 +387,14 @@ const state = {
   sessionId: null,
   profiles: [],
   selectedProfile: null,
+  visitor: null,
+  historyCursor: null,
+  historyLoading: false,
+  humanSession: null,
+  humanBusy: false,
+  humanRecorder: null,
+  humanStream: null,
   decision: null,           // latched once, immutable until stop
-  pendingDecision: null,
-  decisionRevealTimer: null,
   micLive: false,
   healthReady: false,
   healthReachable: null,
@@ -451,6 +474,9 @@ function navigate(view) {
     if (name === view) ui.tabs[name].setAttribute("aria-current", "page");
     else ui.tabs[name].removeAttribute("aria-current");
   }
+  if (view === "history") void loadHistory(false);
+  if (view === "baby") void loadBaby();
+  if (view === "human") renderHumanWorkspace();
 }
 window.addEventListener("hashchange", () => navigate(location.hash.replace("#", "") || "listen"));
 
@@ -510,6 +536,8 @@ function applySelectedProfile(profile) {
   setText(ui.historyProfileName, name);
   setText(ui.babyTitle, name);
   syncStartGate();
+  if (state.view === "history") void loadHistory(true);
+  if (state.view === "baby") void loadBaby();
 }
 
 async function loadProfiles() {
@@ -550,6 +578,404 @@ async function loadProfiles() {
     option.textContent = "Profiles unavailable";
     ui.profilePicker.appendChild(option);
     applySelectedProfile(null);
+  }
+}
+
+/* ====================================================== history and profile
+   These routes intentionally make no care inference in the browser. They show
+   the stored server record, including audio only when the server provides it. */
+
+function emptyNode(node) {
+  if (node) node.textContent = "";
+}
+
+function formatRecordedTime(value) {
+  if (!value) return "Time unavailable";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function appendAudio(parent, audio) {
+  if (!audio || !audio.url) return;
+  const player = document.createElement("audio");
+  player.controls = true;
+  player.preload = "metadata";
+  player.src = audio.url;
+  parent.appendChild(player);
+}
+
+function incidentAction(incident) {
+  const actions = Array.isArray(incident && incident.actions) ? incident.actions : [];
+  const first = actions[0];
+  return (first && (first.action || first.text)) || "Recorded moment";
+}
+
+function incidentOutcome(incident) {
+  const outcome = incident && incident.outcome;
+  if (!outcome) return "No outcome recorded";
+  if (typeof outcome === "string") return outcome;
+  return outcome.text || (outcome.settled === true ? "Settled" :
+    (outcome.settled === false ? "Not settled" : "No outcome recorded"));
+}
+
+function renderHistoryIncident(incident) {
+  const row = document.createElement("li");
+  row.className = "record-card";
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "record-open";
+  const title = document.createElement("strong");
+  title.textContent = incidentAction(incident);
+  const meta = document.createElement("span");
+  meta.textContent = formatRecordedTime(incident && incident.started_at) + " · " +
+    incidentOutcome(incident);
+  open.append(title, meta);
+  open.addEventListener("click", () => { void loadHistoryDetail(incident && incident.id); });
+  row.appendChild(open);
+  const tags = incident && incident.context && Array.isArray(incident.context.tags)
+    ? incident.context.tags : [];
+  if (tags.length) {
+    const tagLine = document.createElement("p");
+    tagLine.className = "record-tags";
+    tagLine.textContent = tags.join(", ");
+    row.appendChild(tagLine);
+  }
+  appendAudio(row, incident && incident.audio);
+  return row;
+}
+
+async function loadHistory(reset) {
+  const profile = state.selectedProfile;
+  if (!profile) {
+    emptyNode(ui.historyList);
+    show(ui.historyMore, false);
+    show(ui.historyDetail, false);
+    setText(ui.historyStatus, "Choose a baby to see their recorded moments.");
+    return;
+  }
+  if (state.historyLoading) return;
+  if (reset) {
+    state.historyCursor = null;
+    emptyNode(ui.historyList);
+    emptyNode(ui.historyDetail);
+    show(ui.historyDetail, false);
+  }
+  state.historyLoading = true;
+  setText(ui.historyStatus, "Loading recorded moments.");
+  try {
+    const suffix = state.historyCursor ? "?cursor=" + encodeURIComponent(state.historyCursor) : "";
+    const result = await apiJson("/api/profiles/" + profile.id + "/incidents" + suffix);
+    if (!result.ok || !result.data || !Array.isArray(result.data.incidents)) {
+      throw new Error("history_unavailable");
+    }
+    const incidents = result.data.incidents;
+    if (!incidents.length && !ui.historyList.children.length) {
+      const empty = document.createElement("li");
+      empty.className = "record-empty";
+      empty.textContent = "No recorded moments yet.";
+      ui.historyList.appendChild(empty);
+    }
+    for (const incident of incidents) ui.historyList.appendChild(renderHistoryIncident(incident));
+    state.historyCursor = result.data.next_cursor || null;
+    show(ui.historyMore, Boolean(state.historyCursor));
+    setText(ui.historyStatus, "Showing " + ui.historyList.children.length + " recorded moments.");
+  } catch (error) {
+    show(ui.historyMore, false);
+    setText(ui.historyStatus, "Recorded moments are unavailable right now.");
+  } finally {
+    state.historyLoading = false;
+  }
+}
+
+function detailLine(parent, label, value) {
+  if (!value) return;
+  const line = document.createElement("p");
+  const title = document.createElement("strong");
+  title.textContent = label + ": ";
+  line.append(title, document.createTextNode(String(value)));
+  parent.appendChild(line);
+}
+
+async function loadHistoryDetail(incidentId) {
+  if (!state.selectedProfile || !incidentId) return;
+  setText(ui.historyStatus, "Loading that recorded moment.");
+  try {
+    const result = await apiJson("/api/profiles/" + state.selectedProfile.id +
+      "/incidents/" + encodeURIComponent(incidentId));
+    const incident = result.data && (result.data.incident || result.data);
+    if (!result.ok || !incident || typeof incident !== "object") throw new Error("detail_unavailable");
+    emptyNode(ui.historyDetail);
+    const heading = document.createElement("h2");
+    heading.textContent = incidentAction(incident);
+    ui.historyDetail.appendChild(heading);
+    detailLine(ui.historyDetail, "When", formatRecordedTime(incident.started_at));
+    detailLine(ui.historyDetail, "Outcome", incidentOutcome(incident));
+    const speech = incident.speech && Array.isArray(incident.speech.segments)
+      ? incident.speech.segments : [];
+    if (speech.length) {
+      const transcript = document.createElement("p");
+      transcript.textContent = speech.map((segment) => segment.text || segment.excerpt || "").filter(Boolean).join(" ");
+      if (transcript.textContent) ui.historyDetail.appendChild(transcript);
+    }
+    appendAudio(ui.historyDetail, incident.audio);
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "linkbtn";
+    close.textContent = "Close details";
+    close.addEventListener("click", () => { show(ui.historyDetail, false); });
+    ui.historyDetail.appendChild(close);
+    show(ui.historyDetail, true);
+    setText(ui.historyStatus, "Recorded moment loaded.");
+  } catch (error) {
+    setText(ui.historyStatus, "That recorded moment is unavailable right now.");
+  }
+}
+
+function renderTrainingClip(clip, index) {
+  const item = document.createElement("li");
+  item.className = "record-card";
+  const name = document.createElement("strong");
+  name.textContent = "Training recording " + (index + 1);
+  const time = document.createElement("span");
+  const length = Number.isFinite(clip && clip.duration_s) ? " · " + clip.duration_s + " seconds" : "";
+  time.textContent = formatRecordedTime(clip && clip.captured_at) + length;
+  item.append(name, time);
+  appendAudio(item, clip && { url: clip.playback_url });
+  return item;
+}
+
+async function loadBaby() {
+  const profile = state.selectedProfile;
+  if (!profile) {
+    emptyNode(ui.babySummary);
+    emptyNode(ui.babyTraining);
+    setText(ui.babyStatus, "Choose a baby to see their memory.");
+    return;
+  }
+  setText(ui.babyStatus, "Loading this baby's memory.");
+  try {
+    const result = await apiJson("/api/profiles/" + profile.id);
+    const record = result.data && (result.data.profile || result.data);
+    if (!result.ok || !record || typeof record !== "object") throw new Error("profile_unavailable");
+    setText(ui.babyTitle, record.display_name || profile.display_name || "Baby");
+    emptyNode(ui.babySummary);
+    detailLine(ui.babySummary, "Memories", Number.isFinite(record.memory_count) ? record.memory_count : 0);
+    detailLine(ui.babySummary, "Status", record.status || "Unknown");
+    const enrollments = Array.isArray(record.enrollments) ? record.enrollments.length : 0;
+    detailLine(ui.babySummary, "Training entries", enrollments);
+    const clips = Array.isArray(result.data.training_clips) ? result.data.training_clips : [];
+    emptyNode(ui.babyTraining);
+    if (clips.length) clips.forEach((clip, index) => ui.babyTraining.appendChild(renderTrainingClip(clip, index)));
+    else {
+      const empty = document.createElement("li");
+      empty.className = "record-empty";
+      empty.textContent = "No training clips yet.";
+      ui.babyTraining.appendChild(empty);
+    }
+    setText(ui.babyStatus, "Memory loaded.");
+  } catch (error) {
+    setText(ui.babyStatus, "Baby details are unavailable right now.");
+  }
+}
+
+function visitorSessionFrom(data) {
+  return data && (data.session || data.visitor_session || data);
+}
+
+function hasVisitorConsent() {
+  const visitor = state.visitor;
+  return Boolean(visitor && (visitor.consented === true || visitor.consent === "granted" ||
+    visitor.consent_status === "granted"));
+}
+
+async function loadVisitorSession() {
+  try {
+    const result = await apiJson("/api/visitor-session");
+    state.visitor = result.ok ? visitorSessionFrom(result.data) : null;
+  } catch (error) {
+    state.visitor = null;
+  }
+  show(ui.deleteVisitorData, hasVisitorConsent());
+  renderHumanWorkspace();
+}
+
+function renderHumanWorkspace() {
+  const consented = hasVisitorConsent();
+  show(ui.humanConsent, !consented);
+  show(ui.humanWorkspace, consented);
+  show(ui.finishHumanSession, Boolean(state.humanSession));
+  ui.humanRecord.disabled = !state.humanSession || state.humanBusy;
+  ui.humanFile.disabled = !state.humanSession || state.humanBusy;
+  ui.newHumanSession.disabled = state.humanBusy;
+  if (consented && !state.humanSession && !ui.humanStatus.textContent) {
+    setText(ui.humanStatus, "Start a session, then share one clip at a time.");
+  }
+}
+
+async function grantHumanConsent() {
+  setText(ui.humanStatus, "Saving your consent.");
+  try {
+    const result = await apiJson("/api/visitor-session/consent", "POST", {});
+    if (!result.ok) throw new Error("consent_unavailable");
+    state.visitor = visitorSessionFrom(result.data);
+    show(ui.deleteVisitorData, true);
+    renderHumanWorkspace();
+    setText(ui.humanStatus, "Consent saved. Start a session when you are ready.");
+  } catch (error) {
+    setText(ui.humanStatus, "Consent could not be saved right now.");
+  }
+}
+
+async function deleteVisitorData() {
+  if (!window.confirm("Delete visitor data for this browser session?")) return;
+  try {
+    const result = await apiJson("/api/visitor-session", "DELETE");
+    if (!result.ok) throw new Error("delete_unavailable");
+    state.visitor = null;
+    state.humanSession = null;
+    show(ui.deleteVisitorData, false);
+    renderHumanWorkspace();
+    setText(ui.babyStatus, "Visitor data was deleted.");
+  } catch (error) {
+    setText(ui.babyStatus, "Visitor data could not be deleted right now.");
+  }
+}
+
+async function createHumanSession() {
+  if (!hasVisitorConsent() || state.humanBusy) return;
+  state.humanBusy = true;
+  renderHumanWorkspace();
+  setText(ui.humanStatus, "Starting a Human Baby session.");
+  try {
+    const result = await apiJson("/api/live-sessions", "POST", { kind: "human_baby" });
+    const session = result.data && (result.data.session || result.data);
+    if (!result.ok || !session || !session.id) throw new Error("session_unavailable");
+    state.humanSession = session;
+    setText(ui.humanStatus, "Ready for one clip.");
+  } catch (error) {
+    setText(ui.humanStatus, "This session could not start right now.");
+  } finally {
+    state.humanBusy = false;
+    renderHumanWorkspace();
+  }
+}
+
+function renderHumanResult(data) {
+  const result = data && (data.classification || data.result || data);
+  if (!result || typeof result !== "object") return;
+  emptyNode(ui.humanResult);
+  const heading = document.createElement("h2");
+  const status = result.status || result.kind || "Clip received";
+  heading.textContent = String(status).replace(/_/g, " ");
+  ui.humanResult.appendChild(heading);
+  if (result.participant && result.participant.label) {
+    detailLine(ui.humanResult, "Participant", result.participant.label);
+  }
+  if (result.message) detailLine(ui.humanResult, "Result", result.message);
+  show(ui.humanResult, true);
+}
+
+function renderHumanSession(data) {
+  const session = data && data.session;
+  if (session && typeof session === "object") state.humanSession = session;
+  const active = state.humanSession || {};
+  emptyNode(ui.humanParticipants);
+  const participants = Array.isArray(active.participants) ? active.participants : [];
+  if (!participants.length) {
+    const empty = document.createElement("li");
+    empty.textContent = "Patterns will appear after a clip is processed.";
+    ui.humanParticipants.appendChild(empty);
+  } else {
+    for (const participant of participants) {
+      const bubble = document.createElement("li");
+      bubble.className = "participant-bubble";
+      bubble.textContent = (participant.label || "Participant") + " · " +
+        (participant.support_count || 0) + " clips";
+      ui.humanParticipants.appendChild(bubble);
+    }
+  }
+  emptyNode(ui.humanTimeline);
+  const observations = Array.isArray(active.observations) ? active.observations : [];
+  for (const observation of observations) {
+    const item = document.createElement("li");
+    item.className = "record-card";
+    item.textContent = (observation.source_type || "Clip") + " · " +
+      formatRecordedTime(observation.created_at || observation.captured_at);
+    appendAudio(item, observation.playback_url ? { url: observation.playback_url } : null);
+    ui.humanTimeline.appendChild(item);
+  }
+}
+
+async function submitHumanClip(blob, source) {
+  if (!blob || !state.humanSession || state.humanBusy) return;
+  state.humanBusy = true;
+  renderHumanWorkspace();
+  setText(ui.humanStatus, "Sending one clip.");
+  try {
+    const response = await fetch("/api/live-sessions/" + state.humanSession.id + "/observations", {
+      method: "POST",
+      headers: { "Content-Type": blob.type || "audio/webm", "X-Capture-Source": source },
+      body: blob,
+    });
+    const data = await readJson(response);
+    if (!response.ok) throw new Error("observation_unavailable");
+    renderHumanSession(data);
+    renderHumanResult(data);
+    setText(ui.humanStatus, "Clip processed. You can add one more clip.");
+  } catch (error) {
+    setText(ui.humanStatus, "That clip could not be sent. Try another clip.");
+  } finally {
+    state.humanBusy = false;
+    renderHumanWorkspace();
+  }
+}
+
+async function recordHumanClip() {
+  if (state.humanRecorder && state.humanRecorder.state !== "inactive") {
+    state.humanRecorder.stop();
+    return;
+  }
+  if (!state.humanSession || state.humanBusy || !navigator.mediaDevices) return;
+  try {
+    state.humanStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const chunks = [];
+    const mimeType = pickRecorderMime();
+    state.humanRecorder = mimeType ? new MediaRecorder(state.humanStream, { mimeType }) :
+      new MediaRecorder(state.humanStream);
+    state.humanRecorder.addEventListener("dataavailable", (event) => {
+      if (event.data && event.data.size) chunks.push(event.data);
+    });
+    state.humanRecorder.addEventListener("stop", () => {
+      const type = state.humanRecorder.mimeType || "audio/webm";
+      state.humanStream.getTracks().forEach((track) => track.stop());
+      state.humanStream = null;
+      state.humanRecorder = null;
+      setText(ui.humanRecord, "Record one clip");
+      void submitHumanClip(new Blob(chunks, { type }), "microphone");
+    }, { once: true });
+    state.humanRecorder.start();
+    setText(ui.humanRecord, "Finish this clip");
+    setText(ui.humanStatus, "Recording one clip. Tap again when finished.");
+  } catch (error) {
+    setText(ui.humanStatus, "The microphone is unavailable right now.");
+  }
+}
+
+async function finishHumanSession() {
+  if (!state.humanSession || state.humanBusy) return;
+  state.humanBusy = true;
+  renderHumanWorkspace();
+  try {
+    const result = await apiJson("/api/live-sessions/" + state.humanSession.id + "/finish", "POST", {});
+    if (!result.ok) throw new Error("finish_unavailable");
+    renderHumanSession(result.data);
+    state.humanSession = null;
+    setText(ui.humanStatus, "Human Baby session finished.");
+  } catch (error) {
+    setText(ui.humanStatus, "This session could not finish right now.");
+  } finally {
+    state.humanBusy = false;
+    renderHumanWorkspace();
   }
 }
 
@@ -752,7 +1178,7 @@ async function finalizeCurrentSegment() {
   enqueueSegment(blob);
 }
 
-function applyServerSession(session, includeDecision = true) {
+function applyServerSession(session) {
   if (!session || typeof session !== "object") return;
   state.serverSession = session;
   if (Number.isInteger(session.last_sequence) &&
@@ -763,34 +1189,7 @@ function applyServerSession(session, includeDecision = true) {
     const local = state.profiles.find((profile) => profile.id === session.profile.id);
     applySelectedProfile(local || session.profile);
   }
-  if (includeDecision && session.decision) latchDecision(session.decision);
-}
-
-function cancelDecisionReveal() {
-  clearTimeout(state.decisionRevealTimer);
-  state.decisionRevealTimer = null;
-  state.pendingDecision = null;
-}
-
-function scheduleDecisionReveal(decision) {
-  const guidance = decision && decision.guidance;
-  if (state.decision || state.pendingDecision ||
-      !guidance || guidance.status !== "grounded" || !guidance.recommendation) return;
-  state.pendingDecision = decision;
-  state.decisionRevealTimer = setTimeout(() => {
-    const pending = state.pendingDecision;
-    state.pendingDecision = null;
-    state.decisionRevealTimer = null;
-    if (pending && (state.session === "listening" || state.session === "paused")) {
-      latchDecision(pending);
-    }
-  }, DECISION_REVEAL_MS);
-}
-
-function revealPendingDecisionNow() {
-  const pending = state.pendingDecision;
-  cancelDecisionReveal();
-  if (pending && !state.decision) latchDecision(pending);
+  if (session.decision) latchDecision(session.decision);
 }
 
 function renderChunkResult(payload) {
@@ -857,13 +1256,11 @@ function promoteWaitingSegment() {
 }
 
 function acceptUploadedSegment(entry, payload) {
-  const serverDecision = payload && payload.session && payload.session.decision;
-  applyServerSession(payload && payload.session, false);
+  applyServerSession(payload && payload.session);
   if (state.acceptedSequence < entry.sequence) {
     state.acceptedSequence = entry.sequence;
   }
   renderChunkResult(payload);
-  if (serverDecision) scheduleDecisionReveal(serverDecision);
   state.activeUpload = null;
   hideConnectionLoss();
   promoteWaitingSegment();
@@ -1173,7 +1570,6 @@ async function enterPaused(fromInterruption) {
     showConnectionLoss();
     showError("The microphone is paused, but the laptop did not confirm the pause.");
   }
-  revealPendingDecisionNow();
   state.stopRequested = false;
   setTransitionBusy(false);
   setSessionState("paused");
@@ -1260,7 +1656,6 @@ async function stopSession() {
     setSessionState("paused");
     return;
   }
-  revealPendingDecisionNow();
   show(ui.interruptedBanner, false);
   hideConnectionLoss();
   setText(ui.outcomeDuration, clockText(total));
@@ -1365,7 +1760,6 @@ async function discardSession() {
 }
 
 function clearDecisionPresentation() {
-  cancelDecisionReveal();
   state.decision = null;
   ui.listen.dataset.decision = "none";
   ui.body.dataset.decision = "none";
@@ -1422,7 +1816,6 @@ function latchDecision(decision) {
   if (!decision || !decision.guidance) return;
   const g = decision.guidance;
   if (g.status !== "grounded" || !g.recommendation) return;
-  cancelDecisionReveal();
   state.decision = decision;
 
   const headline = g.headline || "";
@@ -1682,6 +2075,17 @@ ui.stop.addEventListener("click", stopSession);
 ui.outcomeForm.addEventListener("submit", saveOutcome);
 ui.discard.addEventListener("click", () => { void discardSession(); });
 ui.savedDone.addEventListener("click", resetToIdle);
+ui.historyMore.addEventListener("click", () => { void loadHistory(false); });
+ui.deleteVisitorData.addEventListener("click", () => { void deleteVisitorData(); });
+ui.humanConsentButton.addEventListener("click", () => { void grantHumanConsent(); });
+ui.newHumanSession.addEventListener("click", () => { void createHumanSession(); });
+ui.humanRecord.addEventListener("click", () => { void recordHumanClip(); });
+ui.humanFile.addEventListener("change", (event) => {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = "";
+  if (file) void submitHumanClip(file, "upload");
+});
+ui.finishHumanSession.addEventListener("click", () => { void finishHumanSession(); });
 ui.connRetry.addEventListener("click", () => {
   if (state.activeUpload) {
     clearTimeout(state.uploadRetryTimer);
@@ -1703,5 +2107,5 @@ initStaticIcons();
 initSettled();
 navigate(location.hash.replace("#", "") || "listen");
 setSessionState("idle");
-void Promise.all([pollHealth(), loadProfiles()]);
+void Promise.all([pollHealth(), loadProfiles(), loadVisitorSession()]);
 setInterval(pollHealth, HEALTH_POLL_MS);

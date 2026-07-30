@@ -263,6 +263,36 @@ async function installRoutes(page, requests, options = {}) {
       });
       return;
     }
+    if (url.pathname === "/api/visitor-session" && request.method() === "GET") {
+      await route.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ session: { consented: false } }) });
+      return;
+    }
+    if (url.pathname === "/api/visitor-session/consent" && request.method() === "POST") {
+      await route.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ session: { consented: true } }) });
+      return;
+    }
+    if (url.pathname === "/api/profiles/12" && request.method() === "GET") {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+        profile: { ...profile, memory_count: 1 }, training_clips: [], recent_care_events: [],
+      }) });
+      return;
+    }
+    if (url.pathname === "/api/profiles/12/incidents" && request.method() === "GET") {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+        profile, incidents: [{ id: 101, started_at: "2026-07-30T20:15:00-04:00",
+          actions: [{ action: "Server action" }], outcome: { text: "Server outcome" },
+          context: { tags: ["evening"] }, audio: { status: "unavailable" } }], next_cursor: null,
+      }) });
+      return;
+    }
+    if (url.pathname === "/api/live-sessions" && request.method() === "POST") {
+      await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({
+        session: { id: 77, participants: [], observations: [] },
+      }) });
+      return;
+    }
     if (url.pathname === "/api/care-sessions" && request.method() === "POST") {
       requests.created.push(request.postDataJSON());
       await route.fulfill({
@@ -418,11 +448,22 @@ async function runLivePath(browser) {
   assert(await page.locator("#listen-name").textContent() === "Learning Baby",
     "active baby selector did not switch to Learning Baby");
   await page.selectOption("#profile-picker", "12");
-  assert(await page.locator("#history-limited").isVisible() === false,
+  assert(await page.locator("#history-list").isVisible() === false,
     "History content leaked into Listen");
 
   await page.click("#tab-history");
-  assert(await page.locator("#history-limited").isVisible(), "History limit is not visible");
+  await page.waitForSelector("#history-list .record-card");
+  assert(await page.locator("#history-list .record-card").count() === 1,
+    "History did not render the returned recorded moment");
+  await page.click("#tab-baby");
+  await page.waitForSelector("#baby-summary");
+  assert((await page.locator("#baby-summary").textContent()).includes("Memories: 1"),
+    "Baby did not render the returned memory summary");
+  await page.evaluate(() => navigate("human"));
+  assert(await page.locator("#human-consent").isVisible(), "Human Baby consent is not visible");
+  await page.click("#btn-human-consent");
+  await page.click("#btn-new-human-session");
+  await page.waitForFunction(() => !document.querySelector("#btn-human-record").disabled);
   await page.click("#tab-listen");
   await page.click("#btn-start");
   await page.waitForSelector('body[data-session="listening"]');
@@ -459,12 +500,6 @@ async function runLivePath(browser) {
     "view navigation replaced the retained MediaStream");
 
   const revealOrder = await page.evaluate((payload) => {
-    const realSetTimeout = window.setTimeout;
-    const timers = [];
-    window.setTimeout = (callback, delay) => {
-      timers.push({ callback, delay });
-      return 7000 + timers.length;
-    };
     const progress = [];
     for (let sequence = 1; sequence <= 3; sequence += 1) {
       state.activeUpload = { sequence };
@@ -499,37 +534,19 @@ async function runLivePath(browser) {
     }
     state.activeUpload = { sequence: 4 };
     acceptUploadedSegment({ sequence: 4 }, payload);
-    scheduleDecisionReveal({
-      ...payload.session.decision,
-      id: 999,
-      guidance: {
-        ...payload.session.decision.guidance,
-        recommendation: "A later decision must not replace the first",
-      },
-    });
     const immediate = {
       status: document.querySelector("#analysis-status").textContent,
       orb: document.querySelector("#orb").dataset.visualState,
       suggestionHidden: document.querySelector("#suggestion-block").hidden,
       decision: document.querySelector("#page-listen").dataset.decision,
+      recommendation: document.querySelector("#g-recommendation").textContent,
       acceptedSequence: state.acceptedSequence,
       uploadCleared: state.activeUpload === null,
     };
-    const reveal = timers.find((timer) => timer.delay === 1200);
-    if (reveal) reveal.callback();
-    const after = {
-      orb: document.querySelector("#orb").dataset.visualState,
-      suggestionHidden: document.querySelector("#suggestion-block").hidden,
-      decision: document.querySelector("#page-listen").dataset.decision,
-      recommendation: document.querySelector("#g-recommendation").textContent,
-    };
     state.acceptedSequence = 0;
-    window.setTimeout = realSetTimeout;
     return {
       progress,
       immediate,
-      after,
-      revealTimerCount: timers.filter((timer) => timer.delay === 1200).length,
     };
   }, {
     session: publicSession("listening", 4, decision),
@@ -569,11 +586,10 @@ async function runLivePath(browser) {
     `early evidence produced guidance or lost progress: ${JSON.stringify(revealOrder)}`
   );
   assert(
-    revealOrder.immediate.status === "Infant cry detected. Match confirmed 3 of 3" &&
-      revealOrder.immediate.orb === "detected" &&
-      revealOrder.immediate.suggestionHidden &&
-      revealOrder.immediate.decision === "none",
-    `server detection was not revealed first: ${JSON.stringify(revealOrder)}`
+    revealOrder.immediate.orb === "grounded" &&
+      !revealOrder.immediate.suggestionHidden &&
+      revealOrder.immediate.decision === "latched",
+    `returned guidance was not visible immediately: ${JSON.stringify(revealOrder)}`
   );
   assert(
     revealOrder.immediate.acceptedSequence === 4 &&
@@ -581,12 +597,8 @@ async function runLivePath(browser) {
     `decision reveal blocked upload progress: ${JSON.stringify(revealOrder)}`
   );
   assert(
-    revealOrder.revealTimerCount === 1 &&
-      revealOrder.after.orb === "grounded" &&
-      !revealOrder.after.suggestionHidden &&
-      revealOrder.after.decision === "latched" &&
-      revealOrder.after.recommendation === "Server recommendation, exactly",
-    `grounded decision did not follow the calm reveal delay: ${JSON.stringify(revealOrder)}`
+    revealOrder.immediate.recommendation === "Server recommendation, exactly",
+    `immediate decision did not preserve server guidance: ${JSON.stringify(revealOrder)}`
   );
 
   const invalidCopy = await page.evaluate(() => {
@@ -696,33 +708,18 @@ async function runSequentialOutcomePath(browser) {
   await page.waitForFunction(() => !document.querySelector("#btn-start").disabled);
 
   const resetCleanup = await page.evaluate((serverDecision) => {
-    const realSetTimeout = window.setTimeout;
-    let reveal = null;
-    window.setTimeout = (callback, delay) => {
-      if (delay === 1200) reveal = callback;
-      return 9901;
-    };
-    scheduleDecisionReveal(serverDecision);
-    const pendingBefore = Boolean(state.pendingDecision);
+    latchDecision(serverDecision);
     resetToIdle();
-    if (reveal) reveal();
     const result = {
-      pendingBefore,
-      pendingAfter: state.pendingDecision,
-      timerAfter: state.decisionRevealTimer,
       decisionAfter: state.decision,
       suggestionHidden: document.querySelector("#suggestion-block").hidden,
     };
-    window.setTimeout = realSetTimeout;
     return result;
   }, decision);
   assert(
-    resetCleanup.pendingBefore &&
-      resetCleanup.pendingAfter === null &&
-      resetCleanup.timerAfter === null &&
-      resetCleanup.decisionAfter === null &&
+    resetCleanup.decisionAfter === null &&
       resetCleanup.suggestionHidden,
-    `reset did not cancel the delayed decision: ${JSON.stringify(resetCleanup)}`
+    `reset did not clear the immediate decision: ${JSON.stringify(resetCleanup)}`
   );
 
   for (let index = 1; index <= 3; index++) {

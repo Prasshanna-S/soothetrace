@@ -241,13 +241,10 @@
         <svg viewBox="0 0 24 24" width="20" height="20"><use href="#i-history"/></svg>
       </span>
     </header>
-    <div class="stub-card" id="history-limited">
-      <img class="stub-art" data-slot-name="page-history" data-slot-fallback="notes" alt="">
-      <p class="limited-kicker">Limited in this test build</p>
-      <h2>Listen is ready first</h2>
-      <p>The chronological incident view is still being connected. This screen does not invent
-        entries while that route is unavailable.</p>
-    </div>
+    <p id="history-status" class="page-status" role="status" aria-live="polite">Choose a baby to see their recorded moments.</p>
+    <ol id="history-list" class="record-list" aria-label="Recorded moments"></ol>
+    <button type="button" class="linkbtn page-more" id="btn-history-more" hidden>Show earlier moments</button>
+    <article id="history-detail" class="detail-card" hidden aria-live="polite"></article>
   </section>
 
   <!-- ================================ BABY ================================ -->
@@ -261,13 +258,51 @@
         <svg viewBox="0 0 24 24" width="20" height="20"><use href="#i-baby"/></svg>
       </span>
     </header>
-    <div class="stub-card" id="baby-limited">
-      <img class="stub-art" data-slot-name="page-baby" data-slot-fallback="sleeping" alt="">
-      <p class="limited-kicker">Limited in this test build</p>
-      <h2>Profile details are next</h2>
-      <p>The active baby can be selected for live listening now. Training clips, memory count,
-        and care events remain hidden until their routes are available.</p>
-    </div>
+    <p id="baby-status" class="page-status" role="status" aria-live="polite">Choose a baby to see their memory.</p>
+    <section id="baby-summary" class="summary-card" aria-label="Baby memory summary"></section>
+    <section class="training-card" aria-labelledby="training-title">
+      <p class="card-kicker">Training clips</p>
+      <h2 id="training-title">Recordings that help this memory</h2>
+      <ol id="baby-training" class="record-list compact"></ol>
+    </section>
+    <button type="button" class="linkbtn danger-link" id="btn-delete-visitor-data" hidden>Delete this visitor data</button>
+  </section>
+
+  <!-- ============================== HUMAN BABY ============================== -->
+  <section id="page-human" class="page" hidden aria-labelledby="human-title">
+    <header class="page-head">
+      <div class="head-left">
+        <p class="kicker">A separate activity</p>
+        <h1 id="human-title">Human Baby</h1>
+      </div>
+      <span class="circ circ-still" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><use href="#i-mic"/></svg></span>
+    </header>
+    <section id="human-consent" class="summary-card">
+      <p class="card-kicker">Before recording</p>
+      <h2>Your sound is temporary</h2>
+      <p>With your consent, a short cry imitation is kept for this visitor session and deleted within one hour.</p>
+      <button type="button" class="pillbtn" id="btn-human-consent">I agree and continue</button>
+    </section>
+    <section id="human-workspace" hidden>
+      <div class="human-actions">
+        <button type="button" class="pillbtn" id="btn-new-human-session">Start Human Baby session</button>
+        <button type="button" class="softbtn" id="btn-human-record" disabled>Record one clip</button>
+        <label class="softbtn file-label" for="human-file">Choose audio<input id="human-file" type="file" accept="audio/*" hidden></label>
+      </div>
+      <p id="human-status" class="page-status" role="status" aria-live="polite">Start a session, then share one clip at a time.</p>
+      <article id="human-result" class="detail-card" hidden></article>
+      <section class="training-card" aria-labelledby="human-people-title">
+        <p class="card-kicker">Patterns in this session</p>
+        <h2 id="human-people-title">Participants</h2>
+        <ul id="human-participants" class="participant-list"></ul>
+      </section>
+      <section class="training-card" aria-labelledby="human-timeline-title">
+        <p class="card-kicker">This session only</p>
+        <h2 id="human-timeline-title">Timeline</h2>
+        <ol id="human-timeline" class="record-list compact"></ol>
+      </section>
+      <button type="button" class="linkbtn" id="btn-finish-human-session" hidden>Finish this session</button>
+    </section>
   </section>
 
 </main>
@@ -285,6 +320,10 @@
   <a href="#baby" id="tab-baby">
     <svg viewBox="0 0 24 24" width="21" height="21"><use href="#i-baby"/></svg>
     <span>Baby</span>
+  </a>
+  <a href="#human" id="tab-human">
+    <svg viewBox="0 0 24 24" width="21" height="21"><use href="#i-mic"/></svg>
+    <span>Human Baby</span>
   </a>
 </nav>
 </div>

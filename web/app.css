@@ -1294,6 +1294,110 @@ body[data-decision="latched"] #preview-bar {
 
 /* ------------------------------------------------------- motion, focus --- */
 
+/* -------------------------------------------------- record and human pages */
+
+.page-status {
+  margin: 4px 0 16px;
+  color: var(--ink-2);
+  min-height: 1.5em;
+}
+.record-list,
+.participant-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.record-card,
+.summary-card,
+.training-card,
+.detail-card {
+  border: 1px solid rgba(49, 54, 81, .12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .72);
+  box-shadow: 0 6px 18px rgba(47, 53, 82, .05);
+}
+.record-card {
+  padding: 13px 15px;
+  display: grid;
+  gap: 6px;
+}
+.record-open {
+  appearance: none;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.record-open strong,
+.record-card strong {
+  display: block;
+}
+.record-open span,
+.record-card > span,
+.record-tags {
+  color: var(--ink-2);
+  font-size: 14px;
+}
+.record-tags { margin: 0; }
+.record-card audio,
+.detail-card audio { width: 100%; margin-top: 4px; }
+.record-empty {
+  padding: 16px;
+  color: var(--ink-2);
+  text-align: center;
+}
+.summary-card,
+.training-card,
+.detail-card {
+  padding: 18px;
+  margin-bottom: 14px;
+}
+.summary-card h2,
+.training-card h2,
+.detail-card h2 { margin: 4px 0 10px; }
+.summary-card p,
+.detail-card p { margin: 7px 0; }
+.page-more,
+.danger-link { margin-top: 14px; }
+.danger-link { color: #9c3946; }
+.human-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.softbtn,
+.file-label {
+  box-sizing: border-box;
+  min-height: var(--tap);
+  padding: 11px 15px;
+  border: 1px solid rgba(49, 54, 81, .18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .72);
+  color: var(--ink);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+.softbtn:disabled { opacity: .55; cursor: not-allowed; }
+.file-label { display: block; }
+.participant-bubble {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--mint);
+  color: var(--ink);
+}
+
+@media (min-width: 640px) {
+  .human-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
 :focus-visible { outline: 2px solid var(--peri-ink); outline-offset: 3px;
                  border-radius: 10px; }
 
