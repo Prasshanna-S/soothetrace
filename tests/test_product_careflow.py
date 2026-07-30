@@ -1,4 +1,5 @@
 import os
+import threading
 import unittest
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -27,6 +28,238 @@ def _episode(subject_id, started_at, action, outcome):
 
 
 class CareFlowTests(unittest.TestCase):
+    def test_completed_attempt_conflicts_even_after_its_capture_is_removed(self):
+        from src import careflow, identity
+
+        with TemporaryDirectory() as directory:
+            db_path = os.path.join(directory, "episodes.db")
+            canonical = os.path.join(directory, "canonical.wav")
+            with open(canonical, "wb") as audio:
+                audio.write(b"RIFF-test-wave")
+            profile = identity.create_profile("Baby A", db_path=db_path)
+            attempt = {
+                "id": 38,
+                "status": "match",
+                "matched_profile_id": profile["id"],
+                "captures": [{"canonical_audio_path": canonical}],
+            }
+            with (
+                patch.object(
+                    careflow.identity,
+                    "get_identity_attempt",
+                    return_value=attempt,
+                    create=True,
+                ),
+                patch.object(
+                    careflow.fingerprint,
+                    "compute_windowed",
+                    return_value=[0.3] * 87,
+                ),
+                patch.object(
+                    careflow.session.fingerprint,
+                    "compute_windowed",
+                    return_value=[0.3] * 87,
+                ),
+                patch.object(
+                    careflow.session.fingerprint,
+                    "duration_s",
+                    return_value=8.0,
+                ),
+                patch.object(careflow.session.speech, "transcribe", return_value=""),
+                patch.object(
+                    careflow.session.speech,
+                    "extract_interventions",
+                    return_value=[],
+                ),
+                patch.object(
+                    careflow.session.speech,
+                    "infer_outcome",
+                    return_value=None,
+                ),
+            ):
+                first = careflow.complete_incident(
+                    38,
+                    "Rocking worked.",
+                    db_path=db_path,
+                )
+                os.remove(canonical)
+                second = careflow.complete_incident(
+                    38,
+                    "Rocking worked.",
+                    db_path=db_path,
+                )
+
+        self.assertEqual("complete", first["status"])
+        self.assertEqual(
+            {"status": "conflict", "reason": "incident_already_completed"},
+            second,
+        )
+
+    def test_simultaneous_completion_requests_save_exactly_one_episode(self):
+        from src import careflow, identity, store
+
+        with TemporaryDirectory() as directory:
+            db_path = os.path.join(directory, "episodes.db")
+            canonical = os.path.join(directory, "canonical.wav")
+            with open(canonical, "wb") as audio:
+                audio.write(b"RIFF-test-wave")
+            profile = identity.create_profile("Baby A", db_path=db_path)
+            subject_id = f"profile-{profile['id']}"
+            attempt = {
+                "id": 37,
+                "status": "match",
+                "matched_profile_id": profile["id"],
+                "captures": [{"canonical_audio_path": canonical}],
+            }
+            rendezvous = threading.Barrier(2)
+            real_completed = careflow._attempt_already_completed
+            completion_checks = 0
+            completion_checks_lock = threading.Lock()
+
+            def synchronized_completion_check(*args, **kwargs):
+                nonlocal completion_checks
+                result = real_completed(*args, **kwargs)
+                with completion_checks_lock:
+                    completion_checks += 1
+                    current_check = completion_checks
+                if current_check <= 2:
+                    rendezvous.wait(timeout=3)
+                return result
+
+            results = []
+            with (
+                patch.object(
+                    careflow.identity,
+                    "get_identity_attempt",
+                    return_value=attempt,
+                    create=True,
+                ),
+                patch.object(
+                    careflow.fingerprint,
+                    "compute_windowed",
+                    return_value=[0.3] * 87,
+                ),
+                patch.object(
+                    careflow.session.fingerprint,
+                    "compute_windowed",
+                    return_value=[0.3] * 87,
+                ),
+                patch.object(
+                    careflow.session.fingerprint,
+                    "duration_s",
+                    return_value=8.0,
+                ),
+                patch.object(careflow.session.speech, "transcribe", return_value=""),
+                patch.object(
+                    careflow.session.speech,
+                    "extract_interventions",
+                    return_value=[],
+                ),
+                patch.object(
+                    careflow.session.speech,
+                    "infer_outcome",
+                    return_value=None,
+                ),
+                patch.object(
+                    careflow,
+                    "_attempt_already_completed",
+                    side_effect=synchronized_completion_check,
+                ),
+            ):
+                threads = [
+                    threading.Thread(
+                        target=lambda: results.append(
+                            careflow.complete_incident(
+                                37,
+                                "Rocking worked.",
+                                db_path=db_path,
+                            )
+                        )
+                    )
+                    for _ in range(2)
+                ]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(timeout=5)
+            rows = store.list_episodes(subject_id, db_path)
+
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual(1, len(rows))
+        self.assertEqual(
+            ["complete", "conflict"],
+            sorted(result["status"] for result in results),
+        )
+
+    def test_completing_the_same_identity_attempt_twice_saves_one_episode(self):
+        from src import careflow, identity, store
+
+        with TemporaryDirectory() as directory:
+            db_path = os.path.join(directory, "episodes.db")
+            canonical = os.path.join(directory, "canonical.wav")
+            with open(canonical, "wb") as audio:
+                audio.write(b"RIFF-test-wave")
+            profile = identity.create_profile("Baby A", db_path=db_path)
+            subject_id = f"profile-{profile['id']}"
+            attempt = {
+                "id": 39,
+                "status": "match",
+                "matched_profile_id": profile["id"],
+                "captures": [{"canonical_audio_path": canonical}],
+            }
+            with (
+                patch.object(
+                    careflow.identity,
+                    "get_identity_attempt",
+                    return_value=attempt,
+                    create=True,
+                ),
+                patch.object(
+                    careflow.fingerprint,
+                    "compute_windowed",
+                    return_value=[0.3] * 87,
+                ),
+                patch.object(
+                    careflow.session.fingerprint,
+                    "compute_windowed",
+                    return_value=[0.3] * 87,
+                ),
+                patch.object(
+                    careflow.session.fingerprint,
+                    "duration_s",
+                    return_value=8.0,
+                ),
+                patch.object(careflow.session.speech, "transcribe", return_value=""),
+                patch.object(
+                    careflow.session.speech,
+                    "extract_interventions",
+                    return_value=[],
+                ),
+                patch.object(
+                    careflow.session.speech,
+                    "infer_outcome",
+                    return_value=None,
+                ),
+            ):
+                first = careflow.complete_incident(
+                    39,
+                    "Rocking worked.",
+                    db_path=db_path,
+                )
+                second = careflow.complete_incident(
+                    39,
+                    "Rocking worked.",
+                    db_path=db_path,
+                )
+            rows = store.list_episodes(subject_id, db_path)
+
+        self.assertEqual("complete", first["status"])
+        self.assertEqual(
+            {"status": "conflict", "reason": "incident_already_completed"},
+            second,
+        )
+        self.assertEqual(1, len(rows))
+
     def test_preview_reads_history_without_saving_the_current_incident(self):
         from src import careflow, identity, store
 

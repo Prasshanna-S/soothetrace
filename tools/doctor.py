@@ -14,6 +14,8 @@ Exit 0 = ready. Exit 1 = at least one FAIL.
 from __future__ import annotations
 
 import os
+import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -22,6 +24,41 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 FAILS = 0
 WARNS = 0
+
+
+def _matching_torch_versions(torch_version: str, audio_version: str) -> bool:
+    torch_release, _, torch_build = torch_version.partition("+")
+    audio_release, _, audio_build = audio_version.partition("+")
+    if torch_release != audio_release:
+        return False
+    if torch_build and audio_build and torch_build != audio_build:
+        return False
+    return True
+
+
+def _audio_devices_from_ffmpeg(system: str, output: str) -> list[str]:
+    if system == "Windows":
+        return [
+            match.group(1)
+            for line in output.splitlines()
+            if (match := re.search(r'"([^"]+)"\s+\(audio\)', line))
+        ]
+    if system == "Darwin":
+        devices = []
+        in_audio = False
+        for raw in output.splitlines():
+            line = re.sub(r"^\[AVFoundation indev @ [^\]]*\]\s*", "", raw).strip()
+            if line.lower().startswith("avfoundation audio devices"):
+                in_audio = True
+                continue
+            if line.lower().startswith("avfoundation video devices"):
+                in_audio = False
+                continue
+            match = re.match(r"^\[(\d+)\]\s+(.*)$", line)
+            if in_audio and match:
+                devices.append(match.group(2))
+        return devices
+    return []
 
 
 def ok(msg):
@@ -43,6 +80,7 @@ def fail(msg):
 def check_python():
     print("\nPython")
     v = sys.version_info
+    ok(f"operating system: {platform.system()} {platform.release()}")
     if v[:2] == (3, 12):
         ok(f"{v.major}.{v.minor}.{v.micro}")
     elif v[:2] >= (3, 13):
@@ -66,6 +104,28 @@ def check_deps():
              "(numba/llvmlite will not build on py3.12/macOS ARM). Harmless, but unexpected.")
     except ImportError:
         ok("librosa absent (correct - numpy/scipy only)")
+    try:
+        import torch
+        import torchaudio
+
+        if _matching_torch_versions(torch.__version__, torchaudio.__version__):
+            ok(
+                "matched torch / torchaudio "
+                f"{torch.__version__} / {torchaudio.__version__}"
+            )
+        else:
+            fail(
+                "torch and torchaudio binary versions do not match: "
+                f"{torch.__version__} / {torchaudio.__version__}"
+            )
+    except (ImportError, OSError) as exc:
+        fail(f"torch / torchaudio unavailable: {exc}")
+    try:
+        import speechbrain
+
+        ok(f"speechbrain {getattr(speechbrain, '__version__', '?')}")
+    except (ImportError, OSError) as exc:
+        fail(f"speechbrain unavailable: {exc}")
     if shutil.which("ffmpeg"):
         ok("ffmpeg on PATH")
     else:
@@ -96,6 +156,23 @@ def check_modules():
     except Exception as exc:                                  # noqa: BLE001
         warn(f"speech-path import failed (fine if you are offline-only): {exc}")
     return True
+
+
+def check_models():
+    print("\nIdentity models")
+    import encoders
+    import identity
+
+    required = sorted(set(identity.ENCODER_FOR_KIND.values()))
+    warmed = encoders.warm(required)
+    for name in required:
+        if warmed.get(name):
+            ok(f"{name} loaded")
+        else:
+            fail(
+                f"{name} failed to load - identity requests using this encoder "
+                "will be rejected"
+            )
 
 
 def check_storage_and_baseline(subjects):
@@ -184,53 +261,96 @@ def check_audio_device():
 
     This matters more than it looks. Round 1 measured cross-channel matching at -0.258 vs
     0.909 same-channel, so the capture device must be IDENTICAL between seeding and querying.
-    `session._capture_wav` defaults to avfoundation index ':0', which on this machine is NOT
-    the built-in microphone.
+    Browser capture is the primary demo path. The CLI also supports AVFoundation on macOS,
+    DirectShow on Windows, and ALSA on Linux.
     """
-    import re
     print("\nAudio input")
+    system = platform.system()
+    if system == "Darwin":
+        command = [
+            "ffmpeg",
+            "-hide_banner",
+            "-f",
+            "avfoundation",
+            "-list_devices",
+            "true",
+            "-i",
+            "",
+        ]
+    elif system == "Windows":
+        command = [
+            "ffmpeg",
+            "-hide_banner",
+            "-list_devices",
+            "true",
+            "-f",
+            "dshow",
+            "-i",
+            "dummy",
+        ]
+    elif system == "Linux":
+        selected = os.environ.get("IM_AUDIO_DEVICE", "default")
+        ok(f"CLI recording will use ALSA device {selected!r}")
+        ok("browser microphone and upload remain available")
+        return
+    else:
+        warn(f"CLI microphone enumeration is unsupported on {system or 'this system'}")
+        ok("browser microphone and upload remain available")
+        return
+
     try:
-        p = subprocess.run(["ffmpeg", "-hide_banner", "-f", "avfoundation",
-                            "-list_devices", "true", "-i", ""],
-                           capture_output=True, timeout=15)
+        p = subprocess.run(command, capture_output=True, timeout=15)
         text = (p.stderr or b"").decode("utf-8", "replace")
     except (OSError, subprocess.SubprocessError):
         warn("could not enumerate audio devices")
         return
 
-    # Every line is prefixed "[AVFoundation indev @ 0x...] " - strip it, then take the
-    # audio section only. (The earlier version filtered lines containing "AVFoundation",
-    # which is all of them, so it always reported zero devices.)
-    audio, in_audio = [], False
-    for raw in text.splitlines():
-        line = re.sub(r"^\[AVFoundation indev @ [^\]]*\]\s*", "", raw).strip()
-        if line.lower().startswith("avfoundation audio devices"):
-            in_audio = True
-            continue
-        if line.lower().startswith("avfoundation video devices"):
-            in_audio = False
-            continue
-        m = re.match(r"^\[(\d+)\]\s+(.*)$", line)
-        if in_audio and m:
-            audio.append((m.group(1), m.group(2)))
-
+    audio = _audio_devices_from_ffmpeg(system, text)
     if not audio:
-        warn("no audio input devices found - check System Settings > Privacy > Microphone")
+        warn("no audio input devices found - check microphone privacy settings")
+        return
+
+    ok(f"{len(audio)} audio input device(s):")
+    if system == "Windows":
+        selected = os.environ.get("IM_AUDIO_DEVICE")
+        for name in audio:
+            marker = "  <-- CLI capture" if selected == name else ""
+            print(f"      {name}{marker}")
+        if not selected:
+            warn(
+                "IM_AUDIO_DEVICE is not set. Browser recording works, but CLI "
+                "recording needs the exact microphone name shown above."
+            )
+            return
+        chosen = next(
+            (name for name in audio if name.casefold() == selected.casefold()),
+            None,
+        )
+        if chosen is None:
+            fail(f"IM_AUDIO_DEVICE={selected!r} does not match an audio device")
+        else:
+            ok(f"CLI recording will use {chosen!r}")
         return
 
     selected = os.environ.get("IM_AUDIO_DEVICE", ":0")
-    idx = selected.lstrip(":").split(":")[0]
-    ok(f"{len(audio)} audio input device(s):")
-    for i, name in audio:
-        marker = "  <-- session.record will use this" if i == idx else ""
-        print(f"      [{i}] {name}{marker}")
-
-    chosen = dict(audio).get(idx)
-    if chosen is None:
+    try:
+        index = int(selected.lstrip(":").split(":")[0])
+    except ValueError:
+        fail(f"IM_AUDIO_DEVICE={selected!r} is not an AVFoundation index")
+        return
+    for current, name in enumerate(audio):
+        marker = "  <-- CLI capture" if current == index else ""
+        print(f"      [{current}] {name}{marker}")
+    if not 0 <= index < len(audio):
         fail(f"IM_AUDIO_DEVICE={selected} does not exist - capture will fail")
         return
-    builtin = [i for i, n in audio if "macbook" in n.lower() and "mic" in n.lower()]
-    if builtin and idx not in builtin:
+    chosen = audio[index]
+    builtin = [
+        current
+        for current, name in enumerate(audio)
+        if "macbook" in name.lower() and "mic" in name.lower()
+    ]
+    if builtin and index not in builtin:
         warn(f"capturing from {chosen!r}, NOT the built-in mic "
              f"(index {builtin[0]}). Fine IF it is deliberate and IF you use the same "
              f"device for seeding and querying - cross-device matching measured -0.258. "
@@ -246,6 +366,7 @@ def main() -> int:
     check_python()
     check_deps()
     if check_modules():
+        check_models()
         check_config()
         check_storage_and_baseline(sys.argv[1:])
     check_audio_device()

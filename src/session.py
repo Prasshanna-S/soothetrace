@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import platform
 import re
 import subprocess
 from datetime import datetime, timezone
@@ -44,17 +45,37 @@ def _explicit_worked(answer: str) -> bool | None:
     return None
 
 
+def _capture_input_args(device: str | None = None) -> list[str]:
+    """Return FFmpeg input arguments for the current desktop platform."""
+    system = platform.system()
+    configured = device if device is not None else os.environ.get("IM_AUDIO_DEVICE")
+    if system == "Darwin":
+        return ["-f", "avfoundation", "-i", configured or ":0"]
+    if system == "Windows":
+        if not configured:
+            raise ValueError(
+                "IM_AUDIO_DEVICE must name a Windows microphone for CLI recording"
+            )
+        name = configured.removeprefix("audio=")
+        return ["-f", "dshow", "-i", f"audio={name}"]
+    if system == "Linux":
+        return ["-f", "alsa", "-i", configured or "default"]
+    raise ValueError(f"unsupported microphone capture platform: {system or 'unknown'}")
+
+
 def _capture_wav(output_path: str, seconds: float | None) -> bool:
-    """Capture the default macOS audio input through ffmpeg."""
+    """Capture one canonical WAV through the platform's FFmpeg input backend."""
+    try:
+        capture_args = _capture_input_args()
+    except ValueError as exc:
+        logger.error("Microphone capture is not configured: %s", exc)
+        return False
     command = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel",
         "error",
-        "-f",
-        "avfoundation",
-        "-i",
-        os.environ.get("IM_AUDIO_DEVICE", ":0"),
+        *capture_args,
     ]
     if seconds is not None:
         command.extend(["-t", str(seconds)])
@@ -135,6 +156,7 @@ def finish(
     caregiver_answer: str | None,
     *,
     db_path: str | None = None,
+    context_override: dict | None = None,
 ) -> dict:
     """Finalize one episode from the raw recording and return the saved Episode."""
     if (
@@ -148,10 +170,18 @@ def finish(
         started_at = datetime.now(timezone.utc).astimezone().isoformat()
         previous = store.latest_episode(subject_id, db_path)
         acoustic = fingerprint.compute_windowed(audio_path)
-        transcript = speech.transcribe(audio_path)
+        audio_transcript = speech.transcribe(audio_path)
+        answer = caregiver_answer.strip() if isinstance(caregiver_answer, str) else ""
+        if answer:
+            evidence_parts = []
+            if audio_transcript:
+                evidence_parts.append(f"Audio transcript: {audio_transcript}")
+            evidence_parts.append(f"Typed caregiver follow-up: {answer}")
+            transcript = "\n".join(evidence_parts)
+        else:
+            transcript = audio_transcript
         interventions = speech.extract_interventions(transcript)
 
-        answer = caregiver_answer.strip() if isinstance(caregiver_answer, str) else ""
         if answer:
             outcome = answer
             outcome_src = "caregiver"
@@ -167,6 +197,15 @@ def finish(
                 outcome_src = None
                 worked = None
 
+        episode_context = (
+            dict(context_override)
+            if isinstance(context_override, dict)
+            else fingerprint.build_context(
+                started_at,
+                previous.get("started_at") if previous else None,
+                subject_age_days=None,
+            )
+        )
         episode = {
             "id": None,
             "subject_id": subject_id.strip(),
@@ -179,11 +218,7 @@ def finish(
             "outcome": outcome,
             "outcome_src": outcome_src,
             "worked": worked,
-            "context": fingerprint.build_context(
-                started_at,
-                previous.get("started_at") if previous else None,
-                subject_age_days=None,
-            ),
+            "context": episode_context,
         }
         episode_id = store.save_episode(episode, db_path)
         if not episode_id:

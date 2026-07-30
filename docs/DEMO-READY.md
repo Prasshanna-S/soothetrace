@@ -17,7 +17,7 @@ to reach each other.
 
 ```bash
 xcode-select -p
-brew install uv ffmpeg openssl@3 node
+brew install uv ffmpeg node
 git clone https://github.com/Prasshanna-S/interaction-memory.git
 cd interaction-memory
 uv venv .venv --python 3.12
@@ -39,6 +39,124 @@ The optional browser interaction test also needs:
 npm install --no-save --package-lock=false playwright
 npx playwright install chromium
 ```
+
+## One-time setup from a clean Windows computer
+
+Use 64-bit Windows 10 version 1809 or later, or Windows 11. The native scripts require WinGet,
+ordinary Windows PowerShell 5.1 or PowerShell 7, internet during provisioning, and enough disk space
+for the Python environment, public corpus, model checkpoint, managed audio, and optional browser
+automation.
+
+```powershell
+winget install --id Git.Git --exact --source winget
+```
+
+Close every PowerShell window after Git finishes installing. Open a new PowerShell window, then
+clone and provision the repository:
+
+```powershell
+git clone https://github.com/Prasshanna-S/interaction-memory.git
+Set-Location ".\interaction-memory"
+.\scripts\setup_windows.ps1 -InstallTools
+```
+
+If setup installs Python, FFmpeg, or Node, close every PowerShell window again. Open a new one,
+return to the repository, and run `.\scripts\setup_windows.ps1` once more. The setup script requires
+Python 3.12, checks `ffmpeg` and `ffprobe`, installs dependencies without virtual-environment
+activation, clones the corpus at its required location, and builds the population baseline.
+
+On Windows 11, install the optional browser interaction dependency with:
+
+```powershell
+.\scripts\setup_windows.ps1 -InstallTools -InstallPlaywright
+```
+
+Keep `-InstallTools` so setup can install Node if it is absent. If Node is installed, reopen
+PowerShell and rerun the command with `-InstallPlaywright`. Current Playwright releases do not list
+Windows 10 as a supported host. This does not prevent the core desktop or phone server from running.
+
+If execution policy blocks the script:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup_windows.ps1 -InstallTools
+```
+
+### Windows desktop rehearsal
+
+```powershell
+.\scripts\run_windows.ps1 -Mode Desktop
+```
+
+Wait for both encoder values to be `True`. In a second PowerShell window:
+
+```powershell
+Set-Location ".\interaction-memory"
+.\scripts\run_windows.ps1 -Mode Health
+Start-Process "http://127.0.0.1:8000"
+```
+
+Rehearse the browser microphone as the primary input. Also rehearse the audio-file upload so it is
+ready as the Windows fallback if microphone permission, device selection, or room acoustics fail.
+
+### Windows phone HTTPS
+
+Find and inspect the active IPv4 LAN address:
+
+```powershell
+$LanIp = (
+    Get-NetIPConfiguration |
+    Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq "Up" } |
+    Select-Object -First 1
+).IPv4Address.IPAddress
+$LanIp
+```
+
+Do not use `127.0.0.1`. The phone and computer must be on the same trusted network. Generate the
+temporary certificate and serve its installable public profile:
+
+```powershell
+.\scripts\run_windows.ps1 -Mode Bootstrap -LanIp $LanIp
+```
+
+The launcher uses the portable certificate command
+`.\.venv\Scripts\python.exe .\spikes\mobile_capture\make_cert.py $LanIp`. If Windows prompts for
+firewall access, allow Python only on Private networks. Open the exact HTTP profile URL printed by
+the launcher on the iPhone.
+
+On the iPhone:
+
+1. Allow the configuration profile to download.
+2. Open **Settings > General > VPN & Device Management** and install
+   **Interaction Memory Local Spike CA**.
+3. Open **Settings > General > About > Certificate Trust Settings**.
+4. Enable full trust for **Interaction Memory Local Spike CA** and confirm.
+5. Stop the bootstrap server with Control-C.
+
+Start the phone product server:
+
+```powershell
+.\scripts\run_windows.ps1 -Mode Phone -LanIp $LanIp
+```
+
+Wait for both encoder values to be `True`, then open `https://WINDOWS-LAN-IP:8443` on the iPhone.
+The page must load without a certificate warning before microphone permission is requested.
+
+### Windows rehearsal troubleshooting
+
+- If a tool is missing after WinGet succeeds, reopen PowerShell to refresh `PATH`, return to the
+  repository, and rerun setup.
+- If execution policy blocks a launcher, use the one-process bypass above.
+- If setup detects the wrong interpreter, remove only this checkout's `.venv` directory and rerun
+  setup. Do not activate or reuse a different environment.
+- If the corpus clone is incomplete, remove or rename only
+  `experiments\donateacry-corpus`, then rerun setup.
+- If the phone cannot connect, confirm the Windows network is Private, allow Python on Private
+  networks, and check that the Wi-Fi does not isolate clients.
+- If the phone reports a certificate warning, verify profile installation and full trust. Regenerate
+  and reinstall it after any LAN IP change.
+- A checkout path containing spaces is supported. Invoke a quoted script path with the call
+  operator, for example
+  `& "C:\Demo Files\interaction-memory\scripts\run_windows.ps1" -Mode Desktop`.
 
 ## Preflight evaluators and tests
 
@@ -98,6 +216,9 @@ node --check web/app.js
 These fixtures and evaluator outputs are demonstration evidence. They do not estimate population
 accuracy or establish infant identity performance.
 
+On Windows, use `.venv\Scripts\python.exe`, replace `/tmp` with `$env:TEMP`, and use the complete
+PowerShell verification block in the [`README`](../README.md#verification).
+
 ## Recommended presentation order
 
 1. Start the laptop server and let both encoders warm.
@@ -122,12 +243,12 @@ accuracy or establish infant identity performance.
 [ ] iPhone and laptop are on the same network.
 [ ] iPhone can open the HTTPS page.
 [ ] Microphone permission is allowed for the page.
-[ ] Included baby files are available in the iPhone Files app.
+[ ] The three included baby-audio folders are available on the playback device.
 [ ] The three-profile human file demo has been reproduced.
 [ ] A clean backup of data/episodes.db exists.
 ```
 
-## Find the current LAN IP
+## Find the current LAN IP on macOS
 
 On the tested Wi-Fi configuration:
 
@@ -139,14 +260,13 @@ Use the non-loopback address, such as `10.21.6.4`. If `en0` has no address, insp
 lines from `ifconfig` or find the active interface under System Settings > Network. Do not use
 `127.0.0.1`. Recheck this address for every network and every rehearsal.
 
-## Generate and trust the iPhone certificate
+## Generate and trust the iPhone certificate on macOS
 
-Replace `10.21.6.4` in this section with the current LAN address. The certificate script needs
-OpenSSL 3, so keep the package-manager OpenSSL first on `PATH`:
+Replace `10.21.6.4` in this section with the current LAN address. Generate the certificate with
+the same portable Python entry point used on Windows:
 
 ```bash
-PATH="$(brew --prefix openssl@3)/bin:$PATH" \
-  ./spikes/mobile_capture/make_cert.sh 10.21.6.4
+.venv/bin/python spikes/mobile_capture/make_cert.py 10.21.6.4
 ```
 
 This writes a temporary 30-day local root and an IP-addressed server certificate under
@@ -180,7 +300,7 @@ Then:
 Installing the profile and enabling trust are separate actions. If the LAN IP changes, regenerate
 the certificate and repeat both actions.
 
-## Start and warm the phone server
+## Start and warm the phone server on macOS
 
 ```bash
 .venv/bin/python -m src.http_api \
@@ -225,19 +345,44 @@ Open `http://127.0.0.1:8000` only on the Mac. The server rejects plain HTTP on a
 
 ## Baby flow with only two devices
 
-Use the phone file picker for saved baby recordings. This is the most reliable path and does not
-need another playback device.
+The repository includes three public rehearsal groups under
+[`demo_assets/baby_audio`](../demo_assets/baby_audio/README.md). Each folder has three enrollment
+clips, one held-out query, one retry, and one extra stress-test clip.
+
+The current infant thresholds were calibrated on live room replay. Use the laptop browser and play
+the files from the phone into the laptop microphone, or use the phone browser and play the files
+from the laptop. Never play and record on the same device.
 
 1. Open Baby cry.
-2. Create or select at least two baby profiles.
-3. Add three distinct enrollments to each profile.
-4. Select a different file and run a blind query.
-5. If confirmed, reveal recorded history.
-6. Show caregiver provenance and play one supporting incident.
-7. Save the current outcome once.
+2. Create profiles named Baby 1, Baby 2, and Baby 3.
+3. Fix the speaker volume, room position, device orientation, microphone, and distance.
+4. For each folder, replay files `01`, `02`, and `03` through that unchanged path and enroll the
+   three browser recordings into the matching profile.
+5. Seed clearly synthetic care history for the three demo profiles:
 
-If an acoustic microphone demonstration is required, play the baby clip from the laptop and record
-it on the iPhone. Never play and record on the same iPhone.
+   ```bash
+   .venv/bin/python scripts/seed_demo_memory.py
+   ```
+
+   On Windows:
+
+   ```powershell
+   & .\.venv\Scripts\python.exe .\scripts\seed_demo_memory.py
+   ```
+
+6. Replay file `04` through the same path and run a blind query.
+7. If the result asks for one retry, use that group's `05` file through the same fixed path.
+8. Keep file `06` unused for an additional stress test.
+9. If confirmed, reveal that profile's synthetic demo history, provenance label, and one
+   supporting incident.
+10. Save the current real outcome once.
+
+Do not enroll one profile through file upload and another through microphone capture. The raw
+8 kHz fixtures are useful ingest inputs, but direct-upload identity is not the calibrated
+demonstration. Each Baby 1, Baby 2, and Baby 3 folder has its own source app-install UUID, but those
+UUIDs are not verified infant identity labels. Never describe this fixture set as independent
+accuracy evidence. The seeded interventions and outcomes are synthetic presentation data, not
+evidence of real caregiver efficacy.
 
 ## Human participation flow
 

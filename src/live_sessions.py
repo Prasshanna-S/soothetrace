@@ -442,6 +442,10 @@ def _create_participant(
         capture_device_name=paths["capture_device_name"],
         source_type=session_row["kind"],
         db_path=db_path,
+        duplicate_profile_scope={
+            row["profile_id"]
+            for row in _participants(con, session_row["id"])
+        },
     )
     _remember_enrollment(mutation_journal, profile, enrollment)
     if enrollment.get("status") != "enrolled":
@@ -483,6 +487,10 @@ def _reinforce(
         capture_device_name=paths["capture_device_name"],
         source_type=session_kind,
         db_path=db_path,
+        duplicate_profile_scope={
+            row["profile_id"]
+            for row in _participants(con, participant["session_id"])
+        },
     )
     _remember_enrollment(mutation_journal, profile_before, enrollment)
     if enrollment.get("status") != "enrolled":

@@ -92,6 +92,23 @@ class TestProfiles(IdentityBase):
         self.assertEqual(dup["status"], "rejected")
         self.assertEqual(dup["reason"], "duplicate_audio")
 
+    def test_duplicate_audio_is_refused_across_profiles_by_default(self):
+        first = identity.create_profile("A", db_path=self.db)
+        second = identity.create_profile("B", db_path=self.db)
+        audio = self.wav("shared.wav", freq=420)
+        self.assertEqual(
+            "enrolled",
+            identity.enroll(first["id"], audio, db_path=self.db)["status"],
+        )
+
+        duplicate = identity.enroll(second["id"], audio, db_path=self.db)
+
+        self.assertEqual("rejected", duplicate["status"])
+        self.assertEqual(
+            "audio_already_enrolled_to_another_profile",
+            duplicate["reason"],
+        )
+
     def test_silent_audio_is_rejected_with_a_reason(self):
         p = identity.create_profile("A", db_path=self.db)
         r = identity.enroll(p["id"], self.wav("s.wav", amp=0.0), db_path=self.db)

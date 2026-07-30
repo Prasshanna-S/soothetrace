@@ -517,8 +517,14 @@ def delete_profile(profile_id: int, db_path=None) -> dict:
 
 # ── enrollment ───────────────────────────────────────────────────────────────
 
-def enroll(profile_id: int, audio_path: str, capture_device_name: str | None = None,
-           source_type: str | None = None, db_path=None) -> dict:
+def enroll(
+    profile_id: int,
+    audio_path: str,
+    capture_device_name: str | None = None,
+    source_type: str | None = None,
+    db_path=None,
+    duplicate_profile_scope: set[int] | None = None,
+) -> dict:
     """Add one independent enrollment to a profile.
 
     A profile is the SET of its enrollments - never just the most recent clip. It stays
@@ -548,16 +554,36 @@ def enroll(profile_id: int, audio_path: str, capture_device_name: str | None = N
             # applies to two enrollments, or a profile "agrees with itself" for free.
             return {"status": "rejected", "reason": "duplicate_audio",
                     "existing_enrollment_id": dup["id"]}
-        # ...and it must not be enrolled into a DIFFERENT profile of the same kind either.
+        # ...and it must not be enrolled into a DIFFERENT compared profile of the same kind
+        # either. Normal profile enrollment checks the full active pool. A live identity
+        # session passes only its own profile ids because a new session is intentionally empty
+        # and may rehearse a file used in an earlier session.
         # Measured consequence of allowing it: two profiles containing one identical take
         # are mathematically indistinguishable, so every later query hits
         # `close_top_profiles` forever and the flow silently dies. A mis-tap during live
         # visitor enrollment is exactly how this happens.
-        cross = con.execute(
+        cross_rows = con.execute(
             "SELECT e.id, e.profile_id, p.display_name FROM enrollment e "
             "JOIN profile p ON p.id = e.profile_id "
             "WHERE e.audio_sha256=? AND e.profile_id != ? AND p.kind = ?",
-            (digest, profile_id, prof.get("kind"))).fetchone()
+            (digest, profile_id, prof.get("kind")),
+        ).fetchall()
+        if duplicate_profile_scope is None:
+            cross = cross_rows[0] if cross_rows else None
+        else:
+            allowed_scope = {
+                value
+                for value in duplicate_profile_scope
+                if isinstance(value, int) and not isinstance(value, bool)
+            }
+            cross = next(
+                (
+                    row
+                    for row in cross_rows
+                    if row["profile_id"] in allowed_scope
+                ),
+                None,
+            )
         if cross:
             return {"status": "rejected", "reason": "audio_already_enrolled_to_another_profile",
                     "existing_enrollment_id": cross["id"],

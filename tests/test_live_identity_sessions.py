@@ -304,6 +304,34 @@ class LiveIdentityStateTests(unittest.TestCase):
         self._assert_public(second)
         self._assert_public(live_sessions.get(session["id"], self.db))
 
+    def test_new_session_can_reuse_a_recording_from_an_earlier_session(self):
+        first_session = live_sessions.create(db_path=self.db)
+        second_session = live_sessions.create(db_path=self.db)
+        audio_path = self._audio("reusable.wav", 400, 0)
+
+        with patch.object(identity.encoders, "encode", side_effect=self._encode):
+            first = live_sessions.submit_observation(
+                first_session["id"],
+                audio_path,
+                db_path=self.db,
+            )
+            second = live_sessions.submit_observation(
+                second_session["id"],
+                audio_path,
+                db_path=self.db,
+            )
+
+        self.assertEqual("provisional_created", first["classification"]["status"])
+        self.assertEqual("provisional_created", second["classification"]["status"])
+        self.assertEqual(
+            "Person A",
+            second["classification"]["participant"]["display_name"],
+        )
+        self.assertNotEqual(
+            first["classification"]["participant"]["profile_id"],
+            second["classification"]["participant"]["profile_id"],
+        )
+
     def test_new_participant_requires_consistent_pending_outlier_pair(self):
         session = live_sessions.create(db_path=self.db)
         first_path = self._audio("a-1.wav", 400, 0)

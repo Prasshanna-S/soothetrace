@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "purpose": "Curated public playback fixtures for a same-path hackathon rehearsal",
+  "source_repository": "https://github.com/gveres/donateacry-corpus",
+  "source_commit": "6baf5aca0460964ad072653585837f968a87c2af",
+  "source_cleaned_directory": "donateacry_corpus_cleaned_and_updated_data",
+  "database_license": "ODbL-1.0",
+  "contents_license": "DbCL-1.0",
+  "identity_grouping_basis": "shared_app_install_uuid_proxy_not_verified_infant",
+  "independent_accuracy_dataset": false,
+  "capture_path_rule": "All enrollments and queries must traverse the same speaker, room, distance, microphone, and ingest path.",
+  "groups": [
+    {
+      "label": "Baby 1",
+      "directory": "baby-1",
+      "source_app_install_uuid": "aaa57dbd-7b88-454a-963e-6faa2f4ed4e7",
+      "records": [
+        {
+          "path": "baby-1/baby-1-01.wav",
+          "demo_role": "enrollment",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/hungry/aaa57dbd-7b88-454a-963e-6faa2f4ed4e7-1436910235521-1.7-f-04-hu.wav",
+          "source_recorded_at_utc": "2015-07-14T21:43:55.521Z",
+          "contributor_label": {"gender_code": "f", "age_code": "04", "reason_code": "hu", "reason_text": "hungry"},
+          "duration_seconds": 6.88,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "9985ffa8e92736026579ec6aed2d60ba7406e979b079d650ac65fc4d1ca8d5cb"
+        },
+        {
+          "path": "baby-1/baby-1-02.wav",
+          "demo_role": "enrollment",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/hungry/aaa57dbd-7b88-454a-963e-6faa2f4ed4e7-1436982066128-1.7-f-04-hu.wav",
+          "source_recorded_at_utc": "2015-07-15T17:41:06.128Z",
+          "contributor_label": {"gender_code": "f", "age_code": "04", "reason_code": "hu", "reason_text": "hungry"},
+          "duration_seconds": 6.92,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "8760124eb49222ffa9cce77155ecd69c71b308d78d9c71770c51159befddc50b"
+        },
+        {
+          "path": "baby-1/baby-1-03.wav",
+          "demo_role": "enrollment",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/hungry/aaa57dbd-7b88-454a-963e-6faa2f4ed4e7-1436982098411-1.7-f-04-hu.wav",
+          "source_recorded_at_utc": "2015-07-15T17:41:38.411Z",
+          "contributor_label": {"gender_code": "f", "age_code": "04", "reason_code": "hu", "reason_text": "hungry"},
+          "duration_seconds": 6.9,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "af45057f957ec1ca2eef37cddf90b4a75e2c2dcd70f15f3dd69dbe15f19600b6"
+        },
+        {
+          "path": "baby-1/baby-1-04.wav",
+          "demo_role": "held_out_rehearsal_query",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/hungry/aaa57dbd-7b88-454a-963e-6faa2f4ed4e7-1436988612387-1.7-f-04-hu.wav",
+          "source_recorded_at_utc": "2015-07-15T19:30:12.387Z",
+          "contributor_label": {"gender_code": "f", "age_code": "04", "reason_code": "hu", "reason_text": "hungry"},
+          "duration_seconds": 6.92,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "67696ec58e54c638bd830e23b3c65eba6e440e18fc233dc98de86aecb6b48fee"
+        },
+        {
+          "path": "baby-1/baby-1-05.wav",
+          "demo_role": "retry",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/hungry/aaa57dbd-7b88-454a-963e-6faa2f4ed4e7-1437166513710-1.7-f-04-hu.wav",
+          "source_recorded_at_utc": "2015-07-17T20:55:13.710Z",
+          "contributor_label": {"gender_code": "f", "age_code": "04", "reason_code": "hu", "reason_text": "hungry"},
+          "duration_seconds": 7.02,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "1bb9ef5508a1c8610909573975ab9dfaff1edf76740a59bcc19f89e51bc818d0"
+        },
+        {
+          "path": "baby-1/baby-1-06.wav",
+          "demo_role": "extra",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/hungry/aaa57dbd-7b88-454a-963e-6faa2f4ed4e7-1436982075169-1.7-f-04-hu.wav",
+          "source_recorded_at_utc": "2015-07-15T17:41:15.169Z",
+          "contributor_label": {"gender_code": "f", "age_code": "04", "reason_code": "hu", "reason_text": "hungry"},
+          "duration_seconds": 6.9,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "8f0a5155dd00000d00dc4fdf3034a8f5655fc92213ea5e6d1b961d0236997aa0"
+        }
+      ]
+    },
+    {
+      "label": "Baby 2",
+      "directory": "baby-2",
+      "source_app_install_uuid": "3bb2445a-9ae9-4dc8-9a2e-86c696ffa405",
+      "records": [
+        {
+          "path": "baby-2/baby-2-01.wav",
+          "demo_role": "enrollment",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/hungry/3bb2445a-9ae9-4dc8-9a2e-86c696ffa405-1430122381138-1.7-m-26-hu.wav",
+          "source_recorded_at_utc": "2015-04-27T08:13:01.138Z",
+          "contributor_label": {"gender_code": "m", "age_code": "26", "reason_code": "hu", "reason_text": "hungry"},
+          "duration_seconds": 6.92,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "403d73998847715171eef9977e634edb49c248a064cdd8a8ed544b3a2593ac68"
+        },
+        {
+          "path": "baby-2/baby-2-02.wav",
+          "demo_role": "enrollment",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/hungry/3bb2445a-9ae9-4dc8-9a2e-86c696ffa405-1430123758633-1.7-m-26-hu.wav",
+          "source_recorded_at_utc": "2015-04-27T08:35:58.633Z",
+          "contributor_label": {"gender_code": "m", "age_code": "26", "reason_code": "hu", "reason_text": "hungry"},
+          "duration_seconds": 6.92,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "b22931df1098f93888080863be1c20b4a07ccaec4bb51302d9dba40236349200"
+        },
+        {
+          "path": "baby-2/baby-2-03.wav",
+          "demo_role": "enrollment",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/hungry/3bb2445a-9ae9-4dc8-9a2e-86c696ffa405-1430142760958-1.7-m-26-hu.wav",
+          "source_recorded_at_utc": "2015-04-27T13:52:40.958Z",
+          "contributor_label": {"gender_code": "m", "age_code": "26", "reason_code": "hu", "reason_text": "hungry"},
+          "duration_seconds": 6.92,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "f5d94d01a59aab34ef2317fcfa7d9ecff9664a7be90c2c91ca0737771c2c314b"
+        },
+        {
+          "path": "baby-2/baby-2-04.wav",
+          "demo_role": "held_out_rehearsal_query",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/hungry/3bb2445a-9ae9-4dc8-9a2e-86c696ffa405-1430146536552-1.7-m-26-hu.wav",
+          "source_recorded_at_utc": "2015-04-27T14:55:36.552Z",
+          "contributor_label": {"gender_code": "m", "age_code": "26", "reason_code": "hu", "reason_text": "hungry"},
+          "duration_seconds": 6.86,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "e58ce95662ee90add561cecd1c1360fbeb99196a8898cb10eb727b23dde3a8cf"
+        },
+        {
+          "path": "baby-2/baby-2-05.wav",
+          "demo_role": "retry",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/hungry/3bb2445a-9ae9-4dc8-9a2e-86c696ffa405-1430142784308-1.7-m-26-hu.wav",
+          "source_recorded_at_utc": "2015-04-27T13:53:04.308Z",
+          "contributor_label": {"gender_code": "m", "age_code": "26", "reason_code": "hu", "reason_text": "hungry"},
+          "duration_seconds": 6.84,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "8d26410111c100b20d2252c43ce5838e7619e12a929dfea64f2e56f9caf2b8ef"
+        },
+        {
+          "path": "baby-2/baby-2-06.wav",
+          "demo_role": "extra",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/hungry/3bb2445a-9ae9-4dc8-9a2e-86c696ffa405-1430122479873-1.7-m-26-hu.wav",
+          "source_recorded_at_utc": "2015-04-27T08:14:39.873Z",
+          "contributor_label": {"gender_code": "m", "age_code": "26", "reason_code": "hu", "reason_text": "hungry"},
+          "duration_seconds": 6.92,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "8fdafc440f191a8e81f0d798c457751e9464d97f7409e10ad4582ca66ac49cfe"
+        }
+      ]
+    },
+    {
+      "label": "Baby 3",
+      "directory": "baby-3",
+      "source_app_install_uuid": "7e4b9c14-f955-4bed-9b03-7f3096a6cbff",
+      "records": [
+        {
+          "path": "baby-3/baby-3-01.wav",
+          "demo_role": "enrollment",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/hungry/7E4B9C14-F955-4BED-9B03-7F3096A6CBFF-1430232157-1.0-f-26-hu.wav",
+          "source_recorded_at_utc": "2015-04-28T14:42:37Z",
+          "contributor_label": {"gender_code": "f", "age_code": "26", "reason_code": "hu", "reason_text": "hungry"},
+          "duration_seconds": 7.0,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "0619abaebdfc759f4fb4ed66276102888af6cb45582dd97e5054734dca175e73"
+        },
+        {
+          "path": "baby-3/baby-3-02.wav",
+          "demo_role": "enrollment",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/hungry/7E4B9C14-F955-4BED-9B03-7F3096A6CBFF-1430232180-1.0-f-26-hu.wav",
+          "source_recorded_at_utc": "2015-04-28T14:43:00Z",
+          "contributor_label": {"gender_code": "f", "age_code": "26", "reason_code": "hu", "reason_text": "hungry"},
+          "duration_seconds": 7.0,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "3342e05eed517cbb4d378ad2cc5991a74fd8eecbe58eb69186469d846d4d1988"
+        },
+        {
+          "path": "baby-3/baby-3-03.wav",
+          "demo_role": "enrollment",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/hungry/7E4B9C14-F955-4BED-9B03-7F3096A6CBFF-1430232195-1.0-f-26-hu.wav",
+          "source_recorded_at_utc": "2015-04-28T14:43:15Z",
+          "contributor_label": {"gender_code": "f", "age_code": "26", "reason_code": "hu", "reason_text": "hungry"},
+          "duration_seconds": 7.0,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "11f83051eb4a195188be10e44099cc4479fbc11a37647a5e0d986c433ed0e482"
+        },
+        {
+          "path": "baby-3/baby-3-04.wav",
+          "demo_role": "held_out_rehearsal_query",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/burping/7E4B9C14-F955-4BED-9B03-7F3096A6CBFF-1430540826-1.0-f-26-bu.wav",
+          "source_recorded_at_utc": "2015-05-02T04:27:06Z",
+          "contributor_label": {"gender_code": "f", "age_code": "26", "reason_code": "bu", "reason_text": "needs burping"},
+          "duration_seconds": 7.0,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "1366cc9a9a007766a30b0e52a1d80a9997479bc531f4b99b9b802cd8d9454e85"
+        },
+        {
+          "path": "baby-3/baby-3-05.wav",
+          "demo_role": "retry",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/burping/7E4B9C14-F955-4BED-9B03-7F3096A6CBFF-1430232208-1.0-f-26-bu.wav",
+          "source_recorded_at_utc": "2015-04-28T14:43:28Z",
+          "contributor_label": {"gender_code": "f", "age_code": "26", "reason_code": "bu", "reason_text": "needs burping"},
+          "duration_seconds": 7.0,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "3826fec9f6458e8ead6b9941cb39d57b15cd7983b5915c4cd71632cd8e918b39"
+        },
+        {
+          "path": "baby-3/baby-3-06.wav",
+          "demo_role": "extra",
+          "source_relative_path": "donateacry_corpus_cleaned_and_updated_data/hungry/7E4B9C14-F955-4BED-9B03-7F3096A6CBFF-1430232166-1.0-f-26-hu.wav",
+          "source_recorded_at_utc": "2015-04-28T14:42:46Z",
+          "contributor_label": {"gender_code": "f", "age_code": "26", "reason_code": "hu", "reason_text": "hungry"},
+          "duration_seconds": 7.0,
+          "sample_rate_hz": 8000,
+          "channels": 1,
+          "sha256": "362ec417e395a254d04e401005c1271fc39daf25f5dc967b43a06c67ed137252"
+        }
+      ]
+    }
+  ]
+}

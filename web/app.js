@@ -753,7 +753,10 @@ function renderLiveClassification(classification) {
     showName = Boolean(name);
   } else if (status === "invalid") {
     verdict = "Recording not used";
-    explanation = "This recording could not be used. Move closer and try again.";
+    const rejectionReasons = reasonLines(result.reason_codes);
+    explanation = rejectionReasons.length
+      ? rejectionReasons.join(" ")
+      : "This recording could not be used. Move closer and try again.";
   } else if (status === "session_completed") {
     heading = "Session complete";
     verdict = "Capture is closed";

@@ -78,10 +78,12 @@ def _load(name: str):
     if name not in _HF_SOURCES:
         raise ValueError(f"unknown encoder {name}")
     from speechbrain.inference.speaker import EncoderClassifier
+    from speechbrain.utils.fetching import LocalStrategy
     os.makedirs(MODEL_CACHE, exist_ok=True)
     model = EncoderClassifier.from_hparams(
         source=_HF_SOURCES[name],
         savedir=os.path.join(MODEL_CACHE, name),
+        local_strategy=LocalStrategy.COPY,
         run_opts={"device": "cpu"},   # deterministic; MPS gave no win at this clip length
     )
     _loaded[name] = model

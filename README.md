@@ -26,13 +26,11 @@ Prerequisites:
   allowed;
 - free disk space for the Python environment, public corpus, model checkpoint, and managed audio.
 
-Install the command-line dependencies. The certificate script requires OpenSSL 3 features that
-the older system TLS utility may not provide, so its command below puts the Homebrew OpenSSL first
-on `PATH`.
+Install the command-line dependencies:
 
 ```bash
 xcode-select -p
-brew install uv ffmpeg openssl@3 node
+brew install uv ffmpeg node
 uv --version
 ffmpeg -version
 ffprobe -version
@@ -107,8 +105,7 @@ interface in System Settings under Network, or inspect the `inet` lines from `if
 `127.0.0.1`. Replace `10.21.6.4` in the commands and URLs below with the current address:
 
 ```bash
-PATH="$(brew --prefix openssl@3)/bin:$PATH" \
-  ./spikes/mobile_capture/make_cert.sh 10.21.6.4
+.venv/bin/python spikes/mobile_capture/make_cert.py 10.21.6.4
 
 .venv/bin/python spikes/mobile_capture/bootstrap.py \
   --host 0.0.0.0 \
@@ -158,6 +155,149 @@ certificate, or a captive or isolated network is interfering.
 The [demo operator runbook](docs/DEMO-READY.md) covers rehearsal, presentation order, fallbacks,
 and certificate cleanup.
 
+## Clone and run on Windows 10 or Windows 11
+
+The Windows lane uses native PowerShell and does not activate the virtual environment. The scripts
+resolve every runtime path from their own repository location, so a checkout path containing spaces
+is supported.
+
+Requirements:
+
+- 64-bit Windows 10 version 1809 or later, or Windows 11;
+- Windows PowerShell 5.1 or PowerShell 7;
+- WinGet through the Windows App Installer;
+- internet access during tool installation, dependency installation, corpus clone, and the first
+  acoustic-model warm-up;
+- a Private local network that allows phone-to-computer traffic for the optional iPhone path.
+
+Install Git first:
+
+```powershell
+winget install --id Git.Git --exact --source winget
+```
+
+On a clean computer, close that PowerShell window after WinGet finishes and open a new one. A
+running shell does not receive PATH changes made by an installer. Confirm that the new shell can
+find Git, then clone the repository and run the native setup:
+
+```powershell
+git --version
+git clone https://github.com/Prasshanna-S/interaction-memory.git
+Set-Location ".\interaction-memory"
+.\scripts\setup_windows.ps1 -InstallTools
+```
+
+If setup installs a tool, close PowerShell, open a new PowerShell window, return to the repository,
+and run setup again. It installs a managed Python 3.12, creates `.venv`, installs Python
+dependencies without activation, checks `ffmpeg` and `ffprobe`, clones the public corpus at the
+required path, and builds the population baseline. It is safe to rerun.
+
+On Windows 11, include the optional browser interaction dependency:
+
+```powershell
+.\scripts\setup_windows.ps1 -InstallTools -InstallPlaywright
+```
+
+Keep `-InstallTools` on this command so setup can install Node when it is absent. Current Playwright
+releases do not list Windows 10 as a supported host. The core Cry Memory server does not require
+Playwright.
+
+If PowerShell policy blocks a checked-out script, use a one-process bypass without changing the
+machine-wide policy:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup_windows.ps1 -InstallTools
+```
+
+### Windows desktop HTTP
+
+Start the desktop server:
+
+```powershell
+.\scripts\run_windows.ps1 -Mode Desktop
+```
+
+The first start may download the acoustic checkpoint. Wait until the ready line reports both
+encoder values as `True`. In a second PowerShell window:
+
+```powershell
+Set-Location ".\interaction-memory"
+.\scripts\run_windows.ps1 -Mode Health
+Start-Process "http://127.0.0.1:8000"
+```
+
+Desktop HTTP binds only to `127.0.0.1`. It is suitable for the browser on the same computer, but
+not for an iPhone microphone. On the Windows computer, the loopback page can use the browser
+microphone as the primary input. Use the page's audio-file upload as the fallback when microphone
+permission, the selected input device, or room acoustics are unsuitable.
+
+### Windows iPhone HTTPS
+
+The phone and Windows computer must be on the same trusted local network. Find the current IPv4 LAN
+address and verify that it is not `127.0.0.1`:
+
+```powershell
+$LanIp = (
+    Get-NetIPConfiguration |
+    Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq "Up" } |
+    Select-Object -First 1
+).IPv4Address.IPAddress
+$LanIp
+```
+
+The portable certificate entry point is:
+
+```powershell
+& .\.venv\Scripts\python.exe .\spikes\mobile_capture\make_cert.py $LanIp
+```
+
+The launcher calls that entry point automatically, then serves the installable iPhone profile:
+
+```powershell
+.\scripts\run_windows.ps1 -Mode Bootstrap -LanIp $LanIp
+```
+
+If Windows asks about firewall access, allow Python only on Private networks. On the iPhone, open
+the exact URL printed by the script, then:
+
+1. allow the configuration profile to download;
+2. open **Settings > General > VPN & Device Management** and install
+   **Interaction Memory Local Spike CA**;
+3. open **Settings > General > About > Certificate Trust Settings**;
+4. enable full trust for **Interaction Memory Local Spike CA**;
+5. stop the bootstrap server with Control-C.
+
+Start the HTTPS product server:
+
+```powershell
+.\scripts\run_windows.ps1 -Mode Phone -LanIp $LanIp
+```
+
+Wait for both encoders to report `True`, then open `https://WINDOWS-LAN-IP:8443` on the iPhone and
+allow microphone access. Regenerate and reinstall the certificate whenever the computer's LAN IP
+changes. Never share `rootCA.key` or `server.key`, and remove the temporary profile from the iPhone
+after the demonstration.
+
+### Windows troubleshooting
+
+- **A command is missing after WinGet succeeds:** close every PowerShell window, open a new one,
+  return to the repository, and rerun setup. Confirm `git`, `uv`, `ffmpeg`, and `ffprobe`
+  individually with `--version`. Node and npm are needed only for the optional browser test.
+- **Setup finds the wrong Python:** the scripts require `.venv\Scripts\python.exe` to report Python
+  3.12. Remove only this repository's `.venv` directory and rerun setup.
+- **The corpus directory exists but baseline setup stops:** remove or rename the incomplete
+  `experiments\donateacry-corpus` directory, then rerun setup. The expected nested directory is
+  `donateacry_corpus_cleaned_and_updated_data`.
+- **An encoder reports `False`:** keep internet access available, confirm Python dependencies import,
+  and restart the server. Do not present until both encoders warm.
+- **The phone cannot connect:** confirm the network is marked Private, allow inbound TCP 8080 and
+  8443 for Python, disable client isolation, and use the same LAN IP that was embedded in the
+  certificate.
+- **The phone shows a certificate warning:** install the profile and enable full trust as two
+  separate steps. If the IP changed, rerun Bootstrap and reinstall the new profile.
+- **The repository path contains spaces:** invoke scripts with the call operator and a quoted path,
+  for example `& "C:\Demo Files\interaction-memory\scripts\run_windows.ps1" -Mode Desktop`.
+
 ## Fastest human demonstration
 
 1. Choose **Human cry imitation**.
@@ -175,7 +315,9 @@ and certificate cleanup.
 8. Pass the phone or laptop to the next participant and repeat.
 
 Starting a new live session does not delete earlier sessions, human profiles, baby profiles, or
-caregiver history. It creates a new independent session view.
+caregiver history. It creates a new independent session view. A managed recording used in an
+earlier session can be submitted again; byte-duplicate protection remains active within the
+current session.
 
 ### What the human statuses mean
 
@@ -185,8 +327,8 @@ caregiver history. It creates a new independent session view.
 | `participant` | Repeated pattern for a named participant | Reinforces an existing participant or creates a later participant from two agreeing pending recordings |
 | `possible_new` | Possible new person; another independent recording is needed | No participant and no reinforcement |
 | `leaning` | Direction toward a named participant, not confirmed | No reinforcement |
-| `duplicate` | The managed identity-audio digest was already submitted | Timeline event remains, support does not change |
-| `invalid` | Empty, unsupported, corrupt, silent, or unusable recording | No participant change |
+| `duplicate` | The managed identity-audio digest was already submitted in this live session | Timeline event remains, support does not change |
+| `invalid` | Recording not used, with the backend reason shown for empty, unsupported, corrupt, silent, or unusable audio | No participant change |
 | `session_completed` | The current session is closed | No new observation |
 
 The public API and interface do not expose a score, margin, similarity, embedding, digest, or
@@ -302,17 +444,78 @@ byte size, unique SHA-256, and manifest agreement before it starts a session.
 Baby mode keeps acoustic identity separate from care retrieval:
 
 1. Create at least two infant profiles.
-2. Enroll independent recordings for each profile.
-3. Submit a held-out recording through the same managed ingest path.
+2. Enroll three independent recordings for each profile.
+3. Submit a held-out fourth recording through the same managed ingest path.
 4. Compare it only with same-kind infant profiles using the local MFCC87 view and stored
    normalization baseline.
 5. If the profile is confirmed, retrieve incidents only from that profile.
 6. Rank those prior incidents using within-profile cry similarity plus explicit context.
-7. Show a caregiver-recorded prior action and its supporting incidents.
-8. Let the caregiver record what happened this time exactly once.
+7. Show a previously recorded caregiver action and the similar incidents that support this result.
+   One supporting incident can be shown; the interface reports the exact count.
+8. Let the caregiver complete the incident exactly once, with an optional typed follow-up. The
+   audio transcript and typed follow-up can ground literal caregiver actions and the outcome.
+   Stored evidence prefixes the text with `Typed caregiver follow-up:` instead of presenting it as
+   transcribed speech.
 
 Time, caregiver notes, prior incidents, and context may rank care memories after identity. They
 never decide acoustic identity.
+
+### Included Baby 1, Baby 2, and Baby 3 clips
+
+Eighteen public-corpus rehearsal clips are checked in under
+[`demo_assets/baby_audio`](demo_assets/baby_audio/README.md). Each labeled folder has six
+independent source recordings with fixed roles:
+
+- files `01`, `02`, and `03` are enrollments;
+- file `04` is the held-out blind query;
+- file `05` is the independent retry if the first query permits one;
+- file `06` is an unused extra, reserved for rehearsal recovery.
+
+```text
+demo_assets/baby_audio/
+├── baby-1/
+├── baby-2/
+└── baby-3/
+```
+
+The manifest preserves every original source filename, timestamp, contributor label, source
+app-install UUID, duration, and SHA-256 digest. The source UUID represents one app installation,
+not a verified infant, so Baby 1, Baby 2, and Baby 3 are demo proxy groups rather than confirmed
+identity ground truth.
+
+The infant thresholds were calibrated on room-replayed audio. For the intended identity
+rehearsal, play every enrollment and query through the same speaker-to-microphone path without
+changing volume, distance, room position, or microphone. Raw direct upload is useful for checking
+ingest and playback, but these 8 kHz fixtures are not calibrated as a direct-upload identity test.
+The [fixture runbook](demo_assets/baby_audio/README.md) gives the exact sequence and the
+[data notice](demo_assets/baby_audio/LICENSE-DATA.md) preserves attribution and license links.
+
+### Synthetic care-memory history for the demonstration
+
+The fixture recordings establish only the acoustic rehearsal. They do not contain real caregiver
+history. After profiles named exactly `Baby 1`, `Baby 2`, and `Baby 3` each have their three
+enrollment WAVs, seed the local care-memory demonstration:
+
+macOS or Linux:
+
+```bash
+.venv/bin/python scripts/seed_demo_memory.py
+```
+
+Windows:
+
+```powershell
+& .\.venv\Scripts\python.exe .\scripts\seed_demo_memory.py
+```
+
+The script maps those three exact profile names automatically and creates six synthetic prior
+episodes per profile. Re-running it fills only missing seed slots and leaves real caregiver history
+untouched. `--db` and `--data-root` are available only for advanced setups that use custom paths.
+
+Every seeded intervention, outcome, and apparent success is synthetic demonstration history. It is
+marked with seed provenance in storage and the interface. It is not a caregiver report, clinical
+evidence, or evidence that any action works. The live identity result is still computed from the
+rehearsal recording.
 
 Run the real baby identity and care-memory checks:
 
@@ -322,23 +525,76 @@ Run the real baby identity and care-memory checks:
 
 ## Architecture
 
+The [full system mind map and end-to-end data flow](docs/SYSTEM-FLOW.md) shows every current input,
+decision gate, storage boundary, and caregiver-facing output. It also separates signals used now
+from candidate future signals.
+
+### Which data builds which result
+
+| Result | Inputs used now | Inputs not used for this result | What the browser shows |
+|---|---|---|---|
+| Human participant direction | Normalized identity audio; CryCeleb ECAPA comparison against the current session; calibrated gates; participant, support, duplicate, and pending-pattern state. MFCC87 joins ECAPA only for the two-recording new-person consistency gate. | Time, tags, caregiver actions, outcomes, and baby care history | Person label, provisional or established state, matched, leaning, or possible-new wording, support count, timeline, and playback. No score is shown. |
+| Infant identity direction | Normalized identity audio; MFCC87; population z-score and L2 normalization; same-kind infant enrollments; calibrated match, margin, and retry gates | Time, tags, caregiver actions, outcomes, and all other profiles' care history | Profile direction, ordinal evidence band, retry, unresolved, or invalid state. No probability is shown. |
+| Similar incident ranking | A separate MFCC87 care-retrieval fingerprint computed from canonical audio; confirmed profile; server-local hour at preview or completion; optional manual tags; only that profile's usable prior incidents | Other profiles, the current follow-up entered after preview, capture metadata, and any inferred cause | A grounded summary and up to three supporting incident cards with time, recorded action, outcome provenance, ordinal acoustic band, and playback. Raw component scores and tags are not shown. |
+| What helped before | Worked incidents among the top three ranked scenarios; each incident's final recorded action; whole-profile final-action tally as a tie-breaker; recorded outcomes and provenance | New treatment generation, diagnosis, and unsupported actions | One prior action when available, the exact supporting incident count, recorded outcomes, incident times, provenance, and playback. A single supporting incident can be reported. |
+| Current incident record | Canonical audio; caregiver speech transcript; optional typed caregiver follow-up; literal actions and outcome grounded in that labeled evidence; server completion time; manual tags | Medical cause and client capture time | Save status and the new incident card. Stored evidence prefixes typed text with `Typed caregiver follow-up:` instead of passing it off as speech. The full evidence text and tags are not displayed. |
+
+Time, tags, actions, outcomes, and care history never decide identity. No current input decides why a
+person or baby cried. Feeding, sleep, diaper, motion, room calibration, temperature, and wearable
+data are not currently collected or used. They appear in the full map only as candidate future
+inputs.
+
+The browser request includes the audio body, content type, capture source, and an
+`X-Capture-Device` value that currently contains the browser user agent. Retention is path-specific:
+live observations store capture source, managed paths, and a digest; accepted enrollments store the
+device string; baby attempts retain nested ingest metadata. The original upload filename is not
+sent, and a separate user-agent field is not retained consistently. None of this metadata
+strengthens identity or care-memory ranking.
+
 ### Human incremental identity
 
 ```mermaid
-flowchart LR
-    P["Phone or laptop browser"] -->|"Raw audio bytes only"| H["Local HTTP ingest"]
-    H --> S["Managed source file"]
-    H --> C["Managed canonical WAV at 16 kHz mono"]
-    C --> N["Fixed RMS normalization"]
-    N --> I["Managed identity WAV"]
-    I --> E1["CryCeleb ECAPA embedding"]
-    I --> E2["MFCC87 embedding with population z-score"]
-    E1 --> D["Live session decision service"]
-    E2 --> D
-    D --> L["SQLite live session, participant, and observation rows"]
-    D --> R["SQLite profile and enrollment rows"]
-    L --> A["Score-free public session result"]
-    A --> U["Latest result, timeline, and participant strip"]
+flowchart TB
+    subgraph Capture["Browser capture and local ingest"]
+        P["Phone or laptop browser"]
+        Q["Audio bytes plus MIME, capture source, and device header"]
+        H["Bounded local HTTP ingest"]
+        S["Exact managed source file"]
+        C["Canonical WAV at 16 kHz mono"]
+        N["Fixed RMS normalization"]
+        I["Managed identity WAV"]
+        P --> Q --> H
+        H --> S
+        H --> C --> N --> I
+    end
+
+    subgraph Existing["Existing-participant association"]
+        E1["CryCeleb ECAPA profile embedding"]
+        EP["Current session's ECAPA profile pool"]
+        EA["Calibrated association or abstention"]
+        I --> E1 --> EA
+        EP --> EA
+    end
+
+    subgraph Novel["New-participant gate only"]
+        E2["CryCeleb ECAPA pair view"]
+        M2["MFCC87 pair view with population baseline"]
+        NP["Two independent outliers must agree in both views"]
+        I --> E2 --> NP
+        I --> M2 --> NP
+    end
+
+    ST["Session participants, support, pending patterns, and duplicate digests"]
+    D["Live session decision service"]
+    EA --> D
+    EA -->|"Outlier path only"| NP
+    ST --> NP
+    NP --> D
+    ST --> D
+
+    D --> L["SQLite session, participant, observation, profile, and enrollment rows"]
+    D --> A["Score-free public session result"]
+    A --> U["Latest result, timeline, participant strip, support, and status wording"]
     C --> X["Managed observation playback"]
     X --> U
 ```
@@ -346,20 +602,62 @@ flowchart LR
 ### Baby identity and care memory
 
 ```mermaid
-flowchart LR
-    B["Baby cry capture or upload"] --> H["Local HTTP ingest"]
-    H --> I["Managed normalized identity audio"]
-    I --> M["MFCC87 with population z-score"]
-    M --> P["Same-kind baby profile pool"]
-    P --> G{"Confirmed profile?"}
-    G -->|"No"| A["Leaning, unresolved, or invalid"]
-    G -->|"Yes"| R["Retrieve only that profile's prior incidents"]
-    C["Time and explicit caregiver context"] --> R
-    R --> D["Grounded prior action with supporting incidents"]
-    D --> O["Caregiver records what happened"]
-    O --> S["SQLite episode history"]
-    S --> R
+flowchart TB
+    subgraph Ingest["One mixed recording, two acoustic views"]
+        B["Baby cry capture or upload, including any caregiver speech"]
+        H["Local ingest"]
+        C["Canonical WAV"]
+        N["Fixed RMS identity WAV"]
+        B --> H --> C --> N
+    end
+
+    subgraph Identity["Identity claim"]
+        M["MFCC87 identity embedding with population z-score and L2"]
+        P["Same-kind infant profile enrollments"]
+        G{"Profile confirmed by calibrated gates?"}
+        N --> M --> G
+        P --> G
+        G -->|"No"| A["Leaning, retry, unresolved, or invalid; no history revealed"]
+    end
+
+    subgraph Memory["Care-memory claim after identity"]
+        F["Separate MFCC87 retrieval fingerprint from canonical WAV"]
+        PH["Only the confirmed profile's usable prior incidents"]
+        CTX["Server-local hour and optional manual tags"]
+        R["Rank by cry 65%, time 20%, tags 15%, renormalized when missing"]
+        TOP["Up to three similar incident cards"]
+        SEL["Select a final action from worked incidents; whole-history tally breaks ties"]
+        C --> F --> R
+        G -->|"Yes"| PH --> R
+        CTX --> R --> TOP --> SEL
+    end
+
+    subgraph Completion["Save the current incident once"]
+        TR["Transcribe caregiver speech in canonical audio when available"]
+        TA["Optional typed caregiver follow-up"]
+        EV["Stored evidence with typed follow-up clearly labeled"]
+        IV["Ground literal caregiver actions and outcome in the labeled evidence"]
+        SAVE["Save audio, fingerprint, actions, outcome, provenance, time, and tags"]
+        C --> TR --> EV
+        TA --> EV --> IV --> SAVE
+        CTX --> SAVE
+        SAVE --> PH
+    end
+
+    subgraph UI["What the baby interface shows"]
+        U1["Profile direction, status, evidence band, and retry state"]
+        U2["Grounded history summary and exact support count"]
+        U3["Incident time, recorded action, outcome provenance, and playback"]
+    end
+
+    G --> U1
+    SEL --> U2
+    TOP --> U3
 ```
+
+Neither path computes a cause, diagnosis, treatment confidence, or probability. The identity path
+answers which enrolled profile the recording resembles. The care path answers what was recorded in
+that confirmed profile's own similar history.
 
 ### Phone versus laptop
 
@@ -398,7 +696,8 @@ flowchart LR
 | `GET /api/audio/live-observations/{observation_id}` | 200 | Play managed canonical observation audio |
 
 Observation upload may also return 422 for invalid audio, 409 for a completed session, or 404 for
-a missing session. A byte-identical duplicate remains a 201 timeline event.
+a missing session. A byte-identical duplicate within the current session remains a 201 timeline
+event.
 
 Baby and care-memory routes remain available:
 
@@ -421,8 +720,8 @@ GET    /api/audio/episodes/{id}
 |---|---|---|
 | Upload accepted | `source.<ext>` | Exact received evidence |
 | Decode succeeds | `canonical.wav` | Stable 16 kHz mono processing and playback source |
-| Normalization succeeds | `identity.wav` and its SHA-256 | Fixed-level acoustic identity input and live-session duplicate key |
-| Encoder runs | Embedding in enrollment or query state | Acoustic profile comparison |
+| Normalization succeeds | `identity.wav` | Fixed-level acoustic identity input. A digest is computed later when an observation, enrollment, or attempt capture is accepted. |
+| Encoder runs | Persisted enrollment embedding; transient query embedding | Acoustic profile comparison. Query embeddings are not stored in SQLite. |
 | Observation accepted | Session result and private managed-path associations | Timeline and audit |
 | Public response | Labels, states, reasons, playback URL | UI without scores, paths, digests, or embeddings |
 
@@ -438,7 +737,7 @@ exists. Unsupported MIME and empty uploads are rejected before a capture directo
 | `profile` | Baby or human acoustic profile |
 | `enrollment` | Profile reference recording, digest, and embedding |
 | `identity_query` | Internal identity audit |
-| `identity_attempt` | Legacy baby or manual-profile attempt lifecycle |
+| `identity_attempt` | Current baby or manual-profile attempt lifecycle |
 | `identity_attempt_capture` | Attempt capture evidence |
 | `live_identity_session` | Incremental session lifecycle |
 | `live_identity_participant` | Stable session label, state, and support count |
@@ -449,9 +748,10 @@ exists. Unsupported MIME and empty uploads are rejected before a capture directo
 | Boundary | Retained locally | Returned publicly |
 |---|---|---|
 | Accepted observation | Source bytes, canonical WAV, identity WAV, identity-audio SHA-256 | No filesystem path or digest |
-| Identity comparison | Enrollment and query embeddings, internal acoustic audit | Ordinal status and reason codes |
+| Identity comparison | Enrollment embeddings; query audio path and digest; private score, margin, candidate, reason, and version audit. Query embeddings are transient. | Ordinal status, direction, band, and reason codes |
+| Capture metadata | Live observations retain capture source; enrollments retain the current device string; baby attempts retain nested ingest metadata. Original upload filenames and a uniform user-agent field are not retained. | Capture metadata is not returned as claim evidence. |
 | Live session | Participant mapping, support count, observation associations | Stable labels, state, support count, timeline, playback URL |
-| Baby care memory | Profile-scoped incidents, context, action, outcome, provenance, audio path | Grounded prior action and supporting incident references |
+| Baby care memory | Profile-scoped incidents, context, audio-transcript and clearly labeled typed-follow-up evidence, grounded actions, outcome, provenance, and audio path | Grounded prior action, exact supporting incident count, outcome provenance, time, and playback |
 | New live session | Earlier sessions, profiles, enrollments, baby incidents remain | Only the requested new session view |
 
 Production use would need explicit retention periods, deletion controls, authentication, access
@@ -506,6 +806,12 @@ Run the earlier named-profile evaluator in each supported mode:
   demo_assets/human_audio/manifest.json --mode discovery
 ```
 
+Validate the checked-in baby fixture manifest, file hashes, and WAV properties:
+
+```bash
+.venv/bin/python -m unittest tests.test_baby_demo_assets -v
+```
+
 Run the focused certificate, live-session, browser-contract, and real-audio integration suites:
 
 ```bash
@@ -533,6 +839,34 @@ node tests/test_live_session_browser.mjs
 node --check web/app.js
 ```
 
-The complete technical data flow and failure boundaries are in
+On Windows, use the managed interpreter directly and write disposable evidence under the Windows
+temporary directory:
+
+```powershell
+$Py = (Resolve-Path .\.venv\Scripts\python.exe).Path
+
+foreach ($Mode in "one-person", "staged", "difficult", "probes") {
+    & $Py .\tools\live_session_eval.py .\demo_assets\human_audio\manifest.json --mode $Mode
+}
+
+$Report = Join-Path $env:TEMP "cry-memory-live-session-results.json"
+& $Py .\tools\live_session_eval.py .\demo_assets\human_audio\manifest.json --mode all --output $Report
+
+foreach ($Mode in "demo", "loo", "discovery") {
+    & $Py .\tools\human_session_eval.py .\demo_assets\human_audio\manifest.json --mode $Mode
+}
+
+& $Py -m unittest discover -s tests -v
+node --check .\web\app.js
+```
+
+On Windows 11 with Playwright installed, also run:
+
+```powershell
+node .\tests\test_live_session_browser.mjs
+```
+
+The complete decision, display, storage, and future-signal map is in
+[`docs/SYSTEM-FLOW.md`](docs/SYSTEM-FLOW.md). Lower-level route and failure boundaries are in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The presentation and cleanup sequence is in the
 [`demo operator runbook`](docs/DEMO-READY.md).

@@ -173,3 +173,4 @@ not. **Different-occasion matching on live audio has never been tested - and tha
 | O5 | Offline evidence extraction and grounded guidance | product workstream | DONE ✅ 18 new evidence/guidance tests; 115 total pass |
 | O6 | Identity-attempt and care-event contract integration | product workstream | IN_PROGRESS product workstream |
 | O7 | Incremental per-recording identity session, desktop workspace, real-audio stress test, and public handoff | product workstream | DONE. 295 tests; browser checks at 430, 900, and 1440 pixels; staged and difficult three-person gates passed with zero wrong named directions or profile splits |
+| O8 | Native Windows 10/11 backend setup, model cache compatibility, portable capture and certificate paths, and Windows CI | product workstream | IN_PROGRESS product workstream |

@@ -2,6 +2,46 @@ import unittest
 
 
 class RecallCardTests(unittest.TestCase):
+    def test_recall_card_keeps_a_specific_time_with_windows_strftime_rules(self):
+        from datetime import datetime as real_datetime
+        from unittest.mock import patch
+
+        from src import render
+
+        class WindowsLikeValue:
+            def __init__(self, value):
+                self.value = value
+                self.day = value.day
+                self.hour = value.hour
+
+            def strftime(self, template):
+                if "%-" in template:
+                    raise ValueError("Invalid format string")
+                return self.value.strftime(template)
+
+        class WindowsLikeDateTime:
+            @classmethod
+            def fromisoformat(cls, value):
+                return WindowsLikeValue(real_datetime.fromisoformat(value))
+
+        with patch.object(render, "datetime", WindowsLikeDateTime):
+            text = render.recall_card(
+                [
+                    {
+                        "episode_id": 2,
+                        "similarity": 0.9,
+                        "band": "strong",
+                        "started_at": "2026-07-20T03:00:00-04:00",
+                        "interventions": [],
+                        "outcome": None,
+                    }
+                ],
+                episode_count=4,
+            )
+
+        self.assertIn("Mon Jul 20 at 3:00 AM", text)
+        self.assertNotIn("an earlier recording", text)
+
     def test_recall_card_shows_band_but_never_similarity_number(self):
         try:
             from src import render

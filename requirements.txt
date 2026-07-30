@@ -1,18 +1,19 @@
-# ⚠️ USE PYTHON 3.12 IN A VENV. The system python3 on this machine is 3.14 and has no
-# SciPy. That was the only failure product workstream hit running the acoustic path.
-#   uv venv .venv --python 3.12 && . .venv/bin/activate && uv pip install -r requirements.txt
+# USE PYTHON 3.12 IN A VENV.
+# macOS: uv venv .venv --python 3.12 && uv pip install --python .venv/bin/python -r requirements.txt
+# Windows: uv venv .venv --python 3.12; uv pip install --python .venv/Scripts/python.exe -r requirements.txt
 #
 # Do NOT add librosa. Its numba/llvmlite dependency fails to build on py3.12/macOS ARM.
 # The acoustic path is deliberately numpy+scipy only and needs no network.
 numpy>=2.0
 scipy>=1.14
 soundfile>=0.13
+cryptography>=43,<47
 
 # Human cry-imitation identity. The first server start downloads the selected CryCeleb checkpoint
-# into models/ and later starts reuse the local copy.
-torch>=2.6
-torchaudio>=2.6
-speechbrain>=1.1
+# into models/ and later starts reuse the local copy. TorchAudio binaries must match Torch exactly.
+torch==2.6.0
+torchaudio==2.6.0
+speechbrain>=1.1,<1.2
 huggingface-hub>=0.28
 
 # Speech path (product workstream), enabled 2026-07-29 at product workstream's request. src/speech.py has landed.

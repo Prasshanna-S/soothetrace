@@ -44,3 +44,13 @@ work/
 !demo_assets/human_audio/
 !demo_assets/human_audio/*.wav
 !demo_assets/human_audio/*.m4a
+!demo_assets/baby_audio/
+!demo_assets/baby_audio/README.md
+!demo_assets/baby_audio/LICENSE-DATA.md
+!demo_assets/baby_audio/manifest.json
+!demo_assets/baby_audio/baby-1/
+!demo_assets/baby_audio/baby-1/*.wav
+!demo_assets/baby_audio/baby-2/
+!demo_assets/baby_audio/baby-2/*.wav
+!demo_assets/baby_audio/baby-3/
+!demo_assets/baby_audio/baby-3/*.wav

@@ -378,7 +378,12 @@ def _enrollment_audio(enrollment_id: int, db_path: str | None) -> str | None:
     return row[0] if row else None
 
 
-def _handler_factory(data_root: Path, static_root: Path, db_path: str | None):
+def _handler_factory(
+    data_root: Path,
+    static_root: Path,
+    db_path: str | None,
+    encoder_status: dict[str, bool] | None = None,
+):
     class ProductHandler(BaseHTTPRequestHandler):
         server_version = "InteractionMemory/0.1"
 
@@ -501,19 +506,26 @@ def _handler_factory(data_root: Path, static_root: Path, db_path: str | None):
             path = urlparse(self.path).path
             if path == "/api/health":
                 store.init_db(db_path)
-                available_encoders = set(encoders.available())
+                if encoder_status is None:
+                    available_encoders = set(encoders.available())
+                    warmed = {
+                        name: name in available_encoders
+                        for name in identity.ENCODER_FOR_KIND.values()
+                    }
+                else:
+                    warmed = encoder_status
                 baseline = store.get_baseline(config.POPULATION_KEY, db_path)
                 ffmpeg = shutil.which("ffmpeg") is not None
                 database = Path(db_path or config.DB_PATH).is_file()
-                infant = identity.encoder_for(identity.KIND_INFANT) in available_encoders
-                imitation = identity.encoder_for(identity.KIND_IMITATION) in available_encoders
+                infant = bool(warmed.get(identity.encoder_for(identity.KIND_INFANT)))
+                imitation = bool(warmed.get(identity.encoder_for(identity.KIND_IMITATION)))
                 infant_requires_baseline = encoders.needs_baseline(
                     identity.encoder_for(identity.KIND_INFANT)
                 )
                 infant_ready = infant and (
                     not infant_requires_baseline or bool(baseline)
                 )
-                ready = ffmpeg and database and infant_ready
+                ready = ffmpeg and database and infant_ready and imitation
                 self._json(
                     200,
                     {
@@ -756,6 +768,8 @@ def _handler_factory(data_root: Path, static_root: Path, db_path: str | None):
                 )
             if result.get("status") == "blocked":
                 self._json(409, result)
+            elif result.get("status") == "conflict":
+                self._json(409, result)
             elif result.get("status") != "complete":
                 self._json(422, result)
             else:
@@ -869,6 +883,7 @@ def build_http_server(
     data_root,
     static_root,
     db_path: str | None = None,
+    encoder_status: dict[str, bool] | None = None,
 ):
     """Build the local product server. TLS wrapping is performed by the launcher."""
     audio_root = Path(data_root).resolve()
@@ -877,7 +892,7 @@ def build_http_server(
     store.init_db(db_path)
     return ThreadingHTTPServer(
         address,
-        _handler_factory(audio_root, web_root, db_path),
+        _handler_factory(audio_root, web_root, db_path, encoder_status),
     )
 
 
@@ -903,19 +918,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.http and not _is_loopback_host(args.host):
         parser.error("--http is allowed only with a loopback host such as 127.0.0.1")
 
+    required_encoders = sorted(set(identity.ENCODER_FOR_KIND.values()))
+    warmed = encoders.warm(required_encoders)
     server = build_http_server(
         (args.host, args.port),
         args.data_root,
         args.static_root,
         db_path=args.db,
+        encoder_status=warmed,
     )
     if not args.http:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(args.cert, args.key)
         server.socket = context.wrap_socket(server.socket, server_side=True)
 
-    required_encoders = sorted(set(identity.ENCODER_FOR_KIND.values()))
-    warmed = encoders.warm(required_encoders)
     scheme = "http" if args.http else "https"
     print(
         f"Cry Memory ready at {scheme}://{args.host}:{args.port} "

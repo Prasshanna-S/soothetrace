@@ -30,7 +30,7 @@ def _wav_bytes(frequency=440.0, seconds=1.0):
 
 
 class ProductServer:
-    def __init__(self):
+    def __init__(self, encoder_status=None):
         from src import http_api
 
         self.temp = TemporaryDirectory()
@@ -54,6 +54,7 @@ class ProductServer:
             self.data_root,
             self.static_root,
             db_path=self.db_path,
+            encoder_status=encoder_status,
         )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -117,6 +118,24 @@ class HttpApiTests(unittest.TestCase):
         self.assertNotIn("access-control-allow-origin", health["headers"])
         self.assertEqual(200, page["status"])
         self.assertIn("content-security-policy", page["headers"])
+
+    def test_health_reports_a_model_that_failed_to_warm_as_unavailable(self):
+        from src import encoders, http_api
+
+        product = ProductServer(
+            encoder_status={
+                encoders.MFCC87: True,
+                encoders.ECAPA_CRY: False,
+            }
+        )
+        self.addCleanup(product.close)
+
+        with patch.object(http_api.encoders, "needs_baseline", return_value=False):
+            health = product.request("GET", "/api/health")["json"]
+
+        self.assertIs(health["encoders"]["infant"], True)
+        self.assertIs(health["encoders"]["human_imitation"], False)
+        self.assertEqual("degraded", health["status"])
 
     def test_module_cli_documents_the_https_product_server_arguments(self):
         completed = subprocess.run(
@@ -520,6 +539,26 @@ class HttpApiTests(unittest.TestCase):
 
         self.assertEqual(409, response["status"])
         self.assertEqual("identity_not_matched", response["json"]["reason"])
+
+    def test_repeated_incident_completion_returns_conflict(self):
+        from src import http_api
+
+        with patch.object(
+            http_api.careflow,
+            "complete_incident",
+            return_value={
+                "status": "conflict",
+                "reason": "incident_already_completed",
+            },
+        ):
+            response = self.product.json(
+                "POST",
+                "/api/incidents/39/complete",
+                {"caregiver_answer": "Rocking worked."},
+            )
+
+        self.assertEqual(409, response["status"])
+        self.assertEqual("incident_already_completed", response["json"]["reason"])
 
     def test_incident_preview_returns_history_without_a_new_episode(self):
         from src import http_api

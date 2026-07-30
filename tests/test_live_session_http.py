@@ -272,6 +272,29 @@ class LiveSessionHttpTests(unittest.TestCase):
         )
         self._assert_public(duplicate["json"])
 
+    def test_new_session_can_reuse_audio_from_an_earlier_session(self):
+        from src import http_api
+
+        first_session_id = self._create()["json"]["session"]["id"]
+        second_session_id = self._create()["json"]["session"]["id"]
+        audio = _wav_bytes()
+        with patch.object(http_api.encoders, "encode", side_effect=self._encode):
+            first = self._observe(first_session_id, audio)
+            second = self._observe(second_session_id, audio)
+
+        self.assertEqual(201, first["status"], first["body"])
+        self.assertEqual(201, second["status"], second["body"])
+        self.assertEqual(
+            "provisional_created",
+            second["json"]["classification"]["status"],
+        )
+        self.assertEqual(
+            "Person A",
+            second["json"]["classification"]["participant"]["display_name"],
+        )
+        self.assertEqual(1, len(second["json"]["session"]["participants"]))
+        self.assertEqual(1, len(second["json"]["session"]["observations"]))
+
     def test_invalid_audio_is_422_and_does_not_expose_ingest_evidence(self):
         session_id = self._create()["json"]["session"]["id"]
 

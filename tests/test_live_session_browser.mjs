@@ -507,8 +507,8 @@ async function exerciseFailureStates(browser) {
   );
   assert(
     (await page.locator("#live-result-explanation").textContent()) ===
-      "This recording could not be used. Move closer and try again.",
-    "invalid response did not render the capture correction"
+      "The server could not decode that audio.",
+    "invalid response did not render the backend rejection reason"
   );
   assert(
     (await page.locator("#live-timeline-list > li").count()) === 0,

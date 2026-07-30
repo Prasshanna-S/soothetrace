@@ -140,6 +140,75 @@ class DecodeUploadTests(unittest.TestCase):
 class CertificateBootstrapTests(unittest.TestCase):
     """Break caught: iOS receiving a plain file instead of an installable profile."""
 
+    def test_portable_generator_creates_a_valid_ca_and_lan_server_certificate(self):
+        from cryptography import x509
+        from cryptography.x509.oid import ExtendedKeyUsageOID
+        from spikes.mobile_capture.certificates import generate_certificates
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            paths = generate_certificates("192.168.50.23", Path(tempdir))
+            root = x509.load_pem_x509_certificate(paths.root_certificate.read_bytes())
+            server = x509.load_pem_x509_certificate(paths.server_certificate.read_bytes())
+
+            self.assertTrue(paths.root_private_key.is_file())
+            self.assertTrue(paths.server_private_key.is_file())
+            self.assertEqual(root.subject, root.issuer)
+            self.assertTrue(
+                root.extensions.get_extension_for_class(
+                    x509.BasicConstraints
+                ).value.ca
+            )
+            self.assertEqual(root.subject, server.issuer)
+            self.assertFalse(
+                server.extensions.get_extension_for_class(
+                    x509.BasicConstraints
+                ).value.ca
+            )
+            usages = server.extensions.get_extension_for_class(
+                x509.ExtendedKeyUsage
+            ).value
+            self.assertIn(ExtendedKeyUsageOID.SERVER_AUTH, usages)
+            san = server.extensions.get_extension_for_class(
+                x509.SubjectAlternativeName
+            ).value
+            self.assertEqual(
+                {"192.168.50.23", "127.0.0.1"},
+                {str(value) for value in san.get_values_for_type(x509.IPAddress)},
+            )
+            self.assertEqual(
+                ["localhost"],
+                san.get_values_for_type(x509.DNSName),
+            )
+
+    def test_portable_generator_rejects_a_non_ip_address(self):
+        from spikes.mobile_capture.certificates import generate_certificates
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            with self.assertRaises(ValueError):
+                generate_certificates("not-a-lan-ip", Path(tempdir))
+
+    def test_existing_server_certificate_must_match_the_current_lan_ip(self):
+        from spikes.mobile_capture.certificates import (
+            generate_certificates,
+            server_certificate_matches_ip,
+        )
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            paths = generate_certificates("192.168.50.23", Path(tempdir))
+
+            self.assertTrue(
+                server_certificate_matches_ip(
+                    paths.server_certificate,
+                    "192.168.50.23",
+                )
+            )
+            self.assertFalse(
+                server_certificate_matches_ip(
+                    paths.server_certificate,
+                    "192.168.50.24",
+                )
+            )
+
     def test_mobileconfig_embeds_root_certificate_payload(self):
         certificate_der = b"\x30\x03\x02\x01\x00"
 

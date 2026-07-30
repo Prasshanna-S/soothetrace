@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 
 try:
     from . import context, fingerprint, guidance, identity, retrieve, session, store
@@ -14,6 +15,10 @@ except ImportError:
     import retrieve
     import session
     import store
+
+
+_COMPLETION_LOCK = threading.Lock()
+_COMPLETIONS_IN_PROGRESS: set[int] = set()
 
 
 def _error(reason: str, status: str = "error") -> dict:
@@ -39,6 +44,46 @@ def _latest_canonical_capture(attempt: dict) -> str:
     return path if isinstance(path, str) else ""
 
 
+def _attempt_already_completed(
+    subject_id: str,
+    attempt_id: int,
+    db_path: str | None,
+) -> bool:
+    for episode in store.list_episodes(subject_id, db_path):
+        episode_context = episode.get("context")
+        if (
+            isinstance(episode_context, dict)
+            and episode_context.get("identity_attempt_id") == attempt_id
+        ):
+            return True
+    return False
+
+
+def _matched_subject(attempt: dict) -> tuple[int, str] | None:
+    profile_id = attempt.get("matched_profile_id")
+    if not isinstance(profile_id, int):
+        profile_id = attempt.get("resolved_profile_id")
+    if attempt.get("status") not in {"match", "matched"} or not isinstance(
+        profile_id,
+        int,
+    ):
+        return None
+    return profile_id, f"profile-{profile_id}"
+
+
+def _claim_completion(attempt_id: int) -> bool:
+    with _COMPLETION_LOCK:
+        if attempt_id in _COMPLETIONS_IN_PROGRESS:
+            return False
+        _COMPLETIONS_IN_PROGRESS.add(attempt_id)
+        return True
+
+
+def _release_completion(attempt_id: int) -> None:
+    with _COMPLETION_LOCK:
+        _COMPLETIONS_IN_PROGRESS.discard(attempt_id)
+
+
 def _incident_view(
     attempt_id: int,
     explicit_tags: list[str] | None,
@@ -52,14 +97,10 @@ def _incident_view(
         return _error("invalid_attempt")
 
     attempt = _matched_attempt(attempt_id, db_path)
-    profile_id = attempt.get("matched_profile_id")
-    if not isinstance(profile_id, int):
-        profile_id = attempt.get("resolved_profile_id")
-    if attempt.get("status") not in {"match", "matched"} or not isinstance(
-        profile_id,
-        int,
-    ):
+    matched = _matched_subject(attempt)
+    if matched is None:
         return _error("identity_not_matched", status="blocked")
+    profile_id, subject_id = matched
 
     profile = identity.get_profile(profile_id, db_path)
     if not profile:
@@ -80,7 +121,6 @@ def _incident_view(
     if not current_context:
         return _error("context_unavailable")
 
-    subject_id = f"profile-{profile_id}"
     scenarios = retrieve.find_scenarios(
         subject_id,
         acoustic,
@@ -138,7 +178,27 @@ def complete_incident(
     db_path: str | None = None,
 ) -> dict:
     """Complete one incident only after identity has resolved to a stored profile."""
+    if (
+        not isinstance(attempt_id, int)
+        or isinstance(attempt_id, bool)
+        or attempt_id <= 0
+    ):
+        return _error("invalid_attempt")
+
+    attempt = _matched_attempt(attempt_id, db_path)
+    matched = _matched_subject(attempt)
+    if matched is not None:
+        _, existing_subject_id = matched
+        if _attempt_already_completed(existing_subject_id, attempt_id, db_path):
+            return _error("incident_already_completed", status="conflict")
+
+    if not _claim_completion(attempt_id):
+        return _error("incident_already_completed", status="conflict")
     try:
+        if matched is not None:
+            _, existing_subject_id = matched
+            if _attempt_already_completed(existing_subject_id, attempt_id, db_path):
+                return _error("incident_already_completed", status="conflict")
         view = _incident_view(attempt_id, explicit_tags, db_path)
         if view.get("status") != "preview":
             return view
@@ -146,27 +206,24 @@ def complete_incident(
         subject_id = view["_subject_id"]
         canonical_audio = view["_canonical_audio"]
         current_context = view["_current_context"]
+        saved_context = {
+            **current_context,
+            "identity_attempt_id": attempt_id,
+            "profile_id": profile_id,
+        }
 
         episode = session.finish(
             subject_id,
             canonical_audio,
             caregiver_answer,
             db_path=db_path,
+            context_override=saved_context,
         )
         episode_id = episode.get("id") if isinstance(episode, dict) else None
         if not isinstance(episode_id, int):
             return _error("incident_save_failed")
 
-        saved_context = {
-            **current_context,
-            "identity_attempt_id": attempt_id,
-            "profile_id": profile_id,
-        }
-        store.update_episode(episode_id, db_path, context=saved_context)
-        saved_episode = store.get_episode(episode_id, db_path) or {
-            **episode,
-            "context": saved_context,
-        }
+        saved_episode = store.get_episode(episode_id, db_path) or episode
         return {
             "status": "complete",
             "identity": {
@@ -180,3 +237,5 @@ def complete_incident(
         }
     except Exception:
         return _error("incident_completion_failed")
+    finally:
+        _release_completion(attempt_id)

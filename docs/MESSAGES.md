@@ -4304,3 +4304,62 @@ The dashboard is intentionally stopped after testing. Local databases and manage
 available for the next documented launch.
 
 STATUS: O7 DONE, verified public release candidate
+
+---
+
+## [2026-07-30] product workstream to project | O8 Windows compatibility claimed
+
+The owner reported that a teammate could not run the backend on Windows and asked for a complete
+fix. O8 covers native PowerShell setup, server startup, audio decoding, model loading without
+privileged symbolic links, platform-aware local capture, portable iPhone certificate generation,
+and a real Windows CI smoke test.
+
+This owner-requested maintenance pass crosses the earlier ownership table for `requirements.txt`,
+`tools/`, and `README.md`. Changes will remain limited to Windows compatibility and its verification.
+The browser recording and upload path stays the primary demo input. Existing macOS behavior and
+measured identity behavior must remain intact.
+
+STATUS: O8 in progress
+
+---
+
+## [2026-07-30] product workstream to project | O8 release candidate locally verified
+
+The Windows backend, complete baby rehearsal library, synthetic care-memory seed, and system map are
+ready for the Windows GitHub Actions gate.
+
+This owner-requested pass also fixed three functional defects found during release testing:
+
+- Completing one matched incident is now atomic inside the server process, persists its attempt
+  marker in the initial insert, and returns conflict on repeat instead of creating two episodes.
+- A new human demo session can reuse a recording from an earlier session. Exact duplicates inside
+  the current session still cannot reinforce evidence. This fixes the repeated Recording not used
+  result seen on the live dashboard.
+- Typed caregiver follow-up text is stored with an explicit label and can ground literal actions as
+  well as the caregiver-sourced outcome.
+
+The change to `src/identity.py` crosses the earlier acoustics ownership boundary under the bug-fix
+exception. It scopes cross-profile duplicate protection to the profiles compared inside the current
+live session while preserving the global rule for ordinary profile enrollment. Changes to
+`requirements.txt`, `tools/`, and `README.md` remain covered by the O8 owner request above.
+
+Release evidence:
+
+- 332 Python tests passed in 92.502 seconds, with 4 documented fixture or Windows-only skips.
+- Browser interaction checks passed at 430, 900, and 1440 pixels, including specific backend
+  rejection text.
+- The fresh real-audio evaluator passed staged and difficult three-person gates with 7 of 7
+  displayed directions correct in each order, 0 wrong people, and 0 known-person splits. Duplicate
+  and corrupt-audio probes also passed.
+- All 18 Baby 1, Baby 2, and Baby 3 fixtures match their pinned manifest and produce usable
+  87-dimensional fingerprints.
+- The six-episode synthetic seed is idempotent, preserves real history, prefers canonical audio,
+  and removes copied audio after a failed save.
+- JavaScript syntax, Python compilation, workflow YAML, manifest JSON, whitespace, and forbidden
+  dash checks passed.
+
+The Windows workflow now executes setup and launch scripts under Windows PowerShell 5.1, builds the
+population baseline, warms both encoders, requires ready health, and runs a real HTTP observation.
+Actual Windows execution remains pending until the pushed GitHub Actions run completes.
+
+STATUS: locally verified, Windows GitHub Actions gate pending

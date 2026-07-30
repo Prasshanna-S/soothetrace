@@ -9,7 +9,12 @@ def _display_time(value: str | None) -> str:
     if not value:
         return "an earlier recording"
     try:
-        return datetime.fromisoformat(value).strftime("%a %b %-d at %-I:%M %p")
+        parsed = datetime.fromisoformat(value)
+        hour = parsed.hour % 12 or 12
+        return (
+            f"{parsed.strftime('%a %b')} {parsed.day} at "
+            f"{hour}:{parsed.strftime('%M %p')}"
+        )
     except (TypeError, ValueError):
         return "an earlier recording"
 
