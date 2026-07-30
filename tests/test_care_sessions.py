@@ -74,6 +74,55 @@ class CareSessionTests(unittest.TestCase):
                 ),
             )
 
+    def _insert_matched_chunk(
+        self,
+        session_id,
+        profile_id,
+        sequence,
+        created_at,
+        name,
+    ):
+        ingested = self._ingested(name, payload=f"audio-{sequence}".encode())
+        with sqlite3.connect(self.db) as connection:
+            cursor = connection.execute(
+                "INSERT INTO care_session_chunk ("
+                "session_id, sequence, created_at, source_audio_path, "
+                "canonical_audio_path, identity_audio_path, audio_sha256, "
+                "capture_metadata_json, quality_json, status, cry_status, "
+                "cry_reason_codes, cry_model_version, matched_profile_id, "
+                "reason_codes, result_json"
+                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    session_id,
+                    sequence,
+                    created_at,
+                    ingested["source_path"],
+                    ingested["canonical_path"],
+                    ingested["identity_path"],
+                    hashlib.sha256(f"audio-{sequence}".encode()).hexdigest(),
+                    "{}",
+                    "{}",
+                    "matched_no_guidance",
+                    "infant_cry_detected",
+                    '["infant_cry_evidence_strong"]',
+                    "ast-audioset-baby-cry-v1",
+                    profile_id,
+                    '["insufficient_history"]',
+                    "{}",
+                ),
+            )
+            chunk_id = int(cursor.lastrowid)
+            connection.execute(
+                "UPDATE care_session SET last_sequence=?, "
+                "latest_matched_chunk_id=? WHERE id=?",
+                (sequence, chunk_id, session_id),
+            )
+        return {
+            "id": chunk_id,
+            "created_at": created_at,
+            "canonical_path": ingested["canonical_path"],
+        }
+
     def _ingested(self, name, payload=b"source-audio"):
         capture_dir = self.root / "managed" / name
         capture_dir.mkdir(parents=True, exist_ok=True)
@@ -1283,6 +1332,444 @@ class CareSessionTests(unittest.TestCase):
         self.assert_public_result_has_no_sensitive_analysis(first)
         self.assert_public_result_has_no_sensitive_analysis(second)
         self.assert_public_result_has_no_sensitive_analysis(third)
+
+    def test_complete_requires_stop_and_a_representative_matched_chunk(self):
+        profile = self._profile()
+        listening = care_sessions.create(profile["id"], db_path=self.db)
+        self._insert_matched_chunk(
+            listening["id"],
+            profile["id"],
+            1,
+            "2026-07-30T11:00:00-04:00",
+            "listening",
+        )
+
+        before_stop = care_sessions.complete(
+            listening["id"],
+            "Held baby upright",
+            True,
+            db_path=self.db,
+        )
+
+        no_match = care_sessions.create(profile["id"], db_path=self.db)
+        care_sessions.stop(no_match["id"], self.db)
+        without_chunk = care_sessions.complete(
+            no_match["id"],
+            "Held baby upright",
+            True,
+            db_path=self.db,
+        )
+
+        self.assert_error(before_stop, "invalid_care_session_transition")
+        self.assert_error(without_chunk, "no_matched_chunk")
+        self.assertEqual([], store.list_episodes(f"profile-{profile['id']}", self.db))
+
+    def test_complete_uses_selected_chunk_and_returns_only_safe_incident_reference(self):
+        profile = self._profile()
+        care_session = care_sessions.create(
+            profile["id"],
+            tags=[" Evening ", "evening"],
+            db_path=self.db,
+        )
+        selected = self._insert_matched_chunk(
+            care_session["id"],
+            profile["id"],
+            1,
+            "2026-07-30T11:00:00-04:00",
+            "selected",
+        )
+        latest = self._insert_matched_chunk(
+            care_session["id"],
+            profile["id"],
+            2,
+            "2026-07-30T12:00:00-04:00",
+            "latest",
+        )
+        with sqlite3.connect(self.db) as connection:
+            connection.execute(
+                "UPDATE care_session SET selected_chunk_id=?, "
+                "latest_matched_chunk_id=? WHERE id=?",
+                (selected["id"], latest["id"], care_session["id"]),
+            )
+        care_sessions.stop(care_session["id"], self.db)
+        care_events = [
+            {
+                "id": 91,
+                "profile_id": profile["id"],
+                "event_type": "feeding",
+                "occurred_at": "2026-07-30T10:30:00-04:00",
+                "details": {},
+            }
+        ]
+
+        with (
+            patch.object(
+                care_sessions.context.store,
+                "list_care_events",
+                return_value=care_events,
+                create=True,
+            ),
+            patch.object(
+                care_sessions.session.fingerprint,
+                "compute_windowed",
+                return_value=[0.0] * 87,
+            ),
+            patch.object(
+                care_sessions.session.fingerprint,
+                "duration_s",
+                return_value=5.0,
+            ),
+            patch.object(
+                care_sessions.session.speech,
+                "transcribe",
+                return_value="I picked her up.",
+            ),
+            patch.object(
+                care_sessions.session.speech,
+                "extract_interventions",
+                return_value=[],
+            ),
+        ):
+            result = care_sessions.complete(
+                care_session["id"],
+                "  Held baby upright  ",
+                False,
+                notes="  Still crying  ",
+                tags=[" At Home ", "EVENING"],
+                db_path=self.db,
+            )
+
+        episodes = store.list_episodes(f"profile-{profile['id']}", self.db)
+        self.assertEqual(1, len(episodes))
+        episode = episodes[0]
+        self.assertEqual(selected["canonical_path"], episode["audio_path"])
+        self.assertEqual(selected["created_at"], episode["started_at"])
+        self.assertIs(episode["worked"], False)
+        self.assertEqual(
+            {
+                "hour_local": 11,
+                "tags": ["evening", "at home", "last_feed_under_2h"],
+                "care_event_ids": [91],
+                "care_session_id": care_session["id"],
+                "selected_chunk_id": selected["id"],
+                "profile_id": profile["id"],
+            },
+            episode["context"],
+        )
+        expected = {
+            "session": care_sessions.get(care_session["id"], self.db),
+            "incident": {
+                "id": episode["id"],
+                "detail_url": (
+                    f"/api/profiles/{profile['id']}/incidents/{episode['id']}"
+                ),
+            },
+        }
+        self.assertEqual(expected, result)
+        self.assertEqual({"id", "detail_url"}, set(result["incident"]))
+        self.assertNotIn("episode", result)
+
+    def test_complete_falls_back_to_latest_matched_chunk_and_is_idempotent(self):
+        profile = self._profile()
+        care_session = care_sessions.create(profile["id"], db_path=self.db)
+        latest = self._insert_matched_chunk(
+            care_session["id"],
+            profile["id"],
+            1,
+            "2026-07-30T12:30:00-04:00",
+            "latest-only",
+        )
+        care_sessions.stop(care_session["id"], self.db)
+
+        with (
+            patch.object(
+                care_sessions.session.fingerprint,
+                "compute_windowed",
+                return_value=[0.0] * 87,
+            ),
+            patch.object(
+                care_sessions.session.fingerprint,
+                "duration_s",
+                return_value=5.0,
+            ),
+            patch.object(
+                care_sessions.session.speech,
+                "transcribe",
+                return_value="",
+            ) as transcribe,
+        ):
+            first = care_sessions.complete(
+                care_session["id"],
+                "Held baby upright",
+                None,
+                db_path=self.db,
+            )
+            second = care_sessions.complete(
+                care_session["id"],
+                "",
+                1,
+                notes="different",
+                db_path=self.db,
+            )
+
+        episodes = store.list_episodes(f"profile-{profile['id']}", self.db)
+        self.assertEqual(1, len(episodes))
+        self.assertEqual(latest["id"], episodes[0]["context"]["selected_chunk_id"])
+        self.assertEqual(latest["created_at"], episodes[0]["started_at"])
+        self.assertEqual(first, second)
+        transcribe.assert_called_once_with(latest["canonical_path"])
+
+    def test_complete_recovers_one_saved_episode_after_a_transient_attach_failure(self):
+        profile = self._profile()
+        care_session = care_sessions.create(profile["id"], db_path=self.db)
+        self._insert_matched_chunk(
+            care_session["id"],
+            profile["id"],
+            1,
+            "2026-07-30T13:00:00-04:00",
+            "recover",
+        )
+        care_sessions.stop(care_session["id"], self.db)
+        real_attach = care_sessions._attach_completed_episode
+        attach_calls = 0
+
+        def fail_once(*args, **kwargs):
+            nonlocal attach_calls
+            attach_calls += 1
+            if attach_calls == 1:
+                return False
+            return real_attach(*args, **kwargs)
+
+        with (
+            patch.object(
+                care_sessions,
+                "_attach_completed_episode",
+                side_effect=fail_once,
+            ),
+            patch.object(
+                care_sessions.session.fingerprint,
+                "compute_windowed",
+                return_value=[0.0] * 87,
+            ),
+            patch.object(
+                care_sessions.session.fingerprint,
+                "duration_s",
+                return_value=5.0,
+            ),
+            patch.object(
+                care_sessions.session.speech,
+                "transcribe",
+                return_value="",
+            ),
+        ):
+            result = care_sessions.complete(
+                care_session["id"],
+                "Held baby upright",
+                True,
+                db_path=self.db,
+            )
+
+        episodes = store.list_episodes(f"profile-{profile['id']}", self.db)
+        self.assertEqual(2, attach_calls)
+        self.assertEqual(1, len(episodes))
+        self.assertEqual(episodes[0]["id"], result["incident"]["id"])
+        self.assertEqual("complete", result["session"]["status"])
+
+    def test_concurrent_complete_calls_save_and_transcribe_exactly_once(self):
+        profile = self._profile()
+        care_session = care_sessions.create(profile["id"], db_path=self.db)
+        selected = self._insert_matched_chunk(
+            care_session["id"],
+            profile["id"],
+            1,
+            "2026-07-30T14:00:00-04:00",
+            "concurrent",
+        )
+        care_sessions.stop(care_session["id"], self.db)
+        transcribe_entered = threading.Event()
+        release_transcribe = threading.Event()
+        results = []
+        thread_errors = []
+
+        def slow_transcribe(path):
+            self.assertEqual(selected["canonical_path"], path)
+            transcribe_entered.set()
+            if not release_transcribe.wait(timeout=3):
+                raise AssertionError("test did not release transcription")
+            return ""
+
+        def run_complete():
+            try:
+                results.append(
+                    care_sessions.complete(
+                        care_session["id"],
+                        "Held baby upright",
+                        True,
+                        db_path=self.db,
+                    )
+                )
+            except BaseException as exc:
+                thread_errors.append(exc)
+
+        with (
+            patch.object(
+                care_sessions.session.fingerprint,
+                "compute_windowed",
+                return_value=[0.0] * 87,
+            ),
+            patch.object(
+                care_sessions.session.fingerprint,
+                "duration_s",
+                return_value=5.0,
+            ),
+            patch.object(
+                care_sessions.session.speech,
+                "transcribe",
+                side_effect=slow_transcribe,
+            ) as transcribe,
+        ):
+            first = threading.Thread(target=run_complete)
+            second = threading.Thread(target=run_complete)
+            first.start()
+            self.assertTrue(transcribe_entered.wait(timeout=3))
+            second.start()
+            release_transcribe.set()
+            first.join(timeout=5)
+            second.join(timeout=5)
+
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertEqual([], thread_errors)
+        self.assertEqual(2, len(results))
+        self.assertEqual(results[0], results[1])
+        self.assertEqual(
+            1,
+            len(store.list_episodes(f"profile-{profile['id']}", self.db)),
+        )
+        self.assertEqual(1, transcribe.call_count)
+
+    def test_completion_failure_releases_claim_for_a_clean_retry(self):
+        profile = self._profile()
+        care_session = care_sessions.create(profile["id"], db_path=self.db)
+        self._insert_matched_chunk(
+            care_session["id"],
+            profile["id"],
+            1,
+            "2026-07-30T14:30:00-04:00",
+            "retry-after-error",
+        )
+        care_sessions.stop(care_session["id"], self.db)
+
+        with patch.object(
+            care_sessions.context,
+            "build_current_context",
+            side_effect=RuntimeError("context backend failed"),
+        ):
+            failed = care_sessions.complete(
+                care_session["id"],
+                "Held baby upright",
+                True,
+                db_path=self.db,
+            )
+
+        with (
+            patch.object(
+                care_sessions.session.fingerprint,
+                "compute_windowed",
+                return_value=[0.0] * 87,
+            ),
+            patch.object(
+                care_sessions.session.fingerprint,
+                "duration_s",
+                return_value=5.0,
+            ),
+            patch.object(
+                care_sessions.session.speech,
+                "transcribe",
+                return_value="",
+            ),
+        ):
+            retried = care_sessions.complete(
+                care_session["id"],
+                "Held baby upright",
+                True,
+                db_path=self.db,
+            )
+
+        self.assert_error(failed, "care_session_storage_error")
+        self.assertEqual("complete", retried["session"]["status"])
+
+    def test_discard_waits_for_completion_transcription_and_cannot_remove_saved_audio(self):
+        profile = self._profile()
+        care_session = care_sessions.create(profile["id"], db_path=self.db)
+        selected = self._insert_matched_chunk(
+            care_session["id"],
+            profile["id"],
+            1,
+            "2026-07-30T15:00:00-04:00",
+            "complete-discard",
+        )
+        care_sessions.stop(care_session["id"], self.db)
+        transcribe_entered = threading.Event()
+        release_transcribe = threading.Event()
+        complete_results = []
+        discard_results = []
+
+        def slow_transcribe(path):
+            transcribe_entered.set()
+            if not release_transcribe.wait(timeout=3):
+                raise AssertionError("test did not release transcription")
+            return ""
+
+        with (
+            patch.object(
+                care_sessions.session.fingerprint,
+                "compute_windowed",
+                return_value=[0.0] * 87,
+            ),
+            patch.object(
+                care_sessions.session.fingerprint,
+                "duration_s",
+                return_value=5.0,
+            ),
+            patch.object(
+                care_sessions.session.speech,
+                "transcribe",
+                side_effect=slow_transcribe,
+            ),
+        ):
+            completion_thread = threading.Thread(
+                target=lambda: complete_results.append(
+                    care_sessions.complete(
+                        care_session["id"],
+                        "Held baby upright",
+                        True,
+                        db_path=self.db,
+                    )
+                )
+            )
+            discard_thread = threading.Thread(
+                target=lambda: discard_results.append(
+                    care_sessions.discard(
+                        care_session["id"],
+                        self.root / "managed",
+                        self.db,
+                    )
+                )
+            )
+            completion_thread.start()
+            self.assertTrue(transcribe_entered.wait(timeout=3))
+            discard_thread.start()
+            discard_thread.join(timeout=0.1)
+            self.assertTrue(discard_thread.is_alive())
+            self.assertTrue(Path(selected["canonical_path"]).exists())
+            release_transcribe.set()
+            completion_thread.join(timeout=5)
+            discard_thread.join(timeout=5)
+
+        self.assertEqual("complete", complete_results[0]["session"]["status"])
+        self.assert_error(discard_results[0], "invalid_care_session_transition")
+        self.assertTrue(Path(selected["canonical_path"]).exists())
 
     def test_discard_deletes_only_files_beneath_managed_root(self):
         profile = self._profile()

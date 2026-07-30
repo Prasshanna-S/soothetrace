@@ -4525,3 +4525,16 @@ Concurrent identical submissions replay the winner and conflicting submissions r
 `.superpowers/sdd/2026-07-30-continuous-care-demo/task-3-report.md`
 
 STATUS: Task 3 review round 1 verified, commit pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 Task 4 structured completion
+
+Task 4 adds deterministic structured caregiver outcomes, representative matched-chunk selection,
+the shared completion/discard mutation lock, persistent exactly-once recovery, and the restricted
+completion result. Implementation, TDD evidence, concurrency probes, full verification, and the
+single-process uniqueness boundary are recorded in:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-4-report.md`
+
+STATUS: Task 4 verified, commit pending

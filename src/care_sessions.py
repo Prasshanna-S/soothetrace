@@ -9,12 +9,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 try:
-    from . import careflow, config, cry_gate, identity, store
+    from . import careflow, config, context, cry_gate, identity, session, store
 except ImportError:
     import careflow
     import config
+    import context
     import cry_gate
     import identity
+    import session
     import store
 
 
@@ -33,6 +35,8 @@ _ALLOWED = {
 
 _CHUNK_INFERENCE_CLAIMS_LOCK = threading.Lock()
 _CHUNK_INFERENCE_CLAIMS: dict[tuple[str, int, int], threading.Event] = {}
+_SESSION_MUTATION_LOCKS_LOCK = threading.Lock()
+_SESSION_MUTATION_LOCKS: dict[tuple[str, int], threading.Lock] = {}
 
 
 def _now() -> str:
@@ -76,6 +80,27 @@ def _decoded_list(raw) -> list:
 
 def _is_integer(value) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _database_key(db_path: str | None) -> str:
+    raw_path = db_path or config.DB_PATH
+    try:
+        return str(Path(raw_path).resolve())
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return str(raw_path)
+
+
+def _session_mutation_lock(
+    db_path: str | None,
+    session_id: int,
+) -> threading.Lock:
+    key = (_database_key(db_path), session_id)
+    with _SESSION_MUTATION_LOCKS_LOCK:
+        lock = _SESSION_MUTATION_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _SESSION_MUTATION_LOCKS[key] = lock
+        return lock
 
 
 def _string_fields(value, field_names: tuple[str, ...]) -> dict:
@@ -361,6 +386,266 @@ def resume(session_id: int, db_path: str | None = None) -> dict:
 def stop(session_id: int, db_path: str | None = None) -> dict:
     """Stop capture and await the structured caregiver outcome."""
     return _transition(session_id, "stop", db_path)
+
+
+def _episode_for_care_session(
+    profile_id: int,
+    session_id: int,
+    db_path: str | None,
+) -> dict | None:
+    subject_id = f"profile-{profile_id}"
+    for episode in store.list_episodes(subject_id, db_path):
+        episode_context = episode.get("context")
+        if (
+            isinstance(episode_context, dict)
+            and type(episode_context.get("care_session_id")) is int
+            and episode_context["care_session_id"] == session_id
+        ):
+            return episode
+    return None
+
+
+def _completed_result(row, episode_id: int, db_path: str | None) -> dict:
+    profile_id = row["profile_id"]
+    return {
+        "session": _render(row, db_path),
+        "incident": {
+            "id": episode_id,
+            "detail_url": (
+                f"/api/profiles/{profile_id}/incidents/{episode_id}"
+            ),
+        },
+    }
+
+
+def _completion_precheck(
+    session_id: int,
+    db_path: str | None,
+) -> tuple[dict | None, dict | None]:
+    connection = _conn(db_path)
+    try:
+        row = _session_row(connection, session_id)
+        if not row:
+            return _error("no_such_care_session"), None
+        if _is_integer(row["episode_id"]):
+            return _completed_result(row, row["episode_id"], db_path), None
+        existing = _episode_for_care_session(
+            row["profile_id"],
+            session_id,
+            db_path,
+        )
+        return None, existing
+    except sqlite3.Error:
+        return _error("care_session_storage_error"), None
+    finally:
+        connection.close()
+
+
+def _representative_chunk(connection: sqlite3.Connection, row):
+    chunk_id = (
+        row["selected_chunk_id"]
+        if _is_integer(row["selected_chunk_id"])
+        else row["latest_matched_chunk_id"]
+    )
+    if not _is_integer(chunk_id):
+        return None
+    return connection.execute(
+        "SELECT id, created_at, canonical_audio_path "
+        "FROM care_session_chunk "
+        "WHERE id=? AND session_id=? AND matched_profile_id=?",
+        (chunk_id, row["id"], row["profile_id"]),
+    ).fetchone()
+
+
+def _attach_completed_episode(
+    session_id: int,
+    episode_id: int,
+    db_path: str | None,
+) -> bool:
+    connection = _conn(db_path)
+    try:
+        cursor = connection.execute(
+            "UPDATE care_session SET status=?, completed_at=?, episode_id=? "
+            "WHERE id=? AND status=? AND episode_id IS NULL",
+            (COMPLETE, _now(), episode_id, session_id, AWAITING_OUTCOME),
+        )
+        if cursor.rowcount == 1:
+            connection.commit()
+            return True
+        connection.rollback()
+        row = _session_row(connection, session_id)
+        return bool(
+            row
+            and row["status"] == COMPLETE
+            and row["episode_id"] == episode_id
+        )
+    except sqlite3.Error:
+        connection.rollback()
+        return False
+    finally:
+        connection.close()
+
+
+def _finish_existing_episode(
+    session_id: int,
+    episode: dict,
+    db_path: str | None,
+) -> dict:
+    episode_id = episode.get("id") if isinstance(episode, dict) else None
+    if not _is_integer(episode_id):
+        return _error("incident_save_failed")
+    if not _attach_completed_episode(session_id, episode_id, db_path):
+        return _error("care_session_storage_error")
+    connection = _conn(db_path)
+    try:
+        row = _session_row(connection, session_id)
+        if not row or row["episode_id"] != episode_id:
+            return _error("care_session_storage_error")
+        return _completed_result(row, episode_id, db_path)
+    finally:
+        connection.close()
+
+
+def _complete_claimed(
+    session_id: int,
+    action: str,
+    settled: bool | None,
+    notes: str | None,
+    tags: list[str] | None,
+    db_path: str | None,
+) -> dict:
+    connection = _conn(db_path)
+    try:
+        row = _session_row(connection, session_id)
+        if not row:
+            return _error("no_such_care_session")
+        if _is_integer(row["episode_id"]):
+            return _completed_result(row, row["episode_id"], db_path)
+        if row["status"] != AWAITING_OUTCOME:
+            return _error("invalid_care_session_transition")
+
+        existing = _episode_for_care_session(
+            row["profile_id"],
+            session_id,
+            db_path,
+        )
+        if existing is not None:
+            return _finish_existing_episode(session_id, existing, db_path)
+
+        if (
+            not isinstance(action, str)
+            or not action.strip()
+            or len(action.strip()) > 500
+            or (settled is not None and type(settled) is not bool)
+            or (notes is not None and not isinstance(notes, str))
+            or (isinstance(notes, str) and len(notes.strip()) > 1000)
+            or (
+                tags is not None
+                and (
+                    not isinstance(tags, list)
+                    or any(not isinstance(tag, str) for tag in tags)
+                )
+            )
+        ):
+            return _error("invalid_care_session_completion")
+
+        chunk = _representative_chunk(connection, row)
+        if chunk is None:
+            return _error("no_matched_chunk")
+        canonical_audio = chunk["canonical_audio_path"]
+        if (
+            not isinstance(canonical_audio, str)
+            or not Path(canonical_audio).is_file()
+        ):
+            return _error("managed_capture_unavailable")
+        started_at = chunk["created_at"]
+        if not isinstance(started_at, str) or not started_at:
+            return _error("care_session_storage_error")
+        merged_tags = _normalize_tags(
+            _decoded_list(row["tags_json"]) + (tags or [])
+        )
+        current_context = context.build_current_context(
+            row["profile_id"],
+            now=started_at,
+            tags=merged_tags,
+            db_path=db_path,
+        )
+        if not current_context:
+            return _error("context_unavailable")
+        episode_context = {
+            **current_context,
+            "care_session_id": session_id,
+            "selected_chunk_id": chunk["id"],
+            "profile_id": row["profile_id"],
+        }
+        profile_id = row["profile_id"]
+    except sqlite3.Error:
+        return _error("care_session_storage_error")
+    finally:
+        connection.close()
+
+    episode = session.finish_structured(
+        f"profile-{profile_id}",
+        canonical_audio,
+        action,
+        settled,
+        notes,
+        started_at=started_at,
+        db_path=db_path,
+        context_override=episode_context,
+    )
+    episode_id = episode.get("id") if isinstance(episode, dict) else None
+    if not _is_integer(episode_id):
+        return _error("incident_save_failed")
+    if _attach_completed_episode(session_id, episode_id, db_path):
+        connection = _conn(db_path)
+        try:
+            completed = _session_row(connection, session_id)
+            if completed and completed["episode_id"] == episode_id:
+                return _completed_result(completed, episode_id, db_path)
+        finally:
+            connection.close()
+
+    recovered = _episode_for_care_session(profile_id, session_id, db_path)
+    if recovered is None:
+        return _error("care_session_storage_error")
+    return _finish_existing_episode(session_id, recovered, db_path)
+
+
+def complete(
+    session_id: int,
+    action: str,
+    settled: bool | None,
+    notes: str | None = None,
+    tags: list[str] | None = None,
+    db_path: str | None = None,
+) -> dict:
+    """Save exactly one incident for a stopped session in this server process.
+
+    The process lock coordinates completion and discard. Persistent context lookup
+    recovers a saved episode after an interrupted attach, but cross-process
+    exactly-once behavior would require schema-level uniqueness.
+    """
+    if not _is_integer(session_id) or session_id <= 0:
+        return _error("no_such_care_session")
+    try:
+        prechecked, _ = _completion_precheck(session_id, db_path)
+    except Exception:
+        return _error("care_session_storage_error")
+    if prechecked is not None:
+        return prechecked
+    with _session_mutation_lock(db_path, session_id):
+        try:
+            return _complete_claimed(
+                session_id,
+                action,
+                settled,
+                notes,
+                tags,
+                db_path,
+            )
+        except Exception:
+            return _error("care_session_storage_error")
 
 
 _CHUNK_STATUSES = {
@@ -954,12 +1239,11 @@ def _discard_paths(
     return True, removed
 
 
-def discard(
+def _discard_claimed(
     session_id: int,
     audio_root: str | Path,
     db_path: str | None = None,
 ) -> dict:
-    """Delete unsaved managed chunk audio and make the session immutable."""
     connection = _conn(db_path)
     try:
         connection.execute("BEGIN IMMEDIATE")
@@ -1007,3 +1291,13 @@ def discard(
         return _error("care_session_storage_error")
     finally:
         connection.close()
+
+
+def discard(
+    session_id: int,
+    audio_root: str | Path,
+    db_path: str | None = None,
+) -> dict:
+    """Delete unsaved managed chunk audio and make the session immutable."""
+    with _session_mutation_lock(db_path, session_id):
+        return _discard_claimed(session_id, audio_root, db_path)
