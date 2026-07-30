@@ -1,21 +1,14 @@
 /* ============================================================================
    Cry Memory - continuous care client. Listen page, full fidelity.
 
-   WHAT IS WIRED AND WHAT IS NOT
-   The capture engine is real: microphone, 12 second finalized segment rotation,
-   wall clock, wake lock, iOS interruption handling. The care-session routes are
-   NOT wired yet: ROUTES_GREEN is false until the product workstream marks the
-   server side green, so segment upload is a local no-op that keeps the exact
-   queue discipline (at most one completed blob waits behind the in-flight one)
-   and Start stays gated on health.care.ready, which an unwired server never
-   reports. Every server-fed state is reachable today through ?preview=1, which
-   is labelled as simulation on screen and drives the SAME render paths the real
-   wiring will use.
+   The capture engine and minimum care-session routes are connected. One retained
+   microphone stream produces independent 6 second files. A failed upload keeps
+   the same bytes and sequence until the server accepts or rejects that file.
 
    HONESTY RULES BAKED IN
    - The browser never decides a cry happened. The orb reacts to microphone level
      only in its breathing depth, never in colour. Colour states change only on
-     server words (or the labelled preview).
+     server words.
    - Guidance is rendered verbatim with textContent. Nothing here composes care
      advice, a cause, or a percentage.
    - The live chip is driven by actual track state and is removed the moment the
@@ -43,14 +36,11 @@ const ICONS = {
 
 /* ------------------------------------------------------------- constants --- */
 
-const CARE_SEGMENT_MS = 12000;      // finalized recorder rotation, per the plan
+const CARE_SEGMENT_MS = 6000;       // conservative validated prototype window
 const MAX_PENDING_SEGMENTS = 1;     // one completed blob may wait, no more
-const ROUTES_GREEN = false;         // flipped by the product workstream signal
 const HEALTH_POLL_MS = 4000;
-
-/* Review harness flag: ?mock=STATE renders one state directly, labelled as
-   simulation. Hoisted here because health polling must stand down under it. */
-const MOCK = new URLSearchParams(location.search).get("mock");
+const UPLOAD_RETRY_MS = 850;
+const DECISION_REVEAL_MS = 1200;
 
 const RECORDER_MIME_CANDIDATES = [
   "audio/mp4;codecs=mp4a.40.2",
@@ -66,6 +56,15 @@ const CRY_STATUS_COPY = {
   cry_uncertain: "Cry-like sound, listening for a clearer segment",
   infant_cry_detected: "Infant-cry-like sound detected",
   decode_error: "That segment could not be read. Still listening",
+  uneven_audio: "That segment was too uneven. Still listening",
+  quiet_audio: "That segment was too quiet. Still listening",
+};
+const INVALID_CHUNK_STATUS = {
+  decode_failed: "decode_error",
+  decoder_unavailable: "decode_error",
+  decoded_audio_invalid: "decode_error",
+  unsafe_normalization_headroom: "uneven_audio",
+  near_silence: "quiet_audio",
 };
 const CRY_STATUS_TTL_MS = 5000;
 
@@ -130,6 +129,7 @@ const ui = {
   errorBanner: $("error-banner"),
   interruptedBanner: $("interrupted-banner"),
   connectionBanner: $("connection-banner"),
+  connectionMessage: $("connection-message"),
   connRetry: $("btn-conn-retry"),
   orb: $("orb"),
   orbWrap: $("orb-wrap"),
@@ -164,9 +164,10 @@ const ui = {
   recChip: $("rec-chip"),
   recChipState: $("rec-chip-state"),
   recChipTime: $("rec-chip-time"),
-  profileSwitch: $("btn-profile-switch"),
-  previewBar: $("preview-bar"),
-  previewNext: $("preview-next"),
+  profilePicker: $("profile-picker"),
+  listenName: $("listen-name"),
+  historyProfileName: $("history-profile-name"),
+  babyTitle: $("baby-title"),
 };
 
 const setText = (node, value) => { if (node) node.textContent = value == null ? "" : String(value); };
@@ -178,17 +179,18 @@ const show = (node, on) => { if (node) node.hidden = !on; };
    words; microphone level may deepen the breath, never shift the hue. */
 
 const ORB_STATES = {
-  idle:      { c: ["#E4ECFF", "#9DB4F0", "#A9DCC6", "#E3D3F4"], warp: 2.0, speed: 0.30, sat: 1.04, breath: 6.0, scale: 1.00 },
-  listening: { c: ["#DDE2FF", "#7C88E8", "#9FCDF0", "#C9AFF0"], warp: 2.7, speed: 0.62, sat: 1.20, breath: 3.2, scale: 1.03 },
-  detected:  { c: ["#FFE9C4", "#F3C34E", "#F0A07E", "#FFD2B8"], warp: 3.1, speed: 0.95, sat: 1.22, breath: 2.3, scale: 1.06 },
-  grounded:  { c: ["#D5F0E2", "#6FC6A8", "#9BD9E6", "#BCE9C9"], warp: 2.2, speed: 0.42, sat: 1.16, breath: 5.0, scale: 0.99 },
-  paused:    { c: ["#E8EAF1", "#BFC2CE", "#D3D6E0", "#EEF0F6"], warp: 1.5, speed: 0.06, sat: 0.30, breath: 0.0, scale: 0.94 },
+  idle:      { c: ["#E4ECFF", "#9DB4F0", "#A9DCC6", "#E3D3F4"], warp: 2.0, speed: 0.30, sat: 1.04, breath: 6.0, scale: 1.00, turn: 0 },
+  listening: { c: ["#DDE2FF", "#7C88E8", "#9FCDF0", "#C9AFF0"], warp: 2.7, speed: 0.62, sat: 1.20, breath: 3.2, scale: 1.03, turn: 0.42 },
+  detected:  { c: ["#FFE9C4", "#F3C34E", "#F0A07E", "#FFD2B8"], warp: 3.1, speed: 0.95, sat: 1.22, breath: 2.3, scale: 1.06, turn: 0.52 },
+  grounded:  { c: ["#D5F0E2", "#6FC6A8", "#9BD9E6", "#BCE9C9"], warp: 2.2, speed: 0.42, sat: 1.16, breath: 5.0, scale: 0.99, turn: 0 },
+  paused:    { c: ["#E8EAF1", "#BFC2CE", "#D3D6E0", "#EEF0F6"], warp: 1.5, speed: 0.06, sat: 0.30, breath: 0.0, scale: 0.94, turn: 0 },
 };
 
 const ORB_VERT = "attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}";
 const ORB_FRAG = [
   "precision highp float;",
   "uniform vec2 uRes;uniform float uTime;uniform float uWarp;uniform float uSat;",
+  "uniform float uTurn;",
   "uniform vec3 uC1;uniform vec3 uC2;uniform vec3 uC3;uniform vec3 uC4;",
   "vec3 s2l(vec3 c){return pow(max(c,0.0),vec3(2.2));}",
   "vec3 l2s(vec3 c){return pow(max(c,0.0),vec3(1.0/2.2));}",
@@ -212,6 +214,7 @@ const ORB_FRAG = [
   "vec3 mixOk(vec3 a,vec3 b,float t){return ok2lin(mix(lin2ok(a),lin2ok(b),clamp(t,0.0,1.0)));}",
   "vec2 hash2(vec2 p){p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));",
   " return -1.0+2.0*fract(sin(p)*43758.5453123);}",
+  "mat2 rot2(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}",
   "float gn(vec2 p){vec2 i=floor(p),f=fract(p);vec2 u=f*f*f*(f*(f*6.0-15.0)+10.0);",
   " return mix(mix(dot(hash2(i),f),dot(hash2(i+vec2(1.0,0.0)),f-vec2(1.0,0.0)),u.x),",
   "  mix(dot(hash2(i+vec2(0.0,1.0)),f-vec2(0.0,1.0)),dot(hash2(i+vec2(1.0,1.0)),f-vec2(1.0,1.0)),u.x),u.y);}",
@@ -222,7 +225,8 @@ const ORB_FRAG = [
   " float r=length(uv);float R=0.335;float t=uTime;",
   " float k=clamp(r/R,0.0,1.0);float z=sqrt(max(1.0-k*k,0.0));",
   " vec3 N=normalize(vec3(uv/R,z+0.0001));",
-  " vec2 sp=uv/R;float bend=0.24*pow(1.0-z,1.6);vec2 rp=sp+N.xy*bend;",
+  " vec2 sp=uv/R;float bend=0.24*pow(1.0-z,1.6);",
+  " vec2 rp=rot2(uTime*uTurn)*(sp+N.xy*bend);",
   " vec2 q=vec2(fbm(rp*1.8+0.055*t),fbm(rp*1.8+vec2(5.2,1.3)-0.045*t));",
   " vec2 s2=vec2(fbm(rp*1.8+uWarp*q+vec2(1.7,9.2)+0.040*t),",
   "  fbm(rp*1.8+uWarp*q+vec2(8.3,2.8)-0.034*t));",
@@ -249,12 +253,12 @@ const ORB_FRAG = [
   " float a=body;",
   " float dth=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453);",
   " rgb+=(dth-0.5)/255.0;",
-  " gl_FragColor=vec4(rgb,a);}",
+  " gl_FragColor=vec4(rgb*a,a);}",
 ].join("\n");
 
 function createOrb(canvas) {
   const gl = canvas.getContext("webgl", { alpha: true, antialias: false,
-                                          premultipliedAlpha: false });
+                                          premultipliedAlpha: true });
   if (!gl) return null;
   const sh = (type, src) => {
     const s = gl.createShader(type);
@@ -275,13 +279,15 @@ function createOrb(canvas) {
   gl.enableVertexAttribArray(loc);
   gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
   const U = {};
-  for (const n of ["uRes", "uTime", "uWarp", "uSat", "uC1", "uC2", "uC3", "uC4"]) {
+  for (const n of [
+    "uRes", "uTime", "uWarp", "uSat", "uTurn", "uC1", "uC2", "uC3", "uC4",
+  ]) {
     U[n] = gl.getUniformLocation(prog, n);
   }
   const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
   const st = ORB_STATES.idle;
   const cur = { c: st.c.map(hex), warp: st.warp, speed: st.speed, sat: st.sat,
-                breath: st.breath, scale: st.scale };
+                breath: st.breath, scale: st.scale, turn: st.turn };
   let tgt = JSON.parse(JSON.stringify(cur));
   let clock = 0;
   let level = 0;          // smoothed microphone RMS, breath depth only
@@ -306,21 +312,24 @@ function createOrb(canvas) {
     for (let i = 0; i < 4; i++) {
       for (let j = 0; j < 3; j++) cur.c[i][j] += (tgt.c[i][j] - cur.c[i][j]) * e;
     }
-    for (const k of ["warp", "speed", "sat", "breath", "scale"]) {
+    for (const k of ["warp", "speed", "sat", "breath", "scale", "turn"]) {
       cur[k] += (tgt[k] - cur[k]) * e;
     }
     clock += dt * cur.speed;
     resize();
     let pulse = 1;
     if (cur.breath > 0.05) {
-      const depth = 0.024 + level * 0.05;
-      pulse = 1 + depth * Math.sin((now / 1000) * (2 * Math.PI / cur.breath));
+      const depth = 0.018 + level * 0.020;
+      const energyLift = level * 0.070;
+      pulse = 1 + energyLift +
+        depth * Math.sin((now / 1000) * (2 * Math.PI / cur.breath));
     }
     canvas.style.transform = "scale(" + (cur.scale * pulse).toFixed(4) + ")";
     gl.uniform2f(U.uRes, canvas.width, canvas.height);
     gl.uniform1f(U.uTime, clock);
     gl.uniform1f(U.uWarp, cur.warp);
     gl.uniform1f(U.uSat, cur.sat);
+    gl.uniform1f(U.uTurn, reduce ? 0 : cur.turn);
     gl.uniform3fv(U.uC1, cur.c[0]);
     gl.uniform3fv(U.uC2, cur.c[1]);
     gl.uniform3fv(U.uC3, cur.c[2]);
@@ -335,40 +344,60 @@ function createOrb(canvas) {
       const s = ORB_STATES[name];
       if (!s) return;
       tgt = { c: s.c.map(hex), warp: s.warp, speed: s.speed, sat: s.sat,
-              breath: s.breath, scale: s.scale };
+              breath: s.breath, scale: s.scale, turn: s.turn };
     },
-    setLevel(v) { level = Math.max(0, Math.min(1, v)); },
+    setLevel(v) {
+      level = Math.max(0, Math.min(1, v));
+      canvas.dataset.energy = level.toFixed(3);
+    },
   };
 }
 
 const orb = createOrb(ui.orb);
 if (!orb) document.body.classList.add("orb-fallback");
-const orbState = (n) => { if (orb) orb.setState(n); };
+const orbState = (name) => {
+  ui.orb.dataset.visualState = name;
+  if (orb) orb.setState(name);
+};
 
 /* =================================================================== state --- */
 
 const state = {
   view: "listen",
   session: "idle",          // idle | requesting | listening | paused | awaiting_outcome | saved
+  serverSession: null,
+  sessionId: null,
+  profiles: [],
+  selectedProfile: null,
   decision: null,           // latched once, immutable until stop
+  pendingDecision: null,
+  decisionRevealTimer: null,
   micLive: false,
-  preview: /(\?|&)preview=1/.test(location.search),
   healthReady: false,
   healthReachable: null,
   stream: null,
   track: null,
+  appliedSettings: {},
+  captureDeviceName: "",
   recorder: null,
   recorderStopper: null,
   audioCtx: null,
+  audioSource: null,
   analyser: null,
   levelTimer: null,
   rotateTimer: null,
+  rotationPromise: null,
   clockTimer: null,
   startedAt: 0,             // wall clock anchor for the current live stretch
   accumulatedMs: 0,         // active time across pauses
-  sequence: 0,
-  inFlight: false,
-  pendingBlob: null,        // at most MAX_PENDING_SEGMENTS
+  acceptedSequence: 0,
+  activeUpload: null,
+  pendingSegment: null,     // at most MAX_PENDING_SEGMENTS
+  uploadRetryTimer: null,
+  uploadFatal: null,
+  drainWaiters: [],
+  transitionBusy: false,
+  stopRequested: false,
   segmentsCaptured: 0,
   statusTimer: null,
   wakeLock: null,
@@ -430,60 +459,119 @@ window.addEventListener("hashchange", () => navigate(location.hash.replace("#", 
 function renderHealth(reachable, ready, text) {
   state.healthReachable = reachable;
   state.healthReady = ready;
-  if (state.preview || MOCK) {
-    ui.healthPill.dataset.health = "preview";
-    setText(ui.healthText, "Preview");
-  } else {
-    ui.healthPill.dataset.health = !reachable ? "down" : (ready ? "ready" : "not-ready");
-    setText(ui.healthText, !reachable ? "Offline" : (ready ? "Online" : "Not ready"));
-  }
-  void text;
+  ui.healthPill.dataset.health = !reachable ? "down" : (ready ? "ready" : "not-ready");
+  setText(ui.healthText, text || (!reachable ? "Offline" : (ready ? "Online" : "Not ready")));
   syncStartGate();
 }
 
 async function pollHealth() {
-  if (MOCK) { renderHealth(true, true, "Local server ready"); return; }
-  if (state.preview) { renderHealth(true, false, "Preview mode, no server"); return; }
   try {
     const r = await apiJson("/api/health");
     const care = r.data && r.data.care;
     if (care && care.ready === true) {
-      renderHealth(true, true, "Local server ready");
+      renderHealth(true, true, "Ready");
     } else if (r.ok) {
-      renderHealth(true, false, "Care backend not ready yet");
+      renderHealth(true, false, "Not ready");
     } else {
-      renderHealth(true, false, "Local server error");
+      renderHealth(true, false, "Server error");
     }
-    if (state.session === "listening" || state.session === "paused") hideConnectionLoss();
+    if ((state.session === "listening" || state.session === "paused") &&
+        !state.activeUpload) hideConnectionLoss();
   } catch (error) {
-    renderHealth(false, false, "Local server unreachable");
-    if (!state.preview && (state.session === "listening" || state.session === "paused")) {
+    renderHealth(false, false, "Offline");
+    if (state.session === "listening" || state.session === "paused") {
       showConnectionLoss();
     }
   }
 }
 
 function syncStartGate() {
-  const allowed = state.preview || state.healthReady;
-  ui.start.disabled = !allowed || state.session !== "idle";
+  const allowed = state.healthReady && Boolean(state.selectedProfile);
+  ui.start.disabled = !allowed || state.session !== "idle" || state.transitionBusy;
+  ui.profilePicker.disabled = state.session !== "idle" || state.transitionBusy;
   if (!allowed && state.session === "idle") {
-    setText(ui.startBlocked, state.healthReachable === false
-      ? "Start needs the laptop server on this network."
-      : "Start unlocks when the care backend reports ready.");
+    let reason = "Start unlocks when the care backend reports ready.";
+    if (state.healthReachable === false) {
+      reason = "Start needs the laptop server on this network.";
+    } else if (state.healthReady && !state.selectedProfile) {
+      reason = "Add an infant profile before starting a care session.";
+    }
+    setText(ui.startBlocked, reason);
     show(ui.startBlocked, true);
   } else {
     show(ui.startBlocked, false);
   }
 }
 
+function applySelectedProfile(profile) {
+  state.selectedProfile = profile || null;
+  const name = profile && profile.display_name ? profile.display_name : "No baby selected";
+  setText(ui.listenName, name);
+  setText(ui.historyProfileName, name);
+  setText(ui.babyTitle, name);
+  syncStartGate();
+}
+
+async function loadProfiles() {
+  try {
+    const result = await apiJson("/api/profiles");
+    if (!result.ok || !result.data || !Array.isArray(result.data.profiles)) {
+      throw new Error("profiles unavailable");
+    }
+    const previousId = state.selectedProfile && state.selectedProfile.id;
+    state.profiles = result.data.profiles.filter((profile) =>
+      profile && profile.kind === "infant" && Number.isInteger(profile.id)
+    );
+    ui.profilePicker.textContent = "";
+    for (const profile of state.profiles) {
+      const option = document.createElement("option");
+      option.value = String(profile.id);
+      option.textContent = profile.display_name +
+        (profile.status ? " (" + profile.status + ")" : "");
+      ui.profilePicker.appendChild(option);
+    }
+    const selected = state.profiles.find((profile) => profile.id === previousId) ||
+      state.profiles.find((profile) => profile.display_name === "Demo Baby") ||
+      state.profiles.find((profile) => profile.status === "ready") ||
+      state.profiles[0] || null;
+    if (selected) ui.profilePicker.value = String(selected.id);
+    else {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "No infant profiles";
+      ui.profilePicker.appendChild(option);
+    }
+    applySelectedProfile(selected);
+  } catch (error) {
+    state.profiles = [];
+    ui.profilePicker.textContent = "";
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Profiles unavailable";
+    ui.profilePicker.appendChild(option);
+    applySelectedProfile(null);
+  }
+}
+
 function showConnectionLoss() {
+  setText(
+    ui.connectionMessage,
+    state.micLive
+      ? "The laptop stopped answering. Recording continues, and this segment will retry."
+      : "The last segment is waiting for the laptop before this session can finish."
+  );
   show(ui.connectionBanner, true);
-  setAnalysis("Recording continues. Analysis is not running.", 0);
+  setAnalysis(
+    state.micLive
+      ? "Recording continues. Analysis is waiting."
+      : "Waiting for the laptop to accept the last segment.",
+    0
+  );
 }
 function hideConnectionLoss() { show(ui.connectionBanner, false); }
 
 /* ============================================================ capture engine
-   One MediaStream for the whole session. Every 12 seconds the current recorder
+   One MediaStream for the whole session. Every 6 seconds the current recorder
    is stopped so its blob is a COMPLETE standalone file, and the next recorder
    starts on the same stream immediately. start(timeslice) fragments are never
    used as independent files, because only the first carries container headers. */
@@ -497,12 +585,37 @@ function pickRecorderMime() {
   return "";
 }
 
+function primeLevelContext() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    if (!state.audioCtx || state.audioCtx.state === "closed") {
+      state.audioCtx = new Ctx();
+    }
+    if (state.audioCtx.state === "suspended" &&
+        typeof state.audioCtx.resume === "function") {
+      Promise.resolve(state.audioCtx.resume()).catch(() => {});
+    }
+    return state.audioCtx;
+  } catch (error) {
+    return null;
+  }
+}
+
 async function acquireStream() {
   const constraints = { audio: { echoCancellation: false, noiseSuppression: false,
                                  autoGainControl: false } };
   const stream = await navigator.mediaDevices.getUserMedia(constraints);
   state.stream = stream;
   state.track = stream.getAudioTracks()[0] || null;
+  state.appliedSettings = state.track && typeof state.track.getSettings === "function"
+    ? state.track.getSettings()
+    : {};
+  state.captureDeviceName = state.track && state.track.label
+    ? state.track.label
+    : (/iphone|ipad|ipod/i.test(navigator.userAgent)
+      ? "iPhone Safari"
+      : "Browser microphone");
   watchTrack(state.track);
   startLevelMeter(stream);
   return stream;
@@ -514,20 +627,21 @@ async function acquireStream() {
 function watchTrack(track) {
   if (!track) return;
   track.addEventListener("mute", () => {
-    ui.body.dataset.mic = "muted";
+    setMicLive(false, "MIC PAUSED");
     show(ui.interruptedBanner, true);
     setAnalysis("Microphone paused by the system", 0);
   });
   track.addEventListener("unmute", () => {
-    if (state.micLive) {
-      ui.body.dataset.mic = "live";
+    if (state.session === "listening" && track.readyState !== "ended") {
+      setMicLive(true);
       show(ui.interruptedBanner, false);
       setAnalysis(CRY_STATUS_COPY.listening, 0);
     }
   });
   track.addEventListener("ended", () => {
+    setMicLive(false, "MIC ENDED");
     show(ui.interruptedBanner, true);
-    enterPaused(true);
+    void enterPaused(true);
   });
 }
 
@@ -535,20 +649,40 @@ function startLevelMeter(stream) {
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
-    state.audioCtx = new Ctx();
-    const source = state.audioCtx.createMediaStreamSource(stream);
+    if (!state.audioCtx || state.audioCtx.state === "closed") {
+      state.audioCtx = new Ctx();
+    }
+    state.audioSource = state.audioCtx.createMediaStreamSource(stream);
     state.analyser = state.audioCtx.createAnalyser();
     state.analyser.fftSize = 512;
-    source.connect(state.analyser);
-    const data = new Uint8Array(state.analyser.fftSize);
+    state.audioSource.connect(state.analyser);
+    const useFloat = typeof state.analyser.getFloatTimeDomainData === "function";
+    const data = useFloat
+      ? new Float32Array(state.analyser.fftSize)
+      : new Uint8Array(state.analyser.fftSize);
+    let energy = 0;
     state.levelTimer = setInterval(() => {
-      state.analyser.getByteTimeDomainData(data);
+      if (state.audioCtx.state !== "running") {
+        energy += (0 - energy) * 0.14;
+        ui.orb.dataset.energy = energy.toFixed(3);
+        if (orb) orb.setLevel(energy);
+        return;
+      }
+      if (useFloat) state.analyser.getFloatTimeDomainData(data);
+      else state.analyser.getByteTimeDomainData(data);
       let sum = 0;
       for (let i = 0; i < data.length; i++) {
-        const v = (data[i] - 128) / 128;
+        const v = useFloat ? data[i] : (data[i] - 128) / 128;
         sum += v * v;
       }
-      if (orb) orb.setLevel(Math.min(1, Math.sqrt(sum / data.length) * 3.4));
+      const rms = Math.sqrt(sum / data.length);
+      const db = 20 * Math.log10(Math.max(rms, 0.0000001));
+      const linear = Math.max(0, Math.min(1, (db + 60) / 30));
+      const target = Math.pow(linear, 0.65);
+      const response = target > energy ? 0.65 : 0.14;
+      energy += (target - energy) * response;
+      ui.orb.dataset.energy = energy.toFixed(3);
+      if (orb) orb.setLevel(energy);
     }, 90);
   } catch (error) { /* the level meter is decoration, never required */ }
 }
@@ -556,6 +690,11 @@ function startLevelMeter(stream) {
 function stopLevelMeter() {
   clearInterval(state.levelTimer);
   state.levelTimer = null;
+  if (state.audioSource) {
+    try { state.audioSource.disconnect(); } catch (e) {}
+    state.audioSource = null;
+  }
+  ui.orb.dataset.energy = "0.000";
   if (orb) orb.setLevel(0);
   if (state.audioCtx) { try { state.audioCtx.close(); } catch (e) {} state.audioCtx = null; }
   state.analyser = null;
@@ -584,43 +723,261 @@ function startSegmentRecorder() {
 }
 
 async function rotateSegment() {
-  if (state.session !== "listening" || !state.recorderStopper) return;
+  if (state.rotationPromise) return state.rotationPromise;
+  if (state.session !== "listening" || !state.recorderStopper ||
+      state.transitionBusy || state.stopRequested) return;
+  state.rotationPromise = (async () => {
+    const stopper = state.recorderStopper;
+    state.recorderStopper = null;
+    const blob = await stopper();
+    if (state.session === "listening" && !state.transitionBusy &&
+        !state.stopRequested) {
+      startSegmentRecorder();
+    }
+    enqueueSegment(blob);
+  })();
+  try {
+    await state.rotationPromise;
+  } finally {
+    state.rotationPromise = null;
+  }
+}
+
+async function finalizeCurrentSegment() {
+  if (state.rotationPromise) await state.rotationPromise;
+  if (!state.recorderStopper) return;
   const stopper = state.recorderStopper;
   state.recorderStopper = null;
   const blob = await stopper();
-  if (state.session === "listening") startSegmentRecorder();
-  submitSegment(blob);
+  enqueueSegment(blob);
 }
 
-/* Upload discipline per the plan: the newest completed blob may wait behind the
-   in-flight request; anything older is dropped. With ROUTES_GREEN false the
-   network call is a local no-op that keeps the exact same queue behaviour. */
-async function submitSegment(blob) {
-  if (!blob || blob.size === 0) return;
-  state.segmentsCaptured += 1;
-  if (state.inFlight) {
-    state.pendingBlob = blob;             // replaces any older waiter, keeps 1
+function applyServerSession(session, includeDecision = true) {
+  if (!session || typeof session !== "object") return;
+  state.serverSession = session;
+  if (Number.isInteger(session.last_sequence) &&
+      session.last_sequence >= state.acceptedSequence) {
+    state.acceptedSequence = session.last_sequence;
+  }
+  if (session.profile && Number.isInteger(session.profile.id)) {
+    const local = state.profiles.find((profile) => profile.id === session.profile.id);
+    applySelectedProfile(local || session.profile);
+  }
+  if (includeDecision && session.decision) latchDecision(session.decision);
+}
+
+function cancelDecisionReveal() {
+  clearTimeout(state.decisionRevealTimer);
+  state.decisionRevealTimer = null;
+  state.pendingDecision = null;
+}
+
+function scheduleDecisionReveal(decision) {
+  const guidance = decision && decision.guidance;
+  if (state.decision || state.pendingDecision ||
+      !guidance || guidance.status !== "grounded" || !guidance.recommendation) return;
+  state.pendingDecision = decision;
+  state.decisionRevealTimer = setTimeout(() => {
+    const pending = state.pendingDecision;
+    state.pendingDecision = null;
+    state.decisionRevealTimer = null;
+    if (pending && (state.session === "listening" || state.session === "paused")) {
+      latchDecision(pending);
+    }
+  }, DECISION_REVEAL_MS);
+}
+
+function revealPendingDecisionNow() {
+  const pending = state.pendingDecision;
+  cancelDecisionReveal();
+  if (pending && !state.decision) latchDecision(pending);
+}
+
+function renderChunkResult(payload) {
+  const chunk = payload && payload.chunk;
+  if (!chunk || typeof chunk !== "object") return;
+  if (chunk.status === "invalid") {
+    const reasons = Array.isArray(chunk.reason_codes) ? chunk.reason_codes : [];
+    const knownReason = reasons.find((reason) =>
+      Object.prototype.hasOwnProperty.call(INVALID_CHUNK_STATUS, reason)
+    );
+    renderCryStatus(knownReason ? INVALID_CHUNK_STATUS[knownReason] : "decode_error");
     return;
   }
-  state.inFlight = true;
-  state.sequence += 1;
+  const cry = chunk.cry_presence;
+  if (cry && typeof cry.status === "string") renderCryStatus(cry.status);
+  else if (typeof chunk.status === "string") renderCryStatus(chunk.status);
+  const progress = chunk.decision_progress;
+  if (
+    progress &&
+    typeof progress === "object" &&
+    typeof progress.label === "string" &&
+    progress.label
+  ) {
+    setAnalysis(progress.label, CRY_STATUS_TTL_MS);
+  }
+}
+
+function notifyUploadWaiters() {
+  if (state.uploadFatal) {
+    const waiters = state.drainWaiters.splice(0);
+    for (const waiter of waiters) waiter.reject(state.uploadFatal);
+    return;
+  }
+  if (state.activeUpload || state.pendingSegment) return;
+  const waiters = state.drainWaiters.splice(0);
+  for (const waiter of waiters) waiter.resolve();
+}
+
+function drainUploads() {
+  if (state.uploadFatal) return Promise.reject(state.uploadFatal);
+  if (!state.activeUpload && !state.pendingSegment) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    state.drainWaiters.push({ resolve, reject });
+  });
+}
+
+function failUploadPermanently(message) {
+  state.uploadFatal = new Error(message);
+  clearTimeout(state.uploadRetryTimer);
+  state.uploadRetryTimer = null;
+  showError(message);
+  setAnalysis("Analysis stopped for this session", 0);
+  notifyUploadWaiters();
+}
+
+function promoteWaitingSegment() {
+  if (state.activeUpload || !state.pendingSegment || state.uploadFatal) {
+    notifyUploadWaiters();
+    return;
+  }
+  const next = state.pendingSegment;
+  state.pendingSegment = null;
+  startSegmentUpload(next);
+}
+
+function acceptUploadedSegment(entry, payload) {
+  const serverDecision = payload && payload.session && payload.session.decision;
+  applyServerSession(payload && payload.session, false);
+  if (state.acceptedSequence < entry.sequence) {
+    state.acceptedSequence = entry.sequence;
+  }
+  renderChunkResult(payload);
+  if (serverDecision) scheduleDecisionReveal(serverDecision);
+  state.activeUpload = null;
+  hideConnectionLoss();
+  promoteWaitingSegment();
+}
+
+function scheduleUploadRetry(entry) {
+  if (state.activeUpload !== entry || state.uploadFatal) return;
+  showConnectionLoss();
+  clearTimeout(state.uploadRetryTimer);
+  state.uploadRetryTimer = setTimeout(() => {
+    state.uploadRetryTimer = null;
+    void uploadSegment(entry);
+  }, UPLOAD_RETRY_MS);
+}
+
+async function reconcileSequence(entry) {
   try {
-    if (ROUTES_GREEN) {
-      /* Real wiring lands here once the product workstream marks routes green:
-         POST /api/care-sessions/{id}/chunks with X-Capture-Sequence. */
+    const result = await apiJson("/api/care-sessions/" + state.sessionId);
+    if (!result.ok || !result.data || !result.data.session) {
+      scheduleUploadRetry(entry);
+      return;
+    }
+    applyServerSession(result.data.session);
+    if (state.acceptedSequence >= entry.sequence) {
+      state.activeUpload = null;
+      hideConnectionLoss();
+      promoteWaitingSegment();
+    } else if (state.acceptedSequence === entry.sequence - 1) {
+      scheduleUploadRetry(entry);
     } else {
-      await new Promise((resolve) => setTimeout(resolve, 120));
+      failUploadPermanently(
+        "The server and phone disagreed about segment order. Discard this session and start again."
+      );
     }
   } catch (error) {
-    if (!state.preview) showConnectionLoss();
-  } finally {
-    state.inFlight = false;
-    if (state.pendingBlob) {
-      const next = state.pendingBlob;
-      state.pendingBlob = null;
-      submitSegment(next);
-    }
+    scheduleUploadRetry(entry);
   }
+}
+
+async function uploadSegment(entry) {
+  if (state.activeUpload !== entry || state.uploadFatal || !state.sessionId) return;
+  entry.attempt += 1;
+  let response;
+  let payload;
+  try {
+    response = await fetch(
+      "/api/care-sessions/" + state.sessionId + "/chunks",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": entry.mime || "audio/mp4",
+          "X-Capture-Sequence": String(entry.sequence),
+          "X-Capture-Source": "microphone",
+          "X-Capture-Device": entry.device,
+        },
+        body: entry.blob,
+      }
+    );
+    payload = await readJson(response);
+  } catch (error) {
+    scheduleUploadRetry(entry);
+    return;
+  }
+
+  const accepted = response.ok || response.status === 422;
+  const serverLast = payload && payload.session && payload.session.last_sequence;
+  if (accepted && Number.isInteger(serverLast) && serverLast >= entry.sequence) {
+    acceptUploadedSegment(entry, payload);
+    return;
+  }
+  if (response.status === 409 && payload && payload.reason === "out_of_order_chunk") {
+    await reconcileSequence(entry);
+    return;
+  }
+  if (response.status === 409 && payload && payload.reason === "sequence_conflict") {
+    failUploadPermanently(
+      "The server rejected a segment retry because its bytes changed. Discard this session."
+    );
+    return;
+  }
+  if (response.status >= 500 || response.status === 408 || response.status === 429) {
+    scheduleUploadRetry(entry);
+    return;
+  }
+  failUploadPermanently(
+    "The server could not accept this audio segment. Discard this session and start again."
+  );
+}
+
+function startSegmentUpload(entry) {
+  if (state.activeUpload || state.uploadFatal) return;
+  entry.sequence = state.acceptedSequence + 1;
+  state.activeUpload = entry;
+  void uploadSegment(entry);
+}
+
+/* The active upload is durable. A newer completed file may wait behind it.
+   If another file completes while one is already waiting, only the newest
+   unassigned file is retained. */
+function enqueueSegment(blob) {
+  if (!blob || blob.size === 0) return;
+  state.segmentsCaptured += 1;
+  const entry = {
+    sequence: null,
+    blob,
+    mime: blob.type || "audio/mp4",
+    device: state.captureDeviceName || "Browser microphone",
+    attempt: 0,
+  };
+  if (state.activeUpload) {
+    state.pendingSegment = entry;
+    return;
+  }
+  startSegmentUpload(entry);
 }
 
 async function holdScreenAwake() {
@@ -638,17 +995,28 @@ function stopTracks() {
   if (state.stream) for (const track of state.stream.getTracks()) track.stop();
   state.stream = null;
   state.track = null;
+  state.appliedSettings = {};
+  setMicLive(false);
 }
 
 /* ============================================================ session states */
+
+function setMicLive(live, label) {
+  state.micLive = Boolean(live);
+  ui.body.dataset.mic = state.micLive ? "live" : "off";
+  if (state.session === "listening" || state.session === "paused") {
+    ui.recChip.dataset.mode = state.micLive ? "live" : "paused";
+    setText(ui.recChipState, label || (state.micLive ? "LIVE" : "PAUSED"));
+  }
+  blockIncidentPlayback(state.micLive);
+}
 
 function setSessionState(name) {
   state.session = name;
   ui.listen.dataset.state = name;
   ui.body.dataset.session = name;
-  const live = name === "listening";
-  state.micLive = live;
-  ui.body.dataset.mic = live ? "live" : "off";
+  const live = name === "listening" &&
+    state.track && state.track.readyState !== "ended" && !state.track.muted;
 
   show(ui.idleStack, name === "idle");
   show(ui.capsule, name === "listening" || name === "paused");
@@ -656,13 +1024,17 @@ function setSessionState(name) {
   show(ui.resume, name === "paused");
   show(ui.outcomeForm, name === "awaiting_outcome");
   show(ui.savedBlock, name === "saved");
+  show(
+    ui.suggestion,
+    Boolean(state.decision) &&
+      (name === "listening" || name === "paused" || name === "awaiting_outcome")
+  );
   show(ui.recChip, name === "listening" || name === "paused");
-  ui.recChip.dataset.mode = live ? "live" : "paused";
-  setText(ui.recChipState, live ? "LIVE" : "PAUSED");
   ui.recChip.setAttribute("aria-hidden", name === "idle" ? "true" : "false");
-  ui.profileSwitch.classList.toggle("static", name !== "idle");
-  ui.profileSwitch.disabled = name !== "idle";
-  blockIncidentPlayback(live);
+  setMicLive(live);
+  ui.pause.disabled = state.transitionBusy;
+  ui.resume.disabled = state.transitionBusy;
+  ui.stop.disabled = state.transitionBusy;
   syncStartGate();
 
   if (name === "idle") orbState("idle");
@@ -672,10 +1044,7 @@ function setSessionState(name) {
 
 function setAnalysis(text, ttlMs) {
   clearTimeout(state.statusTimer);
-  if (ui.analysis.textContent !== text) {
-    ui.analysis.style.opacity = "0";
-    setTimeout(() => { setText(ui.analysis, text); ui.analysis.style.opacity = "1"; }, 130);
-  }
+  setText(ui.analysis, text);
   if (ttlMs) {
     state.statusTimer = setTimeout(() => {
       if (state.session === "listening") setAnalysis(CRY_STATUS_COPY.listening, 0);
@@ -696,95 +1065,207 @@ function renderCryStatus(status) {
 
 /* -------------------------------------------------------------- start flow --- */
 
+function setTransitionBusy(busy) {
+  state.transitionBusy = Boolean(busy);
+  ui.pause.disabled = state.transitionBusy;
+  ui.resume.disabled = state.transitionBusy;
+  ui.stop.disabled = state.transitionBusy;
+  ui.saveOutcome.disabled = state.transitionBusy;
+  ui.discard.disabled = state.transitionBusy;
+  syncStartGate();
+}
+
 async function startListening() {
-  if (state.session !== "idle") return;
+  if (state.session !== "idle" || state.transitionBusy ||
+      !state.healthReady || !state.selectedProfile) return;
+  primeLevelContext();
+  setTransitionBusy(true);
   showError("");
   setSessionState("requesting");
   setAnalysis("Asking for the microphone", 0);
   try {
     await acquireStream();
   } catch (error) {
+    setTransitionBusy(false);
     setSessionState("idle");
     setAnalysis("", 0);
     showError("Microphone permission was declined, so nothing can be recorded. " +
               "Allow the microphone for this site and try again.");
     return;
   }
+
+  let created;
+  try {
+    created = await apiJson(
+      "/api/care-sessions",
+      "POST",
+      { profile_id: state.selectedProfile.id, tags: [] }
+    );
+    if (!created.ok || !created.data || !created.data.session) {
+      throw new Error(created.data && created.data.reason || "session_create_failed");
+    }
+  } catch (error) {
+    stopLevelMeter();
+    stopTracks();
+    releaseScreenAwake();
+    setTransitionBusy(false);
+    setSessionState("idle");
+    setAnalysis("", 0);
+    showError(
+      "The laptop could not start this care session. Check the server and try again."
+    );
+    return;
+  }
+
+  applyServerSession(created.data.session);
+  state.sessionId = created.data.session.id;
   state.accumulatedMs = 0;
-  state.sequence = 0;
+  state.acceptedSequence = Number.isInteger(created.data.session.last_sequence)
+    ? created.data.session.last_sequence
+    : 0;
   state.segmentsCaptured = 0;
-  state.pendingBlob = null;
-  state.decision = null;
-  ui.listen.dataset.decision = "none";
-  ui.body.dataset.decision = "none";
-  show(ui.suggestion, false);
+  state.activeUpload = null;
+  state.pendingSegment = null;
+  state.uploadFatal = null;
+  state.drainWaiters = [];
+  state.stopRequested = false;
+  clearTimeout(state.uploadRetryTimer);
+  state.uploadRetryTimer = null;
+  clearDecisionPresentation();
   state.startedAt = Date.now();
+  setTransitionBusy(false);
   setSessionState("listening");
   setAnalysis(CRY_STATUS_COPY.listening, 0);
   holdScreenAwake();
   startSegmentRecorder();
-  state.rotateTimer = setInterval(rotateSegment, CARE_SEGMENT_MS);
+  state.rotateTimer = setInterval(() => { void rotateSegment(); }, CARE_SEGMENT_MS);
   state.clockTimer = setInterval(() => {
     setText(ui.recChipTime, clockText(elapsedMs()));
   }, 500);
 }
 
 async function enterPaused(fromInterruption) {
-  if (state.session !== "listening") return;
+  if (state.session !== "listening" || state.transitionBusy) return;
+  setTransitionBusy(true);
   state.accumulatedMs = elapsedMs();
   state.startedAt = 0;
   clearInterval(state.rotateTimer);
-  if (state.recorderStopper) {
-    const stopper = state.recorderStopper;
-    state.recorderStopper = null;
-    const blob = await stopper();
-    submitSegment(blob);
+  state.stopRequested = true;
+  try {
+    await finalizeCurrentSegment();
+    await drainUploads();
+  } catch (error) {
+    setTransitionBusy(false);
+    return;
   }
   stopLevelMeter();
-  stopTracks();                    // pause RELEASES the microphone, honestly
+  stopTracks();
   releaseScreenAwake();
+  try {
+    const result = await apiJson(
+      "/api/care-sessions/" + state.sessionId + "/pause",
+      "POST",
+      {}
+    );
+    if (!result.ok || !result.data || !result.data.session) throw new Error("pause_failed");
+    applyServerSession(result.data.session);
+  } catch (error) {
+    showConnectionLoss();
+    showError("The microphone is paused, but the laptop did not confirm the pause.");
+  }
+  revealPendingDecisionNow();
+  state.stopRequested = false;
+  setTransitionBusy(false);
   setSessionState("paused");
   setAnalysis(fromInterruption ? "Paused after the system took the microphone"
                                : "Paused. The microphone is released.", 0);
 }
 
 async function resumeListening() {
-  if (state.session !== "paused") return;
+  if (state.session !== "paused" || state.transitionBusy) return;
+  primeLevelContext();
+  setTransitionBusy(true);
   show(ui.interruptedBanner, false);
   try {
     await acquireStream();
   } catch (error) {
+    setTransitionBusy(false);
     showError("The microphone could not be reopened. Try again, or stop the session.");
     return;
   }
+  try {
+    const result = await apiJson(
+      "/api/care-sessions/" + state.sessionId + "/resume",
+      "POST",
+      {}
+    );
+    if (!result.ok || !result.data || !result.data.session) throw new Error("resume_failed");
+    applyServerSession(result.data.session);
+  } catch (error) {
+    stopLevelMeter();
+    stopTracks();
+    setTransitionBusy(false);
+    showError("The laptop did not confirm Resume. The microphone remains off.");
+    return;
+  }
   state.startedAt = Date.now();
+  state.stopRequested = false;
+  setTransitionBusy(false);
   setSessionState("listening");
   setAnalysis(CRY_STATUS_COPY.listening, 0);
   holdScreenAwake();
   startSegmentRecorder();
-  state.rotateTimer = setInterval(rotateSegment, CARE_SEGMENT_MS);
+  state.rotateTimer = setInterval(() => { void rotateSegment(); }, CARE_SEGMENT_MS);
 }
 
 async function stopSession() {
-  if (state.session !== "listening" && state.session !== "paused") return;
+  if ((state.session !== "listening" && state.session !== "paused") ||
+      state.transitionBusy) return;
+  setTransitionBusy(true);
+  state.stopRequested = true;
   const total = elapsedMs();
   state.accumulatedMs = total;
   state.startedAt = 0;
   clearInterval(state.rotateTimer);
   clearInterval(state.clockTimer);
-  if (state.recorderStopper) {
-    const stopper = state.recorderStopper;
-    state.recorderStopper = null;
-    const blob = await stopper();      // drain the in-flight segment first
-    submitSegment(blob);
+  setAnalysis("Finishing the last segment", 0);
+  try {
+    await finalizeCurrentSegment();
+    stopLevelMeter();
+    stopTracks();
+    releaseScreenAwake();
+    await drainUploads();
+  } catch (error) {
+    setTransitionBusy(false);
+    return;
   }
-  stopLevelMeter();
-  stopTracks();
-  releaseScreenAwake();
+  let stopped;
+  try {
+    stopped = await apiJson(
+      "/api/care-sessions/" + state.sessionId + "/stop",
+      "POST",
+      {}
+    );
+    if (!stopped.ok || !stopped.data || !stopped.data.session) {
+      throw new Error("stop_failed");
+    }
+    applyServerSession(stopped.data.session);
+  } catch (error) {
+    showConnectionLoss();
+    showError(
+      "The audio is safe on the laptop, but Stop was not confirmed. Try again."
+    );
+    state.stopRequested = false;
+    setTransitionBusy(false);
+    setSessionState("paused");
+    return;
+  }
+  revealPendingDecisionNow();
   show(ui.interruptedBanner, false);
   hideConnectionLoss();
   setText(ui.outcomeDuration, clockText(total));
   prefillOutcome();
+  setTransitionBusy(false);
   setSessionState("awaiting_outcome");
   setAnalysis("", 0);
 }
@@ -794,8 +1275,10 @@ function prefillOutcome() {
   ui.outcomeNotes.value = "";
   ui.outcomeTags.value = "";
   setText(ui.outcomeStatus, "");
-  for (const button of ui.settledSeg.querySelectorAll("button")) {
-    button.setAttribute("aria-pressed", "false");
+  const settledButtons = Array.from(ui.settledSeg.querySelectorAll("button"));
+  for (const [index, button] of settledButtons.entries()) {
+    button.setAttribute("aria-checked", "false");
+    button.tabIndex = index === 0 ? 0 : -1;
   }
   syncChipPressed();
   if (state.decision && state.decision.guidance &&
@@ -805,7 +1288,7 @@ function prefillOutcome() {
 }
 
 function selectedSettled() {
-  const pressed = ui.settledSeg.querySelector('button[aria-pressed="true"]');
+  const pressed = ui.settledSeg.querySelector('button[aria-checked="true"]');
   if (!pressed) return undefined;
   const raw = pressed.dataset.settled;
   return raw === "true" ? true : raw === "false" ? false : null;
@@ -813,6 +1296,7 @@ function selectedSettled() {
 
 async function saveOutcome(event) {
   event.preventDefault();
+  if (state.transitionBusy || !state.sessionId) return;
   const action = ui.outcomeAction.value.trim();
   if (!action) {
     setText(ui.outcomeStatus, "Write what you did first. One phrase is enough.");
@@ -821,7 +1305,7 @@ async function saveOutcome(event) {
   }
   const settled = selectedSettled();
   if (settled === undefined) {
-    setText(ui.outcomeStatus, "Pick whether it settled, or choose Not sure.");
+    setText(ui.outcomeStatus, "Choose Yes, Not yet, or Not sure.");
     return;
   }
   const payload = {
@@ -830,33 +1314,95 @@ async function saveOutcome(event) {
     notes: ui.outcomeNotes.value.trim(),
     tags: ui.outcomeTags.value.split(",").map((t) => t.trim()).filter(Boolean).slice(0, 20),
   };
-  if (ROUTES_GREEN) {
-    /* POST /api/care-sessions/{id}/complete lands here when routes are green. */
-  } else if (!state.preview) {
-    setText(ui.outcomeStatus,
-      "Saving is not wired to the server yet, so nothing was stored. " +
-      "This form is the exact payload the complete route will receive.");
+  setTransitionBusy(true);
+  setText(ui.outcomeStatus, "Saving this memory");
+  try {
+    const result = await apiJson(
+      "/api/care-sessions/" + state.sessionId + "/complete",
+      "POST",
+      payload
+    );
+    if (!result.ok || !result.data || !result.data.session) {
+      const reason = result.data && result.data.reason;
+      setText(
+        ui.outcomeStatus,
+        reason === "no_matched_chunk"
+          ? "No matched cry segment was available to save. You can discard this session."
+          : "The memory was not saved. Check the laptop server and try again."
+      );
+      setTransitionBusy(false);
+      return;
+    }
+    applyServerSession(result.data.session);
+  } catch (error) {
+    setText(ui.outcomeStatus, "The memory was not saved. Check the connection and try again.");
+    setTransitionBusy(false);
     return;
   }
-  void payload;
+  setTransitionBusy(false);
   setSessionState("saved");
 }
 
-function discardSession() {
-  /* DELETE /api/care-sessions/{id} when routes are green. Nothing local to keep. */
+async function discardSession() {
+  if (state.transitionBusy || !state.sessionId) return;
+  setTransitionBusy(true);
+  setText(ui.outcomeStatus, "Discarding this session");
+  try {
+    const result = await apiJson(
+      "/api/care-sessions/" + state.sessionId,
+      "DELETE"
+    );
+    if (!result.ok || !result.data || !result.data.session) {
+      throw new Error("discard_failed");
+    }
+  } catch (error) {
+    setText(ui.outcomeStatus, "The session was not discarded. Check the connection and try again.");
+    setTransitionBusy(false);
+    return;
+  }
+  setTransitionBusy(false);
   resetToIdle();
 }
 
-function resetToIdle() {
+function clearDecisionPresentation() {
+  cancelDecisionReveal();
   state.decision = null;
   ui.listen.dataset.decision = "none";
   ui.body.dataset.decision = "none";
   show(ui.suggestion, false);
+  setText(ui.gHeadline, "");
+  setText(ui.gRecommendation, "");
+  setText(ui.gEvidence, "");
+  setText(ui.gInterpretation, "");
+  ui.basisList.textContent = "";
+  ui.incidentList.textContent = "";
+  setText($("incidents-count"), "0");
+  show(ui.gArt, false);
+}
+
+function resetToIdle() {
+  clearInterval(state.rotateTimer);
+  clearInterval(state.clockTimer);
+  clearTimeout(state.uploadRetryTimer);
+  state.rotateTimer = null;
+  state.clockTimer = null;
+  state.uploadRetryTimer = null;
+  state.serverSession = null;
+  state.sessionId = null;
+  state.activeUpload = null;
+  state.pendingSegment = null;
+  state.uploadFatal = null;
+  state.drainWaiters = [];
+  state.acceptedSequence = 0;
+  state.stopRequested = false;
+  clearDecisionPresentation();
   show(ui.recChip, false);
   setText(ui.recChipTime, "00:00");
   state.accumulatedMs = 0;
   setSessionState("idle");
   setAnalysis("", 0);
+  void pollHealth();
+  void loadProfiles();
 }
 
 /* ============================================================ decision latch
@@ -876,25 +1422,14 @@ function latchDecision(decision) {
   if (!decision || !decision.guidance) return;
   const g = decision.guidance;
   if (g.status !== "grounded" || !g.recommendation) return;
+  cancelDecisionReveal();
   state.decision = decision;
 
-  /* The spec example carries "What helped before" as the headline AND as the
-     first words of the recommendation. The tile label is the headline, so when
-     the recommendation opens with the same words plus a separator, the body
-     shows the remainder. Words are only dropped when they are an exact repeat
-     of the label directly above them; nothing is ever rephrased. */
   const headline = g.headline || "";
-  let bodyText = g.recommendation;
-  if (headline && bodyText.toLowerCase().startsWith(headline.toLowerCase())) {
-    const rest = bodyText.slice(headline.length).replace(/^[\s:,-]+/, "");
-    if (rest) bodyText = rest.charAt(0).toUpperCase() + rest.slice(1);
-  }
   setText(ui.gHeadline, headline);
   show(ui.gHeadline, Boolean(headline));
-  setText(ui.gRecommendation, bodyText);
-  setText(ui.gEvidence, g.evidence_summary ||
-    (typeof g.support_count === "number" ?
-      "Supported by " + g.support_count + " recorded incidents." : ""));
+  setText(ui.gRecommendation, g.recommendation);
+  setText(ui.gEvidence, g.evidence_summary || "");
   setText(ui.gInterpretation, g.interpretation || "");
 
   const iconKey = actionIconFor((decision.scenarios && decision.scenarios[0] &&
@@ -917,6 +1452,7 @@ function latchDecision(decision) {
   for (const sc of scenarios) {
     ui.incidentList.appendChild(renderIncident(sc));
   }
+  blockIncidentPlayback(state.micLive);
   setText($("incidents-count"),
     typeof g.support_count === "number" ? g.support_count : scenarios.length);
 
@@ -963,7 +1499,8 @@ function renderIncident(sc) {
   li.className = "incident";
   const provenance = sc.outcome_src === "caregiver" ? ["bd-care", "caregiver"]
     : sc.outcome_src === "inferred" ? ["bd-inf", "inferred"]
-    : ["bd-seed", "seeded"];
+    : sc.outcome_src === "seed" ? ["bd-seed", "seeded"]
+    : ["bd-unknown", "source unknown"];
   if (provenance[1] === "seeded") li.classList.add("seeded");
 
   const glyphbox = document.createElement("span");
@@ -980,10 +1517,17 @@ function renderIncident(sc) {
   const play = document.createElement("button");
   play.type = "button";
   play.className = "play";
+  play.setAttribute("aria-label", "Play representative cry segment");
   play.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" ' +
     'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" ' +
     'stroke-linejoin="round"><path d="M9.2 6.6 16.8 12l-7.6 5.4z"/></svg>';
-  play.dataset.audio = sc.audio_url || "";
+  const scopedPrefix = state.selectedProfile
+    ? "/api/profiles/" + state.selectedProfile.id + "/incidents/"
+    : "";
+  play.dataset.audio = typeof sc.audio_url === "string" &&
+    scopedPrefix && sc.audio_url.startsWith(scopedPrefix)
+    ? sc.audio_url
+    : "";
   play.addEventListener("click", () => playIncident(play));
 
   const body = document.createElement("div");
@@ -1017,8 +1561,8 @@ let incidentAudio = null;
 function playIncident(button) {
   if (state.micLive) return;                 // players stay blocked while live
   const src = button.dataset.audio;
-  if (!src || !ROUTES_GREEN) {
-    setAnalysis("Incident audio is not wired yet", 3500);
+  if (!src) {
+    setAnalysis("No representative audio is available", 3500);
     return;
   }
   if (incidentAudio) { incidentAudio.pause(); incidentAudio = null; }
@@ -1029,91 +1573,12 @@ function playIncident(button) {
 function blockIncidentPlayback(blocked) {
   for (const button of document.querySelectorAll(".incident .play")) {
     button.dataset.blocked = blocked ? "true" : "false";
-    button.setAttribute("aria-disabled", blocked ? "true" : "false");
+    button.disabled = blocked || !button.dataset.audio;
+    button.setAttribute("aria-disabled", button.disabled ? "true" : "false");
     button.title = blocked ?
       "Playback is blocked while the microphone is live" : "Play the recorded segment";
   }
   if (blocked && incidentAudio) { incidentAudio.pause(); incidentAudio = null; }
-}
-
-/* ================================================================== preview
-   The labelled simulation. It feeds the SAME render paths the wiring will use,
-   with the example payload from the design spec, and it never leaves the screen
-   without its ribbon. */
-
-const PREVIEW_DECISION = {
-  id: 88,
-  latched_at: "2026-07-30T20:15:15-04:00",
-  profile: { id: 12, display_name: "Amara" },
-  guidance: {
-    status: "grounded",
-    headline: "What helped before",
-    interpretation: "This resembles earlier incidents for this profile.",
-    recommendation: "What helped before: held baby upright.",
-    evidence_summary: "Supported by 2 similar recorded incidents.",
-    support_count: 2,
-    incident_ids: [101, 97],
-    pattern: "similar time of day",
-  },
-  basis: [
-    "cry pattern was the strongest available signal",
-    "occurred at a similar time of day",
-  ],
-  scenarios: [
-    {
-      episode_id: 101,
-      started_at: "2026-07-27T20:04:00-04:00",
-      interventions: [{ order: 1, action: "held baby upright",
-                        evidence: "held the baby upright" }],
-      outcome: "The baby settled.",
-      outcome_src: "caregiver",
-      worked: true,
-      contributions: [
-        "cry pattern was the strongest available signal",
-        "occurred at a similar time of day",
-      ],
-      audio_url: "/api/audio/episodes/101",
-    },
-    {
-      episode_id: 97,
-      started_at: "2026-07-26T19:52:00-04:00",
-      interventions: [{ order: 1, action: "white noise",
-                        evidence: "" }],
-      outcome: "The baby settled.",
-      outcome_src: "seed",
-      worked: true,
-      contributions: ["cry pattern was the strongest available signal"],
-      audio_url: "",
-    },
-  ],
-};
-
-const PREVIEW_STEPS = [
-  ["Start a session (asks for the microphone)", () => startListening()],
-  ["Segment says: no infant cry", () => renderCryStatus("no_cry_detected")],
-  ["Segment says: cry-like, unclear", () => renderCryStatus("cry_uncertain")],
-  ["Segment says: infant cry detected", () => renderCryStatus("infant_cry_detected")],
-  ["Server latches grounded guidance", () => latchDecision(PREVIEW_DECISION)],
-  ["Pause", () => enterPaused(false)],
-  ["Resume", () => resumeListening()],
-  ["Connection lost", () => showConnectionLoss()],
-  ["Connection back", () => hideConnectionLoss()],
-  ["Stop, structured follow up", () => stopSession()],
-  ["Back to idle", () => resetToIdle()],
-];
-
-function initPreview() {
-  if (!state.preview) return;
-  show(ui.previewBar, true);
-  let step = 0;
-  const label = () => { ui.previewNext.textContent = "Next"; };
-  ui.previewNext.addEventListener("click", () => {
-    const [, run] = PREVIEW_STEPS[step];
-    step = (step + 1) % PREVIEW_STEPS.length;
-    label();
-    run();
-  });
-  label();
 }
 
 /* ==================================================================== boot --- */
@@ -1161,12 +1626,28 @@ function initStaticIcons() {
 }
 
 function initSettled() {
+  const buttons = Array.from(ui.settledSeg.querySelectorAll("button[data-settled]"));
+  const choose = (button) => {
+    for (const other of buttons) {
+      const selected = other === button;
+      other.setAttribute("aria-checked", selected ? "true" : "false");
+      other.tabIndex = selected ? 0 : -1;
+    }
+  };
   ui.settledSeg.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-settled]");
     if (!button) return;
-    for (const other of ui.settledSeg.querySelectorAll("button")) {
-      other.setAttribute("aria-pressed", other === button ? "true" : "false");
-    }
+    choose(button);
+  });
+  ui.settledSeg.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    const current = buttons.indexOf(document.activeElement);
+    if (current < 0) return;
+    event.preventDefault();
+    const backwards = event.key === "ArrowLeft" || event.key === "ArrowUp";
+    const next = (current + (backwards ? -1 : 1) + buttons.length) % buttons.length;
+    choose(buttons[next]);
+    buttons[next].focus();
   });
 }
 
@@ -1175,7 +1656,7 @@ let navPeekTimer = null;
 document.addEventListener("click", (event) => {
   if (!LAND_MQ.matches) return;
   if (event.target.closest("button, a, input, textarea, select, summary, details, " +
-                           "#tabbar, #ctl-capsule, #preview-bar, audio")) return;
+                           "#tabbar, #ctl-capsule, audio")) return;
   ui.body.dataset.navpeek = "true";
   clearTimeout(navPeekTimer);
   navPeekTimer = setTimeout(() => { delete ui.body.dataset.navpeek; }, 3500);
@@ -1188,7 +1669,10 @@ document.addEventListener("visibilitychange", () => {
     show(ui.interruptedBanner, true);
     enterPaused(true);
   }
-  if (!document.hidden && state.session === "listening") holdScreenAwake();
+  if (!document.hidden && state.session === "listening") {
+    primeLevelContext();
+    holdScreenAwake();
+  }
 });
 
 ui.start.addEventListener("click", startListening);
@@ -1196,43 +1680,28 @@ ui.pause.addEventListener("click", () => enterPaused(false));
 ui.resume.addEventListener("click", resumeListening);
 ui.stop.addEventListener("click", stopSession);
 ui.outcomeForm.addEventListener("submit", saveOutcome);
-ui.discard.addEventListener("click", discardSession);
+ui.discard.addEventListener("click", () => { void discardSession(); });
 ui.savedDone.addEventListener("click", resetToIdle);
-ui.connRetry.addEventListener("click", pollHealth);
-ui.profileSwitch.addEventListener("click", () => {
-  setAnalysis("Profile switching arrives with the Baby page", 3000);
+ui.connRetry.addEventListener("click", () => {
+  if (state.activeUpload) {
+    clearTimeout(state.uploadRetryTimer);
+    state.uploadRetryTimer = null;
+    void uploadSegment(state.activeUpload);
+  }
+  void pollHealth();
+});
+ui.profilePicker.addEventListener("change", () => {
+  if (state.session !== "idle") return;
+  const profileId = Number(ui.profilePicker.value);
+  applySelectedProfile(
+    state.profiles.find((profile) => profile.id === profileId) || null
+  );
 });
 
 initChips();
 initStaticIcons();
 initSettled();
-initPreview();
-
-
 navigate(location.hash.replace("#", "") || "listen");
 setSessionState("idle");
-pollHealth();
+void Promise.all([pollHealth(), loadProfiles()]);
 setInterval(pollHealth, HEALTH_POLL_MS);
-
-/* Review harness: runs LAST so boot cannot wipe the mocked state. Shares every
-   production render path and keeps the simulation ribbon on screen. */
-if (MOCK) {
-  show(ui.previewBar, !new URLSearchParams(location.search).get("bare"));
-  const listen = () => {
-    setSessionState("listening");
-    setText(ui.recChipTime, "04:17");
-    setAnalysis(CRY_STATUS_COPY.listening, 0);
-  };
-  const steps = {
-    idle: () => {},
-    listening: listen,
-    nocry: () => { listen(); renderCryStatus("no_cry_detected"); },
-    uncertain: () => { listen(); renderCryStatus("cry_uncertain"); },
-    detected: () => { listen(); renderCryStatus("infant_cry_detected"); },
-    latched: () => { listen(); latchDecision(PREVIEW_DECISION); },
-    form: () => { setText(ui.outcomeDuration, "04:17");
-                  setSessionState("awaiting_outcome"); },
-    saved: () => { setSessionState("saved"); },
-  };
-  if (steps[MOCK]) steps[MOCK]();
-}

@@ -507,5 +507,207 @@ class CareFlowTests(unittest.TestCase):
         )
 
 
+class ProfilePreviewTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+        self.directory = self.tempdir.name
+        self.db_path = os.path.join(self.directory, "episodes.db")
+        self.canonical = os.path.join(self.directory, "canonical.wav")
+        with open(self.canonical, "wb") as audio:
+            audio.write(b"RIFF-test-wave")
+
+    def test_profile_preview_reads_only_selected_profile_at_supplied_time(self):
+        from src import careflow, identity, store
+
+        selected = identity.create_profile("Baby A", db_path=self.db_path)
+        other = identity.create_profile("Baby B", db_path=self.db_path)
+        selected_subject = f"profile-{selected['id']}"
+        other_subject = f"profile-{other['id']}"
+        store.save_episode(
+            _episode(
+                selected_subject,
+                "2026-07-20T03:00:00-04:00",
+                "held baby upright",
+                "The caregiver said the baby settled.",
+            ),
+            self.db_path,
+        )
+        store.save_episode(
+            _episode(
+                other_subject,
+                "2026-07-20T15:00:00-04:00",
+                "used a hair dryer",
+                "A different profile settled.",
+            ),
+            self.db_path,
+        )
+        before_selected = store.list_episodes(selected_subject, self.db_path)
+        before_other = store.list_episodes(other_subject, self.db_path)
+        scenario = {
+            "episode_id": before_selected[0]["id"],
+            "started_at": before_selected[0]["started_at"],
+            "interventions": before_selected[0]["interventions"],
+            "outcome": before_selected[0]["outcome"],
+            "outcome_src": "caregiver",
+            "worked": True,
+            "contributions": ["cry pattern"],
+            "audio_url": f"/api/audio/episodes/{before_selected[0]['id']}",
+        }
+        grounded = {
+            "status": "grounded",
+            "recommendation": "Held baby upright.",
+            "incident_ids": [before_selected[0]["id"]],
+        }
+
+        with (
+            patch.object(
+                careflow.identity,
+                "get_identity_attempt",
+                side_effect=AssertionError("profile preview must not read identity attempts"),
+                create=True,
+            ),
+            patch.object(
+                careflow.fingerprint,
+                "compute_windowed",
+                return_value=[0.3] * 87,
+            ),
+            patch.object(
+                careflow.context,
+                "build_current_context",
+                return_value={
+                    "hour_local": 3,
+                    "tags": ["evening"],
+                    "care_event_ids": [],
+                },
+            ) as build_context,
+            patch.object(
+                careflow.retrieve,
+                "find_scenarios",
+                return_value=[scenario],
+            ) as find_scenarios,
+            patch.object(
+                careflow.retrieve,
+                "episode_count",
+                return_value=1,
+            ) as episode_count,
+            patch.object(
+                careflow.retrieve,
+                "intervention_tally",
+                return_value=[],
+            ) as intervention_tally,
+            patch.object(
+                careflow.guidance,
+                "build_guidance",
+                return_value=grounded,
+            ),
+        ):
+            result = careflow.preview_profile_incident(
+                selected["id"],
+                self.canonical,
+                explicit_tags=["Evening"],
+                now="2026-07-30T03:15:00-04:00",
+                db_path=self.db_path,
+            )
+
+        self.assertEqual("preview", result["status"])
+        self.assertEqual(
+            {
+                "profile_id": selected["id"],
+                "display_name": "Baby A",
+                "kind": "infant",
+            },
+            result["identity"],
+        )
+        self.assertEqual([scenario], result["scenarios"])
+        self.assertEqual(grounded, result["guidance"])
+        self.assertEqual(self.canonical, result["_canonical_audio"])
+        self.assertEqual(3, result["_current_context"]["hour_local"])
+        build_context.assert_called_once_with(
+            selected["id"],
+            now="2026-07-30T03:15:00-04:00",
+            tags=["Evening"],
+            db_path=self.db_path,
+        )
+        find_scenarios.assert_called_once_with(
+            selected_subject,
+            [0.3] * 87,
+            result["_current_context"],
+            k=3,
+            db_path=self.db_path,
+        )
+        episode_count.assert_called_once_with(selected_subject, self.db_path)
+        intervention_tally.assert_called_once_with(selected_subject, self.db_path)
+        self.assertEqual(
+            before_selected,
+            store.list_episodes(selected_subject, self.db_path),
+        )
+        self.assertEqual(
+            before_other,
+            store.list_episodes(other_subject, self.db_path),
+        )
+
+    def test_profile_preview_rejects_absent_or_non_infant_profiles_before_history(self):
+        from src import careflow, identity
+
+        non_infant = identity.create_profile(
+            "Adult",
+            identity.KIND_IMITATION,
+            self.db_path,
+        )
+        with (
+            patch.object(careflow.retrieve, "find_scenarios") as find_scenarios,
+            patch.object(careflow.guidance, "build_guidance") as build_guidance,
+        ):
+            absent = careflow.preview_profile_incident(
+                999999,
+                self.canonical,
+                db_path=self.db_path,
+            )
+            wrong_kind = careflow.preview_profile_incident(
+                non_infant["id"],
+                self.canonical,
+                db_path=self.db_path,
+            )
+
+        self.assertEqual("error", absent["status"])
+        self.assertEqual("error", wrong_kind["status"])
+        find_scenarios.assert_not_called()
+        build_guidance.assert_not_called()
+
+    def test_profile_preview_rejects_missing_or_unusable_audio_before_history(self):
+        from src import careflow, identity
+
+        profile = identity.create_profile("Baby A", db_path=self.db_path)
+        with (
+            patch.object(
+                careflow.fingerprint,
+                "compute_windowed",
+                return_value=None,
+            ),
+            patch.object(careflow.retrieve, "find_scenarios") as find_scenarios,
+        ):
+            missing = careflow.preview_profile_incident(
+                profile["id"],
+                os.path.join(self.directory, "missing.wav"),
+                db_path=self.db_path,
+            )
+            unusable = careflow.preview_profile_incident(
+                profile["id"],
+                self.canonical,
+                db_path=self.db_path,
+            )
+
+        self.assertEqual(
+            {"status": "error", "reason": "managed_capture_unavailable"},
+            missing,
+        )
+        self.assertEqual(
+            {"status": "error", "reason": "capture_has_no_identity_signal"},
+            unusable,
+        )
+        find_scenarios.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -289,5 +289,243 @@ class FinishTests(unittest.TestCase):
         self.assertIs(result["worked"], True)
 
 
+class StructuredFinishTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+        self.audio_path = os.path.join(self.tempdir.name, "selected.wav")
+        with open(self.audio_path, "wb") as audio:
+            audio.write(b"RIFF-selected-care-segment")
+        self.db_path = os.path.join(self.tempdir.name, "episodes.db")
+        self.started_at = "2026-07-30T03:14:15-04:00"
+
+    def _finish(self, **overrides):
+        from src import session
+
+        audio_transcript = overrides.pop("_audio_transcript", "I picked her up.")
+        extracted_interventions = overrides.pop(
+            "_extracted_interventions",
+            [
+                {
+                    "order": 9,
+                    "action": "picked her up",
+                    "evidence": "I picked her up.",
+                },
+                {
+                    "order": 10,
+                    "action": "Held baby upright.",
+                    "evidence": "Held baby upright.",
+                },
+            ],
+        )
+        arguments = {
+            "subject_id": "profile-7",
+            "audio_path": self.audio_path,
+            "action": "Held baby upright.",
+            "settled": True,
+            "notes": "Settled in two minutes.",
+            "started_at": self.started_at,
+            "db_path": self.db_path,
+            "context_override": {
+                "hour_local": 3,
+                "tags": ["evening"],
+                "care_session_id": 41,
+                "selected_chunk_id": 73,
+                "profile_id": 7,
+            },
+        }
+        arguments.update(overrides)
+        with (
+            patch.object(
+                session.fingerprint,
+                "compute_windowed",
+                return_value=[0.0] * 87,
+            ),
+            patch.object(session.fingerprint, "duration_s", return_value=6.5),
+            patch.object(
+                session.speech,
+                "transcribe",
+                return_value=audio_transcript,
+            ) as transcribe,
+            patch.object(
+                session.speech,
+                "extract_interventions",
+                return_value=extracted_interventions,
+            ),
+        ):
+            result = session.finish_structured(**arguments)
+        return result, transcribe
+
+    def test_structured_finish_requires_a_trimmed_action_within_500_characters(self):
+        for action in (None, "", "   ", "x" * 501):
+            with self.subTest(action=action):
+                result, transcribe = self._finish(action=action)
+                self.assertEqual({}, result)
+                transcribe.assert_not_called()
+
+        result, _ = self._finish(action="  Held baby upright.  ")
+
+        self.assertEqual("Held baby upright.", result["interventions"][-1]["action"])
+        self.assertEqual("Held baby upright.", result["interventions"][-1]["evidence"])
+
+    def test_structured_finish_accepts_settled_by_exact_type_only(self):
+        for settled in (0, 1, "yes", [], {}):
+            with self.subTest(settled=settled):
+                result, transcribe = self._finish(settled=settled)
+                self.assertEqual({}, result)
+                transcribe.assert_not_called()
+
+        for settled in (True, False, None):
+            with self.subTest(settled=settled):
+                result, _ = self._finish(settled=settled)
+                self.assertIs(result["worked"], settled)
+
+    def test_structured_finish_rejects_invalid_or_overlong_notes(self):
+        for notes in (7, "x" * 1001):
+            with self.subTest(notes=notes):
+                result, transcribe = self._finish(notes=notes)
+                self.assertEqual({}, result)
+                transcribe.assert_not_called()
+
+        result, _ = self._finish(notes="  Settled in two minutes.  ")
+
+        self.assertEqual(
+            "The baby settled. Settled in two minutes.",
+            result["outcome"],
+        )
+
+    def test_structured_finish_keeps_source_labels_literal_evidence_and_chunk_time(self):
+        result, transcribe = self._finish()
+
+        self.assertEqual(self.started_at, result["started_at"])
+        self.assertEqual(
+            {
+                "hour_local": 3,
+                "tags": ["evening"],
+                "care_session_id": 41,
+                "selected_chunk_id": 73,
+                "profile_id": 7,
+            },
+            result["context"],
+        )
+        self.assertEqual(
+            "Audio transcript: I picked her up.\n"
+            "Typed caregiver follow-up: Action: Held baby upright. "
+            "Settled: yes. Notes: Settled in two minutes.",
+            result["transcript"],
+        )
+        self.assertEqual(
+            [
+                {
+                    "order": 1,
+                    "action": "picked her up",
+                    "evidence": "I picked her up.",
+                },
+                {
+                    "order": 2,
+                    "action": "Held baby upright.",
+                    "evidence": "Held baby upright.",
+                },
+            ],
+            result["interventions"],
+        )
+        self.assertEqual("caregiver", result["outcome_src"])
+        transcribe.assert_called_once_with(self.audio_path)
+
+    def test_structured_finish_can_skip_audio_transcription_for_fast_demo_save(self):
+        result, transcribe = self._finish(transcribe_audio=False)
+
+        self.assertEqual(
+            "Typed caregiver follow-up: Action: Held baby upright. "
+            "Settled: yes. Notes: Settled in two minutes.",
+            result["transcript"],
+        )
+        self.assertEqual(
+            [
+                {
+                    "order": 1,
+                    "action": "Held baby upright.",
+                    "evidence": "Held baby upright.",
+                }
+            ],
+            result["interventions"],
+        )
+        transcribe.assert_not_called()
+
+    def test_structured_finish_moves_an_earlier_exact_duplicate_to_the_end(self):
+        result, _ = self._finish(
+            _extracted_interventions=[
+                {
+                    "order": 7,
+                    "action": "Held baby upright.",
+                    "evidence": "Held baby upright.",
+                },
+                {
+                    "order": 8,
+                    "action": "picked her up",
+                    "evidence": "I picked her up.",
+                },
+                {
+                    "order": 9,
+                    "action": "dimmed the lights",
+                    "evidence": "I dimmed the lights.",
+                },
+            ]
+        )
+
+        self.assertEqual(
+            [
+                {
+                    "order": 1,
+                    "action": "picked her up",
+                    "evidence": "I picked her up.",
+                },
+                {
+                    "order": 2,
+                    "action": "dimmed the lights",
+                    "evidence": "I dimmed the lights.",
+                },
+                {
+                    "order": 3,
+                    "action": "Held baby upright.",
+                    "evidence": "Held baby upright.",
+                },
+            ],
+            result["interventions"],
+        )
+
+    def test_structured_finish_maps_each_settled_state_without_truthiness(self):
+        expected = {
+            True: "The baby settled.",
+            False: "The baby did not settle.",
+            None: "Whether the baby settled was not recorded.",
+        }
+        for settled, outcome in expected.items():
+            with self.subTest(settled=settled):
+                result, _ = self._finish(settled=settled, notes=None)
+                self.assertIs(result["worked"], settled)
+                self.assertEqual(outcome, result["outcome"])
+
+    def test_structured_finish_does_not_invent_an_automatic_transcript(self):
+        result, _ = self._finish(_audio_transcript="")
+
+        self.assertNotIn("Audio transcript:", result["transcript"])
+        self.assertEqual(
+            "Typed caregiver follow-up: Action: Held baby upright. "
+            "Settled: yes. Notes: Settled in two minutes.",
+            result["transcript"],
+        )
+
+    def test_structured_finish_returns_no_episode_id_when_save_fails(self):
+        from src import session
+
+        with patch.object(session.store, "save_episode", return_value=0):
+            result, transcribe = self._finish()
+
+        self.assertIsNone(result.get("id"))
+        transcribe.assert_called_once_with(self.audio_path)
+        self.assertEqual([], session.store.list_episodes("profile-7", self.db_path))
+
+
 if __name__ == "__main__":
     unittest.main()

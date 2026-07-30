@@ -9,7 +9,7 @@ from tests.test_product_http_api import ProductServer, _wav_bytes
 
 class EndToEndPhoneLoopTests(unittest.TestCase):
     def setUp(self):
-        self.product = ProductServer()
+        self.product = ProductServer(cry_detector_status=True)
         self.addCleanup(self.product.close)
 
     def test_phone_to_laptop_identity_memory_guidance_and_playback_loop(self):
@@ -181,3 +181,123 @@ class EndToEndPhoneLoopTests(unittest.TestCase):
         )
         self.assertEqual(200, playback["status"])
         self.assertEqual(evidence_path.read_bytes(), playback["body"])
+
+    def test_phone_care_session_records_completes_and_serves_scoped_evidence(self):
+        from src import care_sessions
+
+        profile = self.product.json(
+            "POST",
+            "/api/profiles",
+            {"display_name": "Baby A", "kind": "infant"},
+        )["json"]["profile"]
+        created = self.product.json(
+            "POST",
+            "/api/care-sessions",
+            {"profile_id": profile["id"], "tags": ["evening"]},
+        )
+        self.assertEqual(201, created["status"], created)
+        session = created["json"]["session"]
+        audio = _wav_bytes()
+        with (
+            patch.object(
+                care_sessions.cry_gate,
+                "classify",
+                return_value={
+                    "status": "infant_cry_detected",
+                    "label": "Infant-cry-like sound detected",
+                    "reason_codes": ["infant_cry_evidence_strong"],
+                    "analyzed_duration_s": 1.0,
+                    "analysis_view_count": 1,
+                    "model_version": "ast-audioset-baby-cry-v1",
+                },
+            ),
+            patch.object(
+                care_sessions.identity,
+                "identify",
+                return_value={
+                    "status": "match",
+                    "profile_id": profile["id"],
+                    "reasons": ["selected_profile_match"],
+                },
+            ),
+            patch.object(
+                care_sessions.careflow,
+                "preview_profile_incident",
+                return_value={
+                    "status": "preview",
+                    "guidance": {
+                        "status": "insufficient_history",
+                        "recommendation": "",
+                    },
+                },
+            ),
+        ):
+            chunk = self.product.request(
+                "POST",
+                f"/api/care-sessions/{session['id']}/chunks",
+                audio,
+                {
+                    "Content-Type": "audio/wav",
+                    "Content-Length": str(len(audio)),
+                    "X-Capture-Sequence": "1",
+                    "X-Capture-Source": "microphone",
+                    "X-Capture-Device": "iPhone Safari",
+                },
+            )
+        self.assertEqual(201, chunk["status"], chunk)
+        self.assertEqual("matched_no_guidance", chunk["json"]["chunk"]["status"])
+
+        stopped = self.product.json(
+            "POST",
+            f"/api/care-sessions/{session['id']}/stop",
+        )
+        self.assertEqual(200, stopped["status"])
+        with (
+            patch.object(
+                care_sessions.context,
+                "build_current_context",
+                return_value={"hour_local": 19, "tags": ["evening"]},
+            ),
+            patch.object(
+                care_sessions.session.fingerprint,
+                "duration_s",
+                return_value=1.0,
+            ),
+            patch.object(
+                care_sessions.session.fingerprint,
+                "compute_windowed",
+                return_value=[0.0] * 87,
+            ),
+            patch.object(
+                care_sessions.session.speech,
+                "transcribe",
+                return_value="I held the baby upright.",
+            ),
+            patch.object(
+                care_sessions.session.speech,
+                "extract_interventions",
+                return_value=[],
+            ),
+        ):
+            completed = self.product.json(
+                "POST",
+                f"/api/care-sessions/{session['id']}/complete",
+                {
+                    "action": "Held the baby upright",
+                    "settled": True,
+                    "notes": "Settled after two minutes",
+                },
+            )
+        self.assertEqual(200, completed["status"], completed)
+        incident_id = completed["json"]["incident"]["id"]
+        playback = self.product.request(
+            "GET",
+            f"/api/profiles/{profile['id']}/incidents/{incident_id}/audio",
+        )
+        hidden = self.product.request(
+            "GET",
+            f"/api/profiles/{profile['id'] + 1}/incidents/{incident_id}/audio",
+        )
+        self.assertEqual(200, playback["status"])
+        self.assertGreater(len(playback["body"]), 1000)
+        self.assertEqual(404, hidden["status"])

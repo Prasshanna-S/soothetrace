@@ -228,3 +228,124 @@ def finish(
     except Exception:
         logger.exception("Episode finalization failed for %s", audio_path)
         return {}
+
+
+def finish_structured(
+    subject_id: str,
+    audio_path: str,
+    action: str,
+    settled: bool | None,
+    notes: str | None,
+    *,
+    started_at: str,
+    db_path: str | None = None,
+    context_override: dict | None = None,
+    transcribe_audio: bool = True,
+) -> dict:
+    """Save one deterministic caregiver outcome for a representative segment."""
+    clean_action = action.strip() if isinstance(action, str) else ""
+    if (
+        not isinstance(subject_id, str)
+        or not subject_id.strip()
+        or not isinstance(audio_path, str)
+        or not os.path.isfile(audio_path)
+        or not clean_action
+        or len(clean_action) > 500
+        or (settled is not None and type(settled) is not bool)
+        or (notes is not None and not isinstance(notes, str))
+        or not isinstance(started_at, str)
+        or not started_at.strip()
+    ):
+        return {}
+    clean_notes = notes.strip() if isinstance(notes, str) else ""
+    if len(clean_notes) > 1000:
+        return {}
+
+    try:
+        previous = store.latest_episode(subject_id.strip(), db_path)
+        acoustic = fingerprint.compute_windowed(audio_path)
+        audio_transcript = (
+            speech.transcribe(audio_path).strip()
+            if transcribe_audio
+            else ""
+        )
+        extracted = (
+            speech.extract_interventions(audio_transcript)
+            if audio_transcript
+            else []
+        )
+
+        intervention_pairs = []
+        seen_pairs = set()
+        structured_pair = (clean_action, clean_action)
+        for item in extracted if isinstance(extracted, list) else []:
+            if not isinstance(item, dict):
+                continue
+            extracted_action = item.get("action")
+            evidence = item.get("evidence")
+            if not isinstance(extracted_action, str) or not isinstance(evidence, str):
+                continue
+            pair = (extracted_action, evidence)
+            if pair == structured_pair or pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            intervention_pairs.append(pair)
+        intervention_pairs.append(structured_pair)
+        interventions = [
+            {"order": index, "action": item_action, "evidence": evidence}
+            for index, (item_action, evidence) in enumerate(intervention_pairs, start=1)
+        ]
+
+        settled_label = {
+            True: "yes",
+            False: "no",
+            None: "not recorded",
+        }[settled]
+        typed_follow_up = f"Action: {clean_action} Settled: {settled_label}."
+        if clean_notes:
+            typed_follow_up += f" Notes: {clean_notes}"
+        transcript_parts = []
+        if audio_transcript:
+            transcript_parts.append(f"Audio transcript: {audio_transcript}")
+        transcript_parts.append(f"Typed caregiver follow-up: {typed_follow_up}")
+        transcript = "\n".join(transcript_parts)
+
+        outcome = {
+            True: "The baby settled.",
+            False: "The baby did not settle.",
+            None: "Whether the baby settled was not recorded.",
+        }[settled]
+        if clean_notes:
+            outcome += f" {clean_notes}"
+
+        episode_context = (
+            dict(context_override)
+            if isinstance(context_override, dict)
+            else fingerprint.build_context(
+                started_at,
+                previous.get("started_at") if previous else None,
+                subject_age_days=None,
+            )
+        )
+        episode = {
+            "id": None,
+            "subject_id": subject_id.strip(),
+            "started_at": started_at,
+            "duration_s": fingerprint.duration_s(audio_path),
+            "audio_path": audio_path,
+            "fingerprint": acoustic,
+            "transcript": transcript,
+            "interventions": interventions,
+            "outcome": outcome,
+            "outcome_src": "caregiver",
+            "worked": settled,
+            "context": episode_context,
+        }
+        episode_id = store.save_episode(episode, db_path)
+        if not episode_id:
+            return episode
+        saved = store.get_episode(episode_id, db_path)
+        return saved or {**episode, "id": episode_id}
+    except Exception:
+        logger.exception("Structured episode finalization failed for %s", audio_path)
+        return {}

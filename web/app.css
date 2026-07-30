@@ -66,7 +66,12 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
-html { background: var(--bg); -webkit-text-size-adjust: 100%; }
+html {
+  width: 100%;
+  overflow-x: hidden;
+  background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+}
 
 body {
   margin: 0;
@@ -87,6 +92,18 @@ body {
 
 [hidden] { display: none !important; }
 .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.icon-defs { position: absolute; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 /* ------------------------------------------------------------- ambient --- */
 
@@ -187,7 +204,7 @@ body {
 
   #rec-chip:not([hidden]) { animation: drop-in .4s cubic-bezier(.2, .7, .3, 1) both; }
   #tabbar a[aria-current="page"] svg { animation: tab-pop .4s cubic-bezier(.34, 1.56, .64, 1); }
-  #settled-seg button[aria-pressed="true"] { animation: seg-pop .25s ease; }
+  #settled-seg button[aria-checked="true"] { animation: seg-pop .25s ease; }
   .chip[aria-pressed="true"] { animation: seg-pop .25s ease; }
   #saved-check { animation: check-pop .55s .15s cubic-bezier(.34, 1.56, .64, 1) both; }
   #saved-art { animation: pop-in .5s cubic-bezier(.3, 1.25, .35, 1) both; }
@@ -251,11 +268,10 @@ h2 {
   background: var(--surface);
   color: var(--ink);
   font-family: var(--display);
-  cursor: pointer;
+  cursor: default;
   box-shadow: var(--edge);
   transition: transform .15s ease;
 }
-.baby-chip:active { transform: scale(.97); }
 .baby-chip .avatar {
   width: 40px; height: 40px;
   flex: none;
@@ -264,7 +280,29 @@ h2 {
 .baby-chip .avatar img { width: 100%; height: 100%; object-fit: contain;
   transform: translateY(-1px);
   filter: drop-shadow(0 3px 4px rgba(26, 26, 24, .16)); }
-.baby-chip h1 { font-size: 21px; line-height: 1; padding-bottom: 2px; }
+.profile-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+#profile-picker {
+  width: min(48vw, 230px);
+  min-height: 30px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  cursor: pointer;
+}
+#profile-picker:disabled { cursor: default; opacity: .75; }
 .baby-chip svg { color: var(--ink-3); flex: none; }
 
 .circ {
@@ -358,7 +396,15 @@ h2 {
   aspect-ratio: 1;
   transition: width .6s cubic-bezier(.3, .7, .2, 1);
 }
-#orb { display: block; width: 100%; height: 100%; position: relative; z-index: 1; }
+#orb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  z-index: 1;
+  background: transparent;
+  border-radius: 50%;
+}
 #orb-shadow {
   position: absolute;
   left: 50%; bottom: 10%;
@@ -628,6 +674,7 @@ body[data-mic="muted"] #rec-chip i { background: #D9A13C; animation: none; }
 .bd-care { background: var(--mint);  color: var(--mint-ink); }
 .bd-inf  { background: var(--peri);  color: var(--peri-ink); }
 .bd-seed { background: #F3D2CB; color: #8C2A16; }
+.bd-unknown { background: var(--bg-2); color: var(--ink-2); }
 
 /* ------------------------------------------------------------ idle stack --- */
 
@@ -804,7 +851,7 @@ body[data-mic="muted"] #rec-chip i { background: #D9A13C; animation: none; }
   cursor: pointer;
   transition: background .15s ease, color .15s ease;
 }
-#settled-seg button[aria-pressed="true"] {
+#settled-seg button[aria-checked="true"] {
   background: var(--surface);
   color: var(--ink);
 }
@@ -863,6 +910,13 @@ body[data-mic="muted"] #rec-chip i { background: #D9A13C; animation: none; }
   filter: drop-shadow(0 8px 12px rgba(26, 26, 24, .18));
 }
 .stub-card p { margin: 0; font-size: 14.5px; color: var(--ink-2); }
+.limited-kicker {
+  color: var(--peri-ink) !important;
+  font-size: 11px !important;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
 
 /* -------------------------------------------------------------- tab bar --- */
 
@@ -978,7 +1032,7 @@ body[data-decision="latched"] #preview-bar {
     animation: rise .3s cubic-bezier(.2, .7, .3, 1) both;
   }
 
-  #rec-chip { top: calc(var(--sat) + 22px); right: calc(var(--sar) + 18px); }
+  #rec-chip { top: calc(var(--sat) + 27px); right: calc(var(--sar) + 18px); }
   #ctl-capsule { bottom: calc(var(--sab) + 14px); }
   body[data-decision="latched"] #preview-bar,
   #preview-bar {
@@ -1007,7 +1061,7 @@ body[data-decision="latched"] #preview-bar {
   /* ---- listening, nothing concluded: the orb holds the room ---- */
   #page-listen[data-state="listening"][data-decision="none"] #orb-wrap,
   #page-listen[data-state="paused"][data-decision="none"] #orb-wrap {
-    width: min(44vh, 210px);
+    width: min(56vh, 240px);
   }
 
   /* ---- latched: the bento ---- */
@@ -1122,13 +1176,120 @@ body[data-decision="latched"] #preview-bar {
 
 /* -------------------------------------------------------------- desktop --- */
 
-@media (min-width: 900px) {
-  :root { --col: 560px; --pad: 24px; }
+@media (min-width: 900px) and (min-height: 581px) {
+  :root { --col: 1180px; --pad: 34px; }
   body { font-size: 17px; }
-  #orb-wrap { width: min(46vh, 340px); }
+  #app-shell {
+    width: min(100%, 1180px);
+    max-width: 1180px;
+    padding-top: calc(var(--sat) + 34px);
+  }
+  #page-listen[data-state="idle"] {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(330px, .65fr);
+    grid-template-rows: auto auto minmax(520px, 1fr);
+    column-gap: 54px;
+  }
+  #page-listen[data-state="idle"] > .page-head,
+  #page-listen[data-state="idle"] > .banner {
+    grid-column: 1 / 3;
+  }
+  #page-listen[data-state="idle"] #orb-stage {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  #page-listen[data-state="idle"] #idle-stack {
+    grid-column: 2;
+    grid-row: 3;
+    align-self: center;
+  }
+  #orb-wrap { width: min(56vh, 470px); }
+  #page-listen[data-decision="latched"] #suggestion-block {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(320px, .7fr);
+    gap: 16px 22px;
+  }
+  #page-listen[data-decision="latched"] #suggestion-card {
+    grid-column: 1;
+    grid-row: 1 / 4;
+    min-height: 430px;
+    justify-content: center;
+  }
+  #page-listen[data-decision="latched"] #basis-card,
+  #page-listen[data-decision="latched"] #incidents-fold,
+  #page-listen[data-decision="latched"] #g-interpretation {
+    grid-column: 2;
+  }
+  #page-listen[data-decision="latched"] #g-recommendation {
+    max-width: 18ch;
+    font-size: clamp(40px, 4.2vw, 62px);
+  }
+  #page-history .stub-card,
+  #page-baby .stub-card {
+    width: min(100%, 780px);
+    margin: 70px auto 0;
+  }
   .am-1 { width: 128px; left: 6vw; }
   .am-5 { width: 168px; right: 4vw; }
   .am-3 { left: 8vw; }
+}
+
+/* After Stop, keep the grounded result as one horizontal summary across the
+   available width. The caregiver form follows in normal reading order and the
+   page itself can scroll on short phones. */
+#page-listen[data-state="awaiting_outcome"] {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+#page-listen[data-state="awaiting_outcome"][data-decision="latched"] #suggestion-block {
+  display: block;
+  width: 100%;
+  flex: none;
+}
+#page-listen[data-state="awaiting_outcome"][data-decision="latched"] #suggestion-card {
+  width: 100%;
+  min-height: 0;
+  grid-column: auto;
+  grid-row: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(110px, .44fr);
+  grid-template-rows: auto auto;
+  gap: 5px 18px;
+  padding: 15px 18px;
+  align-items: center;
+}
+#page-listen[data-state="awaiting_outcome"] #suggestion-card .kicker {
+  grid-column: 1;
+  grid-row: 1;
+}
+#page-listen[data-state="awaiting_outcome"] #g-recommendation {
+  grid-column: 1;
+  grid-row: 2;
+  max-width: none;
+  padding-right: 0;
+  font-size: clamp(25px, 4vw, 40px);
+}
+#page-listen[data-state="awaiting_outcome"] .g-foot {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  align-self: stretch;
+  align-items: center;
+}
+#page-listen[data-state="awaiting_outcome"] #suggestion-art {
+  width: 76px;
+  height: 76px;
+}
+#page-listen[data-state="awaiting_outcome"] #g-interpretation,
+#page-listen[data-state="awaiting_outcome"] #basis-card,
+#page-listen[data-state="awaiting_outcome"] #incidents-fold {
+  display: none;
+}
+#page-listen[data-state="awaiting_outcome"] #outcome-form {
+  width: 100%;
+  flex: none;
 }
 
 /* ------------------------------------------------------- motion, focus --- */

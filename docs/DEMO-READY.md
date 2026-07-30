@@ -318,7 +318,7 @@ human checkpoint into `models/`, so it requires internet and can take longer. Do
 until the process prints:
 
 ```text
-Cry Memory ready at https://0.0.0.0:8443 with encoders {'ecapa-cryceleb-v1': True, 'mfcc87-v1': True}
+SootheTrace ready at https://0.0.0.0:8443 with encoders {'ecapa-cryceleb-v1': True, 'mfcc87-v1': True}
 ```
 
 Dictionary order is not significant. A `False` value means the corresponding encoder is not ready.

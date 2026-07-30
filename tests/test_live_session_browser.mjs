@@ -13,12 +13,7 @@ function loadPlaywright() {
     process.env.PLAYWRIGHT_MODULE_PATH,
     "playwright",
     path.join(repoRoot, "node_modules", "playwright"),
-    path.join(
-      os.homedir(),
-      "web-design-repository",
-      "node_modules",
-      "playwright"
-    ),
+    path.join(os.homedir(), "web-design-repository", "node_modules", "playwright"),
     "/opt/homebrew/lib/node_modules/@playwright/mcp/node_modules/playwright",
   ].filter(Boolean);
   for (const candidate of candidates) {
@@ -28,120 +23,235 @@ function loadPlaywright() {
       if (error && error.code !== "MODULE_NOT_FOUND") throw error;
     }
   }
-  throw new Error(
-    "Playwright is required. Install it locally or set PLAYWRIGHT_MODULE_PATH."
-  );
+  throw new Error("Playwright is required. Set PLAYWRIGHT_MODULE_PATH if needed.");
 }
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function participant(state, supportCount) {
-  return {
-    id: 31,
-    profile_id: 41,
-    display_name: "Person A",
-    state,
-    support_count: supportCount,
-    created_at: "2026-07-30T00:00:00+00:00",
-    established_at:
-      state === "established" ? "2026-07-30T00:01:00+00:00" : null,
-  };
-}
+const profile = {
+  id: 12,
+  display_name: "Demo Baby",
+  kind: "infant",
+  status: "ready",
+  enrollments: 3,
+};
+const learningProfile = {
+  id: 13,
+  display_name: "Learning Baby",
+  kind: "infant",
+  status: "ready",
+  enrollments: 3,
+};
 
-function observation(sequence, status, currentParticipant) {
+function publicSession(status, lastSequence, decision = null) {
   return {
-    id: 50 + sequence,
-    sequence,
-    created_at: `2026-07-30T00:0${sequence}:00+00:00`,
-    source_type: "upload",
+    id: 41,
     status,
-    participant_id: currentParticipant.id,
-    closest_participant_id: currentParticipant.id,
-    participant: currentParticipant,
-    closest_participant: currentParticipant,
-    reinforced: status === "participant",
-    reason_codes:
-      status === "participant" ? ["participant_reinforced"] : ["new_participant"],
-    playback_url: `/api/audio/live-observations/${50 + sequence}`,
+    profile,
+    started_at: "2026-07-30T20:15:00-04:00",
+    paused_at: status === "paused" ? "2026-07-30T20:15:05-04:00" : null,
+    stopped_at: status === "awaiting_outcome" ? "2026-07-30T20:15:06-04:00" : null,
+    completed_at: status === "complete" ? "2026-07-30T20:16:00-04:00" : null,
+    last_sequence: lastSequence,
+    tags: [],
+    decision,
   };
 }
 
-function liveResponse(observationCount) {
-  const established = observationCount >= 2;
-  const currentParticipant = participant(
-    established ? "established" : "provisional",
-    observationCount
-  );
-  const observations = [];
-  for (let sequence = 1; sequence <= observationCount; sequence += 1) {
-    observations.push(
-      observation(
-        sequence,
-        sequence === 1 ? "provisional_created" : "participant",
-        currentParticipant
-      )
-    );
-  }
-  return {
-    session: {
-      id: 77,
-      kind: "human_imitation",
-      status: "open",
-      created_at: "2026-07-30T00:00:00+00:00",
-      completed_at: null,
-      participants: [currentParticipant],
-      observations,
+const decision = {
+  id: 88,
+  latched_at: "2026-07-30T20:15:15-04:00",
+  profile: { id: 12, display_name: "Baby Test" },
+  guidance: {
+    status: "grounded",
+    headline: "Server headline",
+    interpretation: "Server interpretation",
+    recommendation: "Server recommendation, exactly",
+    evidence_summary: "Server evidence summary",
+    support_count: 1,
+    incident_ids: [101],
+    pattern: "server pattern",
+  },
+  basis: ["Server basis line"],
+  scenarios: [
+    {
+      episode_id: 101,
+      started_at: "2026-07-27T20:04:00-04:00",
+      interventions: [{ order: 1, action: "Server action", evidence: "Literal evidence" }],
+      outcome: "Server outcome",
+      outcome_src: "caregiver",
+      worked: true,
+      contributions: ["Server basis line"],
+      audio_url: "/api/profiles/12/incidents/101/audio",
     },
-    observation: observations.at(-1),
-    classification: {
-      status: established ? "participant" : "provisional_created",
-      participant: currentParticipant,
-      reinforced: established,
-      reason_codes: [
-        established ? "participant_reinforced" : "new_participant",
-      ],
-    },
-  };
+  ],
+};
+
+async function installBrowserFakes(page) {
+  await page.addInitScript(() => {
+    window.__getUserMediaCalls = 0;
+    window.__fakeAnalyserRms = 0.00045;
+    window.__audioContextResumeCalls = 0;
+    window.__audioActivationOrder = [];
+    class FakeTrack extends EventTarget {
+      constructor() {
+        super();
+        this.readyState = "live";
+        this.muted = false;
+      }
+      getSettings() {
+        return {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          sampleRate: 48000,
+        };
+      }
+      stop() {
+        this.readyState = "ended";
+      }
+    }
+    class FakeStream {
+      constructor() {
+        this.track = new FakeTrack();
+      }
+      getAudioTracks() {
+        return [this.track];
+      }
+      getTracks() {
+        return [this.track];
+      }
+    }
+    class FakeMediaRecorder extends EventTarget {
+      static isTypeSupported() {
+        return true;
+      }
+      constructor(stream, options = {}) {
+        super();
+        this.stream = stream;
+        this.mimeType = options.mimeType || "audio/mp4";
+        this.state = "inactive";
+      }
+      start() {
+        this.state = "recording";
+      }
+      stop() {
+        if (this.state === "inactive") return;
+        this.state = "inactive";
+        this.dispatchEvent(new MessageEvent("dataavailable", {
+          data: new Blob(["same finalized segment"], { type: this.mimeType }),
+        }));
+        this.dispatchEvent(new Event("stop"));
+      }
+    }
+    class FakeAudioContext {
+      constructor() {
+        window.__audioActivationOrder.push("context");
+        this.state = "suspended";
+      }
+      createMediaStreamSource() {
+        return {
+          connect() {},
+          disconnect() {},
+        };
+      }
+      createAnalyser() {
+        return {
+          fftSize: 512,
+          getFloatTimeDomainData(data) {
+            for (let i = 0; i < data.length; i++) {
+              data[i] = (i % 2 ? -1 : 1) * window.__fakeAnalyserRms;
+            }
+          },
+          getByteTimeDomainData(data) {
+            const offset = Math.round(window.__fakeAnalyserRms * 128);
+            for (let i = 0; i < data.length; i++) {
+              data[i] = 128 + (i % 2 ? -offset : offset);
+            }
+          },
+        };
+      }
+      resume() {
+        window.__audioActivationOrder.push("resume");
+        window.__audioContextResumeCalls += 1;
+        this.state = "running";
+        return new Promise(() => {});
+      }
+      async close() {
+        this.state = "closed";
+      }
+    }
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: async () => {
+          window.__audioActivationOrder.push("getUserMedia");
+          window.__getUserMediaCalls += 1;
+          return new FakeStream();
+        },
+      },
+    });
+    Object.defineProperty(window, "MediaRecorder", {
+      configurable: true,
+      value: FakeMediaRecorder,
+    });
+    Object.defineProperty(window, "AudioContext", {
+      configurable: true,
+      value: FakeAudioContext,
+    });
+    Object.defineProperty(window, "webkitAudioContext", {
+      configurable: true,
+      value: FakeAudioContext,
+    });
+  });
 }
 
-async function installRoutes(page, requests) {
+async function installRoutes(page, requests, options = {}) {
+  const cssSource = fs.readFileSync(path.join(repoRoot, "web", "app.css"), "utf8");
+  const servedCss = options.safeArea
+    ? cssSource +
+      "\n:root { --sat: 18px; --sab: 16px; --sal: 47px; --sar: 47px; }\n"
+    : cssSource;
   const assets = {
     "/": ["text/html", fs.readFileSync(path.join(repoRoot, "web", "index.html"))],
-    "/app.css": [
-      "text/css",
-      fs.readFileSync(path.join(repoRoot, "web", "app.css")),
-    ],
-    "/app.js": [
-      "text/javascript",
-      fs.readFileSync(path.join(repoRoot, "web", "app.js")),
-    ],
+    "/app.css": ["text/css", Buffer.from(servedCss)],
+    "/app.js": ["text/javascript", fs.readFileSync(path.join(repoRoot, "web", "app.js"))],
     "/manifest.webmanifest": [
       "application/manifest+json",
       fs.readFileSync(path.join(repoRoot, "web", "manifest.webmanifest")),
     ],
   };
-
+  const chunkMode = options.chunkMode || "guidance";
+  let firstChunkAttempt = options.retryFirst !== false;
   await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     if (assets[url.pathname]) {
       const [contentType, body] = assets[url.pathname];
-      await route.fulfill({ status: 200, contentType, body });
+      await route.fulfill({
+        status: 200,
+        contentType,
+        headers: {
+          "Content-Security-Policy":
+            "default-src 'self'; script-src 'self'; connect-src 'self'; " +
+            "style-src 'self'; media-src 'self'; img-src 'self' data:; " +
+            "object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+        },
+        body,
+      });
+      return;
+    }
+    if (url.pathname.startsWith("/img/")) {
+      await route.fulfill({ status: 404, body: "" });
       return;
     }
     if (url.pathname === "/api/health") {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({
-          status: "ready",
-          ffmpeg: true,
-          database: true,
-          encoders: { infant: true, human_imitation: true },
-          population_baseline: true,
-        }),
+        body: JSON.stringify({ status: "ready", care: { ready: true } }),
       });
       return;
     }
@@ -149,115 +259,110 @@ async function installRoutes(page, requests) {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ profiles: [] }),
+        body: JSON.stringify({ profiles: [learningProfile, profile] }),
       });
       return;
     }
-    if (url.pathname === "/api/live-sessions" && request.method() === "POST") {
+    if (url.pathname === "/api/care-sessions" && request.method() === "POST") {
       requests.created.push(request.postDataJSON());
-      const planned = Array.isArray(requests.createQueue)
-        ? requests.createQueue.shift()
-        : "success";
-      if (planned === "network") {
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({ session: publicSession("listening", 0) }),
+      });
+      return;
+    }
+    if (url.pathname === "/api/care-sessions/41/chunks") {
+      const body = request.postDataBuffer();
+      requests.chunks.push({
+        sequence: request.headers()["x-capture-sequence"],
+        source: request.headers()["x-capture-source"],
+        bodyHex: body ? body.toString("hex") : "",
+      });
+      if (firstChunkAttempt) {
+        firstChunkAttempt = false;
         await route.abort("failed");
+        return;
+      }
+      if (chunkMode === "no_cry") {
+        await route.fulfill({
+          status: 201,
+          contentType: "application/json",
+          body: JSON.stringify({
+            session: publicSession("listening", 1),
+            chunk: {
+              id: 90,
+              sequence: 1,
+              status: "no_cry_detected",
+              reason_codes: ["no_infant_cry_evidence"],
+              cry_presence: {
+                status: "no_cry_detected",
+                label: null,
+                reason_codes: ["no_infant_cry_evidence"],
+                analyzed_duration_s: 1,
+                analysis_view_count: 1,
+                model_version: "test",
+              },
+            },
+          }),
+        });
         return;
       }
       await route.fulfill({
         status: 201,
         contentType: "application/json",
         body: JSON.stringify({
-          session: {
-            id: 77,
-            kind: "human_imitation",
-            status: "open",
-            created_at: "2026-07-30T00:00:00+00:00",
-            completed_at: null,
-            participants: [],
-            observations: [],
+          session: publicSession("listening", 1, decision),
+          chunk: {
+            id: 90,
+            sequence: 1,
+            status: "guidance_latched",
+            reason_codes: [],
+            cry_presence: {
+              status: "infant_cry_detected",
+              label: "Infant-cry-like sound detected",
+              reason_codes: ["infant_cry_evidence_strong"],
+              analyzed_duration_s: 1,
+              analysis_view_count: 1,
+              model_version: "test",
+            },
           },
         }),
       });
       return;
     }
-    if (
-      url.pathname === "/api/live-sessions/77/observations" &&
-      request.method() === "POST"
-    ) {
-      const requestBody = request.postDataBuffer();
-      requests.observed.push({
-        source: request.headers()["x-capture-source"],
-        contentType: request.headers()["content-type"],
-        bodyHex: requestBody ? requestBody.toString("hex") : "",
-      });
-      const planned = Array.isArray(requests.queue)
-        ? requests.queue.shift()
-        : "success";
-      if (planned === "network") {
-        await route.abort("failed");
-        return;
-      }
-      if (planned === "invalid") {
-        await route.fulfill({
-          status: 422,
-          contentType: "application/json",
-          body: JSON.stringify({
-            session: {
-              id: 77,
-              kind: "human_imitation",
-              status: "open",
-              created_at: "2026-07-30T00:00:00+00:00",
-              completed_at: null,
-              participants: [],
-              observations: [],
-            },
-            observation: null,
-            classification: {
-              status: "invalid",
-              participant: null,
-              reinforced: false,
-              reason_codes: ["decode_failed"],
-            },
-          }),
-        });
-        return;
-      }
-      if (planned === "completed") {
-        await route.fulfill({
-          status: 409,
-          contentType: "application/json",
-          body: JSON.stringify({
-            session: {
-              id: 77,
-              kind: "human_imitation",
-              status: "completed",
-              created_at: "2026-07-30T00:00:00+00:00",
-              completed_at: "2026-07-30T00:10:00+00:00",
-              participants: [],
-              observations: [],
-            },
-            observation: null,
-            classification: {
-              status: "session_completed",
-              participant: null,
-              reinforced: false,
-              reason_codes: ["session_completed"],
-            },
-          }),
-        });
-        return;
-      }
+    if (url.pathname === "/api/care-sessions/41/stop") {
+      requests.stopped += 1;
       await route.fulfill({
-        status: 201,
+        status: 200,
         contentType: "application/json",
-        body: JSON.stringify(liveResponse(requests.observed.length)),
+        body: JSON.stringify({
+          session: publicSession(
+            "awaiting_outcome",
+            1,
+            chunkMode === "guidance" ? decision : null
+          ),
+        }),
       });
       return;
     }
-    if (url.pathname.startsWith("/api/audio/live-observations/")) {
+    if (url.pathname === "/api/care-sessions/41/complete") {
+      requests.completed.push(request.postDataJSON());
       await route.fulfill({
         status: 200,
-        contentType: "audio/wav",
-        body: Buffer.from("RIFF browser fixture"),
+        contentType: "application/json",
+        body: JSON.stringify({
+          session: publicSession("complete", 1, decision),
+          incident: { id: 101, detail_url: "/api/profiles/12/incidents/101" },
+        }),
+      });
+      return;
+    }
+    if (url.pathname === "/api/care-sessions/41" && request.method() === "DELETE") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ session: publicSession("discarded", 1, decision) }),
       });
       return;
     }
@@ -265,499 +370,553 @@ async function installRoutes(page, requests) {
   });
 }
 
-async function exerciseViewport(browser, viewport) {
-  const page = await browser.newPage({ viewport });
-  const requests = { created: [], observed: [] };
+async function runLivePath(browser) {
+  const page = await browser.newPage({
+    viewport: { width: 430, height: 932 },
+    reducedMotion: "reduce",
+  });
+  const requests = { created: [], chunks: [], stopped: 0, completed: [] };
   const pageErrors = [];
+  const cspErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error" &&
+        /content security policy|refused to apply|refused to execute/i.test(message.text())) {
+      cspErrors.push(message.text());
+    }
+  });
+  await installBrowserFakes(page);
   await installRoutes(page, requests);
-  await page.goto("http://live.test/", { waitUntil: "domcontentloaded" });
-  assert(
-    await page.locator("#not-in-this-build").isHidden(),
-    `${viewport.width}: roadmap was visible on the initial mode screen`
-  );
-  await page.click("#btn-kind-imitation");
+  await page.goto("http://care.test/", { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => !document.querySelector("#btn-start").disabled);
+  assert(await page.locator(".profile-label").count() === 0,
+    "visible Listening for title was not removed");
 
-  assert(
-    await page.locator("#live-session-console").isVisible(),
-    `${viewport.width}: live console is not visible`
-  );
-  assert(
-    await page.locator("#legacy-workflow").isHidden(),
-    `${viewport.width}: legacy human workflow remained visible`
-  );
-  assert(
-    await page.locator("#not-in-this-build").isHidden(),
-    `${viewport.width}: roadmap remained visible in human mode`
-  );
-  assert(
-    await page.locator("#live-file-input").isDisabled(),
-    `${viewport.width}: capture started without an explicit session`
-  );
-  assert(
-    requests.created.length === 0,
-    `${viewport.width}: entering human mode created a session`
-  );
-
-  await page.click("#btn-new-live-session");
-  await page.waitForFunction(
-    () => !document.querySelector("#live-file-input").disabled
-  );
-  assert(
-    requests.created.length === 1 &&
-      requests.created[0].kind === "human_imitation",
-    `${viewport.width}: New session did not create exactly one imitation session`
-  );
-
-  const input = page.locator("#live-file-input");
-  await input.setInputFiles({
-    name: "first.wav",
-    mimeType: "audio/wav",
-    buffer: Buffer.from("RIFF first independent recording"),
+  const phaseStatus = await page.evaluate(() => {
+    window.setAnalysis("Listening", 0);
+    window.setAnalysis("Still listening", 0);
+    const labels = document.querySelectorAll("#analysis-status:not([hidden])");
+    const node = document.querySelector("#analysis-status");
+    return {
+      visibleLabels: labels.length,
+      text: node.textContent,
+      opacity: getComputedStyle(node).opacity,
+      childElements: node.childElementCount,
+    };
   });
-  await page.waitForSelector(
-    '#live-participants-list .live-participant[data-state="provisional"]'
-  );
-  const provisionalBorder = await page
-    .locator("#live-participants-list .live-participant")
-    .evaluate((node) => getComputedStyle(node).borderStyle);
   assert(
-    provisionalBorder === "dotted",
-    `${viewport.width}: provisional participant border was ${provisionalBorder}`
-  );
-  assert(
-    (await page.locator("#live-result-status").textContent()) === "New pattern",
-    `${viewport.width}: first result was not provisional`
+    phaseStatus.visibleLabels === 1 &&
+      phaseStatus.childElements === 0 &&
+      phaseStatus.text === "Still listening" &&
+      phaseStatus.opacity !== "0",
+    `phase status did not replace synchronously: ${JSON.stringify(phaseStatus)}`
   );
 
-  await input.setInputFiles({
-    name: "second.wav",
-    mimeType: "audio/wav",
-    buffer: Buffer.from("RIFF second independent recording"),
+  assert(await page.locator("#listen-name").textContent() === "Demo Baby",
+    "Demo Baby was not the default active infant");
+  await page.selectOption("#profile-picker", "13");
+  assert(await page.locator("#listen-name").textContent() === "Learning Baby",
+    "active baby selector did not switch to Learning Baby");
+  await page.selectOption("#profile-picker", "12");
+  assert(await page.locator("#history-limited").isVisible() === false,
+    "History content leaked into Listen");
+
+  await page.click("#tab-history");
+  assert(await page.locator("#history-limited").isVisible(), "History limit is not visible");
+  await page.click("#tab-listen");
+  await page.click("#btn-start");
+  await page.waitForSelector('body[data-session="listening"]');
+  assert(await page.locator("#profile-picker").isDisabled(),
+    "active baby remained switchable during an open session");
+  assert(await page.evaluate(() => window.__getUserMediaCalls) === 1,
+    "Start did not retain one MediaStream");
+  await page.waitForTimeout(180);
+  const quietEnergy = Number(await page.locator("#orb").getAttribute("data-energy"));
+  await page.evaluate(() => { window.__fakeAnalyserRms = 0.01; });
+  await page.waitForTimeout(360);
+  const cryEnergy = Number(await page.locator("#orb").getAttribute("data-energy"));
+  assert(quietEnergy <= 0.1 && cryEnergy >= 0.7,
+    `microphone energy was not visually distinct: quiet=${quietEnergy}, cry=${cryEnergy}`);
+  assert(await page.evaluate(() => window.__audioContextResumeCalls) === 1,
+    "suspended iOS AudioContext was not resumed");
+  const activationOrder = await page.evaluate(() => window.__audioActivationOrder);
+  assert(
+    activationOrder.indexOf("resume") < activationOrder.indexOf("getUserMedia"),
+    `AudioContext was not primed during the trusted click: ${activationOrder.join(",")}`
+  );
+  assert(await page.locator("#analysis-status").textContent() === "Listening",
+    "microphone energy changed the server-owned cry status");
+  assert(await page.locator("#suggestion-block").isHidden(),
+    "microphone energy created client-side guidance");
+  assert(requests.created.length === 1 && requests.created[0].profile_id === 12,
+    "session was not created for the selected infant");
+  await page.evaluate(() => { window.__sameDocumentMarker = "kept"; });
+  await page.click("#tab-history");
+  await page.click("#tab-listen");
+  assert(await page.evaluate(() => window.__sameDocumentMarker) === "kept",
+    "page navigation reloaded the document");
+  assert(await page.evaluate(() => window.__getUserMediaCalls) === 1,
+    "view navigation replaced the retained MediaStream");
+
+  const revealOrder = await page.evaluate((payload) => {
+    const realSetTimeout = window.setTimeout;
+    const timers = [];
+    window.setTimeout = (callback, delay) => {
+      timers.push({ callback, delay });
+      return 7000 + timers.length;
+    };
+    const progress = [];
+    for (let sequence = 1; sequence <= 3; sequence += 1) {
+      state.activeUpload = { sequence };
+      acceptUploadedSegment({ sequence }, {
+        session: {
+          ...payload.session,
+          last_sequence: sequence,
+          decision: null,
+        },
+        chunk: {
+          ...payload.chunk,
+          id: 89 + sequence,
+          sequence,
+          status: "matched_no_guidance",
+          decision_progress: {
+            consistent_grounded_segments: sequence,
+            required_consistent_grounded_segments: 4,
+            additional_confirmations: sequence - 1,
+            required_additional_confirmations: 3,
+            decision_eligible: false,
+            label: `Infant cry detected. Match held. Confirming ${sequence - 1} of 3`,
+          },
+        },
+      });
+      progress.push({
+        status: document.querySelector("#analysis-status").textContent,
+        orb: document.querySelector("#orb").dataset.visualState,
+        suggestionHidden: document.querySelector("#suggestion-block").hidden,
+        decision: document.querySelector("#page-listen").dataset.decision,
+        acceptedSequence: state.acceptedSequence,
+      });
+    }
+    state.activeUpload = { sequence: 4 };
+    acceptUploadedSegment({ sequence: 4 }, payload);
+    scheduleDecisionReveal({
+      ...payload.session.decision,
+      id: 999,
+      guidance: {
+        ...payload.session.decision.guidance,
+        recommendation: "A later decision must not replace the first",
+      },
+    });
+    const immediate = {
+      status: document.querySelector("#analysis-status").textContent,
+      orb: document.querySelector("#orb").dataset.visualState,
+      suggestionHidden: document.querySelector("#suggestion-block").hidden,
+      decision: document.querySelector("#page-listen").dataset.decision,
+      acceptedSequence: state.acceptedSequence,
+      uploadCleared: state.activeUpload === null,
+    };
+    const reveal = timers.find((timer) => timer.delay === 1200);
+    if (reveal) reveal.callback();
+    const after = {
+      orb: document.querySelector("#orb").dataset.visualState,
+      suggestionHidden: document.querySelector("#suggestion-block").hidden,
+      decision: document.querySelector("#page-listen").dataset.decision,
+      recommendation: document.querySelector("#g-recommendation").textContent,
+    };
+    state.acceptedSequence = 0;
+    window.setTimeout = realSetTimeout;
+    return {
+      progress,
+      immediate,
+      after,
+      revealTimerCount: timers.filter((timer) => timer.delay === 1200).length,
+    };
+  }, {
+    session: publicSession("listening", 4, decision),
+    chunk: {
+      id: 93,
+      sequence: 4,
+      status: "guidance_latched",
+      reason_codes: [],
+      decision_progress: {
+        consistent_grounded_segments: 4,
+        required_consistent_grounded_segments: 4,
+        additional_confirmations: 3,
+        required_additional_confirmations: 3,
+        decision_eligible: true,
+        label: "Infant cry detected. Match confirmed 3 of 3",
+      },
+      cry_presence: {
+        status: "infant_cry_detected",
+        label: "Infant-cry-like sound detected",
+        reason_codes: ["infant_cry_evidence_strong"],
+        analyzed_duration_s: 6,
+        analysis_view_count: 1,
+        model_version: "test",
+      },
+    },
   });
-  await page.waitForSelector(
-    '#live-participants-list .live-participant[data-state="established"]'
-  );
-  const establishedBorder = await page
-    .locator("#live-participants-list .live-participant")
-    .evaluate((node) => getComputedStyle(node).borderStyle);
   assert(
-    establishedBorder === "solid",
-    `${viewport.width}: established participant border was ${establishedBorder}`
-  );
-  assert(
-    (await page.locator("#live-result-status").textContent()) ===
-      "Repeated pattern",
-    `${viewport.width}: second result was not established`
-  );
-  assert(
-    (await page.locator("#live-timeline-list > li").count()) === 2,
-    `${viewport.width}: timeline does not contain two observations`
-  );
-  assert(
-    (await page.locator("#live-timeline-list audio").count()) === 2,
-    `${viewport.width}: timeline playback is missing`
-  );
-  assert(
-    requests.observed.length === 2 &&
-      requests.observed.every(
-        (request) =>
-          request.source === "upload" &&
-          request.contentType.startsWith("audio/wav")
+    revealOrder.progress.length === 3 &&
+      revealOrder.progress.every((step, index) =>
+        step.status ===
+          `Infant cry detected. Match held. Confirming ${index} of 3` &&
+        step.orb === "detected" &&
+        step.suggestionHidden &&
+        step.decision === "none" &&
+        step.acceptedSequence === index + 1
       ),
-    `${viewport.width}: file selection did not submit exactly one upload each`
+    `early evidence produced guidance or lost progress: ${JSON.stringify(revealOrder)}`
   );
   assert(
-    requests.observed[0].bodyHex ===
-      Buffer.from("RIFF first independent recording").toString("hex") &&
-      requests.observed[1].bodyHex ===
-        Buffer.from("RIFF second independent recording").toString("hex") &&
-      requests.observed[0].bodyHex !== requests.observed[1].bodyHex,
-    `${viewport.width}: the two observation requests did not carry distinct recordings`
+    revealOrder.immediate.status === "Infant cry detected. Match confirmed 3 of 3" &&
+      revealOrder.immediate.orb === "detected" &&
+      revealOrder.immediate.suggestionHidden &&
+      revealOrder.immediate.decision === "none",
+    `server detection was not revealed first: ${JSON.stringify(revealOrder)}`
+  );
+  assert(
+    revealOrder.immediate.acceptedSequence === 4 &&
+      revealOrder.immediate.uploadCleared,
+    `decision reveal blocked upload progress: ${JSON.stringify(revealOrder)}`
+  );
+  assert(
+    revealOrder.revealTimerCount === 1 &&
+      revealOrder.after.orb === "grounded" &&
+      !revealOrder.after.suggestionHidden &&
+      revealOrder.after.decision === "latched" &&
+      revealOrder.after.recommendation === "Server recommendation, exactly",
+    `grounded decision did not follow the calm reveal delay: ${JSON.stringify(revealOrder)}`
   );
 
-  const geometry = await page.evaluate(() => {
-    const rect = (selector) => {
-      const value = document.querySelector(selector).getBoundingClientRect();
-      return {
-        x: Math.round(value.x),
-        y: Math.round(value.y),
-        width: Math.round(value.width),
-        height: Math.round(value.height),
-      };
+  const invalidCopy = await page.evaluate(() => {
+    const read = (reason) => {
+      renderChunkResult({
+        chunk: { status: "invalid", reason_codes: [reason] },
+      });
+      return document.querySelector("#analysis-status").textContent;
     };
     return {
-      innerWidth: window.innerWidth,
-      documentWidth: document.documentElement.scrollWidth,
-      bodyWidth: document.body.scrollWidth,
-      capture: rect("#live-capture-panel"),
-      result: rect("#live-result-panel"),
-      timeline: rect("#live-session-timeline"),
-      participants: rect("#live-participant-strip"),
+      uneven: read("unsafe_normalization_headroom"),
+      quiet: read("near_silence"),
+      decode: read("decode_failed"),
     };
   });
-  assert(
-    geometry.documentWidth <= geometry.innerWidth &&
-      geometry.bodyWidth <= geometry.innerWidth,
-    `${viewport.width}: horizontal overflow ${JSON.stringify(geometry)}`
+  assert(invalidCopy.uneven === "That segment was too uneven. Still listening",
+    `uneven audio was mislabeled: ${JSON.stringify(invalidCopy)}`);
+  assert(invalidCopy.quiet === "That segment was too quiet. Still listening",
+    `quiet audio was mislabeled: ${JSON.stringify(invalidCopy)}`);
+  assert(invalidCopy.decode === "That segment could not be read. Still listening",
+    `decode failure was mislabeled: ${JSON.stringify(invalidCopy)}`);
+
+  await page.click("#btn-stop");
+  await page.waitForSelector('body[data-session="awaiting_outcome"]', { timeout: 10000 });
+  assert(requests.chunks.length === 2, "failed finalized segment was not retried once");
+  assert(requests.chunks[0].sequence === "1" && requests.chunks[1].sequence === "1",
+    "retry did not preserve capture sequence 1");
+  assert(requests.chunks[0].bodyHex === requests.chunks[1].bodyHex,
+    "retry did not preserve the exact finalized bytes");
+  assert(requests.stopped === 1, "server Stop did not happen exactly once after drain");
+
+  assert(await page.locator("#g-recommendation").textContent() ===
+    "Server recommendation, exactly", "server recommendation was rewritten");
+  assert(await page.locator("#g-evidence-summary").textContent() ===
+    "Server evidence summary", "server evidence summary was rewritten");
+
+  await page.fill("#outcome-action", "Held upright");
+  await page.click('#settled-seg button[data-settled="true"]');
+  await page.click("#btn-save-outcome");
+  await page.waitForSelector('body[data-session="saved"]');
+  assert(requests.completed.length === 1, "structured outcome was not saved once");
+  assert(requests.completed[0].action === "Held upright", "typed action changed");
+  assert(requests.completed[0].settled === true, "settled value changed");
+
+  const hasOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth
   );
+  assert(!hasOverflow, "portrait has horizontal overflow");
+  assert(pageErrors.length === 0, `page errors: ${pageErrors.join("; ")}`);
+  assert(cspErrors.length === 0, `CSP errors: ${cspErrors.join("; ")}`);
+  await page.close();
+}
+
+async function checkResponsiveShell(browser, viewport) {
+  const page = await browser.newPage({ viewport, reducedMotion: "reduce" });
+  const requests = { created: [], chunks: [], stopped: 0, completed: [] };
+  await installBrowserFakes(page);
+  await installRoutes(page, requests);
+  await page.goto("http://care.test/", { waitUntil: "domcontentloaded" });
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth
+  );
+  assert(!overflow, `${viewport.width}x${viewport.height} has horizontal overflow`);
   if (viewport.width >= 900) {
-    assert(
-      geometry.result.x > geometry.capture.x &&
-        Math.abs(geometry.result.y - geometry.capture.y) <= 2,
-      `${viewport.width}: desktop cards are not paired in columns`
+    const shellWidth = await page.locator("#app-shell").evaluate((node) =>
+      node.getBoundingClientRect().width
     );
-    assert(
-      geometry.timeline.x === geometry.capture.x &&
-        geometry.timeline.width > geometry.capture.width,
-      `${viewport.width}: timeline does not span the desktop workspace`
-    );
-  } else {
-    assert(
-      geometry.result.y > geometry.capture.y &&
-        geometry.result.x === geometry.capture.x,
-      `${viewport.width}: phone cards did not collapse to one column`
-    );
+    assert(shellWidth >= 850, `desktop shell remained a phone column at ${shellWidth}px`);
   }
-  assert(
-    pageErrors.length === 0,
-    `${viewport.width}: browser errors: ${pageErrors.join("; ")}`
-  );
-  if (process.env.LIVE_SESSION_SCREENSHOT_DIR) {
-    fs.mkdirSync(process.env.LIVE_SESSION_SCREENSHOT_DIR, { recursive: true });
-    await page.screenshot({
-      path: path.join(
-        process.env.LIVE_SESSION_SCREENSHOT_DIR,
-        `live-session-${viewport.width}x${viewport.height}.png`
-      ),
-      fullPage: true,
-    });
-  }
-
-  requests.createQueue = ["network"];
-  await page.click("#btn-new-live-session");
-  await page.waitForFunction(() =>
-    document
-      .querySelector("#live-submit-status")
-      .textContent.includes("could not be created")
-  );
-  assert(
-    (await page.locator("#live-timeline-list > li").count()) === 2 &&
-      (await page
-        .locator(
-          '#live-participants-list .live-participant[data-state="established"]'
-        )
-        .count()) === 1,
-    `${viewport.width}: failed New session erased the current server-backed session`
-  );
-
-  await input.setInputFiles({
-    name: "third.wav",
-    mimeType: "audio/wav",
-    buffer: Buffer.from("RIFF third independent recording"),
-  });
-  await page.waitForSelector("#live-timeline-list > li:nth-child(3)");
-  assert(
-    (await page.locator(".live-participant-support").textContent()) ===
-      "3 supporting recordings",
-    `${viewport.width}: support count above two was not shown exactly`
-  );
-  assert(
-    requests.observed.length === 3,
-    `${viewport.width}: exact support count check made an unexpected submission`
-  );
-  await page.close();
-  return geometry;
-}
-
-async function exerciseFailureStates(browser) {
-  const page = await browser.newPage({ viewport: { width: 900, height: 900 } });
-  const requests = {
-    created: [],
-    observed: [],
-    queue: ["network", "invalid", "completed"],
-  };
-  await installRoutes(page, requests);
-  await page.goto("http://live.test/", { waitUntil: "domcontentloaded" });
-  await page.click("#btn-kind-imitation");
-  await page.click("#btn-new-live-session");
-  await page.waitForFunction(
-    () => !document.querySelector("#live-file-input").disabled
-  );
-
-  const input = page.locator("#live-file-input");
-  await input.setInputFiles({
-    name: "network-failure.wav",
-    mimeType: "audio/wav",
-    buffer: Buffer.from("RIFF retained recording"),
-  });
-  await page.waitForSelector("#btn-live-retry:visible");
-  assert(
-    !(await page.locator("#btn-live-retry").isDisabled()),
-    "network failure did not leave the retained clip available"
-  );
-  assert(
-    (await input.inputValue()).endsWith("network-failure.wav"),
-    "network failure cleared the selected file"
-  );
-
-  await page.click("#btn-live-retry");
-  await page.waitForFunction(
-    () => document.querySelector("#live-result-panel").dataset.status === "invalid"
-  );
-  assert(
-    (await page.locator("#live-result-explanation").textContent()) ===
-      "The server could not decode that audio.",
-    "invalid response did not render the backend rejection reason"
-  );
-  assert(
-    (await page.locator("#live-timeline-list > li").count()) === 0,
-    "client invented an invalid timeline row absent from server state"
-  );
-  assert(
-    (await input.inputValue()) === "",
-    "accepted invalid response did not clear the unusable clip"
-  );
-  assert(
-    requests.observed.length === 2,
-    "retained clip retry did not make exactly one follow-up request"
-  );
-
-  await input.setInputFiles({
-    name: "completed-session.wav",
-    mimeType: "audio/wav",
-    buffer: Buffer.from("RIFF recording rejected by completed session"),
-  });
-  await page.waitForFunction(
-    () =>
-      document.querySelector("#live-result-panel").dataset.status ===
-      "session_completed"
-  );
-  assert(
-    (await page.locator("#live-submit-status").textContent()).includes(
-      "was not added"
-    ),
-    "completed-session response claimed that the recording was accepted"
-  );
-  assert(
-    (await input.inputValue()).endsWith("completed-session.wav"),
-    "completed-session response discarded the unaccepted recording"
-  );
-  assert(
-    await input.isDisabled(),
-    "completed session left capture enabled"
-  );
-  assert(
-    requests.observed.length === 3,
-    "completed-session check made an unexpected observation request"
-  );
-  await page.click("#btn-new-live-session");
-  await page.waitForSelector("#btn-live-retry:visible");
-  assert(
-    !(await page.locator("#btn-live-retry").isDisabled()) &&
-      (await input.inputValue()).endsWith("completed-session.wav") &&
-      requests.observed.length === 3,
-    "starting a replacement session did not keep the rejected recording available"
-  );
   await page.close();
 }
 
-async function exerciseMicrophoneStop(browser) {
-  const page = await browser.newPage({ viewport: { width: 900, height: 900 } });
-  const requests = { created: [], observed: [] };
-  await page.addInitScript(() => {
-    window.__captureOrder = [];
-    const pause = HTMLMediaElement.prototype.pause;
-    Object.defineProperty(HTMLMediaElement.prototype, "pause", {
-      configurable: true,
-      value(...args) {
-        window.__captureOrder.push("pause");
-        return pause.apply(this, args);
+async function runNoCryPath(browser) {
+  const page = await browser.newPage({
+    viewport: { width: 430, height: 932 },
+    reducedMotion: "reduce",
+  });
+  const requests = { created: [], chunks: [], stopped: 0, completed: [] };
+  await installBrowserFakes(page);
+  await installRoutes(page, requests, { chunkMode: "no_cry", retryFirst: false });
+  await page.goto("http://care.test/", { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => !document.querySelector("#btn-start").disabled);
+  await page.click("#btn-start");
+  await page.waitForSelector('body[data-session="listening"]');
+  await page.click("#btn-stop");
+  await page.waitForSelector('body[data-session="awaiting_outcome"]');
+  assert(await page.locator("#suggestion-block").isHidden(),
+    "no_cry_detected created a suggestion");
+  assert(await page.locator("#incident-list li").count() === 0,
+    "no_cry_detected created supporting history");
+  await page.close();
+}
+
+async function runSequentialOutcomePath(browser) {
+  const page = await browser.newPage({
+    viewport: { width: 932, height: 430 },
+    reducedMotion: "reduce",
+  });
+  const requests = { created: [], chunks: [], stopped: 0, completed: [] };
+  await installBrowserFakes(page);
+  await installRoutes(page, requests, {
+    chunkMode: "no_cry",
+    retryFirst: false,
+    safeArea: true,
+  });
+  await page.goto("http://care.test/", { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => !document.querySelector("#btn-start").disabled);
+
+  const resetCleanup = await page.evaluate((serverDecision) => {
+    const realSetTimeout = window.setTimeout;
+    let reveal = null;
+    window.setTimeout = (callback, delay) => {
+      if (delay === 1200) reveal = callback;
+      return 9901;
+    };
+    scheduleDecisionReveal(serverDecision);
+    const pendingBefore = Boolean(state.pendingDecision);
+    resetToIdle();
+    if (reveal) reveal();
+    const result = {
+      pendingBefore,
+      pendingAfter: state.pendingDecision,
+      timerAfter: state.decisionRevealTimer,
+      decisionAfter: state.decision,
+      suggestionHidden: document.querySelector("#suggestion-block").hidden,
+    };
+    window.setTimeout = realSetTimeout;
+    return result;
+  }, decision);
+  assert(
+    resetCleanup.pendingBefore &&
+      resetCleanup.pendingAfter === null &&
+      resetCleanup.timerAfter === null &&
+      resetCleanup.decisionAfter === null &&
+      resetCleanup.suggestionHidden,
+    `reset did not cancel the delayed decision: ${JSON.stringify(resetCleanup)}`
+  );
+
+  for (let index = 1; index <= 3; index++) {
+    await page.click("#btn-start");
+    await page.waitForSelector('body[data-session="listening"]');
+    const runDecision = {
+      ...decision,
+      id: 100 + index,
+      guidance: {
+        ...decision.guidance,
+        recommendation: `Session ${index} recommendation`,
       },
+    };
+    await page.evaluate((value) => window.latchDecision(value), runDecision);
+    await page.click("#btn-stop");
+    await page.waitForSelector('body[data-session="awaiting_outcome"]');
+    await page.waitForTimeout(500);
+
+    const outcome = await page.evaluate(() => {
+      const pageNode = document.querySelector("#page-listen");
+      const suggestion = document.querySelector("#suggestion-block");
+      const card = document.querySelector("#suggestion-card").getBoundingClientRect();
+      const form = document.querySelector("#outcome-form").getBoundingClientRect();
+      const pageRect = pageNode.getBoundingClientRect();
+      return {
+        suggestionVisible: !suggestion.hidden,
+        recommendation: document.querySelector("#g-recommendation").textContent,
+        pageWidth: Math.round(pageRect.width),
+        cardWidth: Math.round(card.width),
+        cardHeight: Math.round(card.height),
+        formWidth: Math.round(form.width),
+        documentWidth: document.documentElement.scrollWidth,
+        viewportWidth: document.documentElement.clientWidth,
+        formPageBottom: Math.round(form.bottom - pageRect.top),
+        pageScrollHeight: pageNode.scrollHeight,
+      };
     });
-    const track = {
-      addEventListener() {},
-      getSettings() {
+    assert(outcome.suggestionVisible,
+      `session ${index} hid the latched result after Stop`);
+    assert(outcome.recommendation === `Session ${index} recommendation`,
+      `session ${index} reused stale guidance: ${JSON.stringify(outcome)}`);
+    assert(
+      outcome.cardWidth >= outcome.pageWidth - 2 &&
+        outcome.cardWidth / outcome.cardHeight >= 2.4,
+      `session ${index} result was not a horizontal full-width summary: ` +
+        JSON.stringify(outcome)
+    );
+    assert(outcome.formWidth >= outcome.pageWidth - 2,
+      `session ${index} follow-up form was clipped: ${JSON.stringify(outcome)}`);
+    assert(outcome.documentWidth <= outcome.viewportWidth + 1,
+      `session ${index} outcome has horizontal overflow: ${JSON.stringify(outcome)}`);
+    assert(outcome.formPageBottom <= outcome.pageScrollHeight + 1,
+      `session ${index} outcome is vertically clipped: ${JSON.stringify(outcome)}`);
+
+    await page.click("#btn-discard");
+    await page.waitForSelector('body[data-session="idle"]');
+    const reset = await page.evaluate(() => ({
+      decision: document.querySelector("#page-listen").dataset.decision,
+      suggestionHidden: document.querySelector("#suggestion-block").hidden,
+      recommendation: document.querySelector("#g-recommendation").textContent,
+    }));
+    assert(
+      reset.decision === "none" &&
+        reset.suggestionHidden &&
+        reset.recommendation === "",
+      `session ${index} did not clear before the next recording: ${JSON.stringify(reset)}`
+    );
+  }
+  await page.close();
+}
+
+async function landscapeMetrics(page) {
+  return page.evaluate(() => {
+    const pageNode = document.querySelector("#page-listen");
+    const pageRect = pageNode.getBoundingClientRect();
+    const controls = document.querySelector("#ctl-capsule").getBoundingClientRect();
+    const profile = document.querySelector("#profile-control").getBoundingClientRect();
+    const recorder = document.querySelector("#rec-chip").getBoundingClientRect();
+    const orb = document.querySelector("#orb-wrap").getBoundingClientRect();
+    const offenders = Array.from(document.querySelectorAll("body *"))
+      .map((node) => {
+        const rect = node.getBoundingClientRect();
         return {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
+          id: node.id || node.className || node.tagName,
+          top: Math.round(rect.top),
+          bottom: Math.round(rect.bottom),
+          height: Math.round(rect.height),
         };
-      },
-      stop() {},
+      })
+      .filter((item) => item.bottom > innerHeight + 1)
+      .sort((a, b) => b.bottom - a.bottom)
+      .slice(0, 8);
+    return {
+      innerHeight,
+      documentClientHeight: document.documentElement.clientHeight,
+      documentScrollHeight: document.documentElement.scrollHeight,
+      bodyScrollHeight: document.body.scrollHeight,
+      pageClientHeight: pageNode.clientHeight,
+      pageScrollHeight: pageNode.scrollHeight,
+      pageTop: Math.round(pageRect.top),
+      pageBottom: Math.round(pageRect.bottom),
+      pageChildren: Array.from(pageNode.children).map((node) => {
+        const rect = node.getBoundingClientRect();
+        return {
+          id: node.id || node.className || node.tagName,
+          top: Math.round(rect.top),
+          bottom: Math.round(rect.bottom),
+          height: Math.round(rect.height),
+        };
+      }),
+      pageOverflowers: Array.from(pageNode.querySelectorAll("*"))
+        .map((node) => {
+          const rect = node.getBoundingClientRect();
+          return {
+            id: node.id || node.className || node.tagName,
+            top: Math.round(rect.top),
+            bottom: Math.round(rect.bottom),
+            height: Math.round(rect.height),
+          };
+        })
+        .filter((item) => item.bottom > pageRect.bottom + 1)
+        .sort((a, b) => b.bottom - a.bottom)
+        .slice(0, 12),
+      controlsTop: Math.round(controls.top),
+      controlsBottom: Math.round(controls.bottom),
+      profileCenter: Math.round(profile.top + profile.height / 2),
+      recorderCenter: Math.round(recorder.top + recorder.height / 2),
+      orbWidth: Math.round(orb.width),
+      offenders,
     };
-    const stream = {
-      getAudioTracks() {
-        return [track];
-      },
-      getTracks() {
-        return [track];
-      },
-    };
-    Object.defineProperty(navigator, "mediaDevices", {
-      configurable: true,
-      value: {
-        async getUserMedia() {
-          return stream;
-        },
-      },
-    });
-    class FakeMediaRecorder {
-      static isTypeSupported(type) {
-        return type.startsWith("audio/webm");
-      }
-
-      constructor(_stream, options = {}) {
-        this.mimeType = options.mimeType || "audio/webm";
-        this.state = "inactive";
-        this.listeners = new Map();
-      }
-
-      addEventListener(name, callback) {
-        const listeners = this.listeners.get(name) || [];
-        listeners.push(callback);
-        this.listeners.set(name, listeners);
-      }
-
-      dispatch(name, event = {}) {
-        for (const callback of this.listeners.get(name) || []) callback(event);
-      }
-
-      start() {
-        window.__captureOrder.push("start");
-        this.state = "recording";
-      }
-
-      stop() {
-        this.state = "inactive";
-        this.dispatch("dataavailable", {
-          data: new Blob(["independent microphone recording"], {
-            type: this.mimeType,
-          }),
-        });
-        this.dispatch("stop");
-      }
-    }
-    Object.defineProperty(window, "MediaRecorder", {
-      configurable: true,
-      value: FakeMediaRecorder,
-    });
   });
-  await installRoutes(page, requests);
-  await page.goto("http://localhost/", { waitUntil: "domcontentloaded" });
-  await page.click("#btn-kind-imitation");
-  await page.click("#btn-new-live-session");
-  await page.waitForFunction(
-    () => !document.querySelector("#btn-live-record-start").disabled
-  );
-  await page.evaluate(() => {
-    const audio = document.createElement("audio");
-    audio.id = "playback-order-probe";
-    document.body.appendChild(audio);
-  });
-  await page.click("#btn-live-record-start");
-  await page.waitForFunction(() => document.body.dataset.recording === "true");
-  const captureOrder = await page.evaluate(() => window.__captureOrder);
-  assert(
-    captureOrder.indexOf("pause") > -1 &&
-      captureOrder.indexOf("pause") < captureOrder.indexOf("start"),
-    `playback was not paused before capture started: ${captureOrder.join(", ")}`
-  );
-  await page.click("#btn-live-record-stop");
-  await page.waitForSelector(
-    '#live-participants-list .live-participant[data-state="provisional"]'
-  );
-  assert(
-    requests.observed.length === 1 &&
-      requests.observed[0].source === "microphone",
-    "microphone stop did not submit exactly one microphone observation"
-  );
-  await page.close();
 }
 
-async function exerciseBabyMode(browser) {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  const requests = { created: [], observed: [] };
-  await installRoutes(page, requests);
-  await page.goto("http://live.test/", { waitUntil: "domcontentloaded" });
+async function runLandscapeListeningFit(browser) {
+  const page = await browser.newPage({
+    viewport: { width: 932, height: 430 },
+    reducedMotion: "reduce",
+  });
+  const requests = { created: [], chunks: [], stopped: 0, completed: [] };
+  await installBrowserFakes(page);
+  await installRoutes(page, requests, { retryFirst: false, safeArea: true });
+  await page.goto("http://care.test/", { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => !document.querySelector("#btn-start").disabled);
+  await page.click("#btn-start");
+  await page.waitForSelector('body[data-session="listening"]');
+  await page.waitForTimeout(700);
+
+  const plain = await landscapeMetrics(page);
   assert(
-    await page.locator("#not-in-this-build").isHidden(),
-    "roadmap was visible on the initial mode screen"
-  );
-  await page.click("#btn-kind-infant");
-  assert(
-    await page.locator("#live-session-console").isHidden(),
-    "baby mode displayed the live human console"
-  );
-  assert(
-    await page.locator("#legacy-workflow").isVisible(),
-    "baby mode lost the legacy care workflow"
-  );
-  for (const selector of [
-    "#panel-capture",
-    "#panel-profiles",
-    "#panel-enroll",
-    "#panel-query",
-    "#manual-profile-create",
-  ]) {
-    assert(
-      await page.locator(selector).isVisible(),
-      `baby mode hid ${selector}`
-    );
-  }
-  assert(
-    await page.locator("#not-in-this-build").isHidden(),
-    "baby mode displayed the roadmap"
+    plain.documentScrollHeight <= plain.innerHeight + 1 &&
+      plain.bodyScrollHeight <= plain.innerHeight + 1 &&
+      plain.pageScrollHeight <= plain.pageClientHeight + 1,
+    `landscape listening scrolls: ${JSON.stringify(plain)}`
   );
   assert(
-    await page.locator("#file-input").isEnabled(),
-    "baby file capture is no longer available"
+    plain.controlsTop >= 0 && plain.controlsBottom <= plain.innerHeight,
+    `landscape controls are clipped: ${JSON.stringify(plain)}`
   );
-  const shellWidth = await page
-    .locator("#app-shell")
-    .evaluate((node) => Math.round(node.getBoundingClientRect().width));
-  assert(shellWidth === 760, `baby reading column changed to ${shellWidth}`);
   assert(
-    requests.created.length === 0 && requests.observed.length === 0,
-    "baby mode called the live-session API"
+    Math.abs(plain.profileCenter - plain.recorderCenter) <= 4,
+    `landscape timer is not aligned with the baby profile: ${JSON.stringify(plain)}`
+  );
+  assert(
+    plain.orbWidth >= 220,
+    `landscape listening orb remained too small: ${JSON.stringify(plain)}`
+  );
+
+  await page.evaluate((serverDecision) => {
+    window.latchDecision(serverDecision);
+  }, decision);
+  const latched = await landscapeMetrics(page);
+  assert(
+    latched.documentScrollHeight <= latched.innerHeight + 1 &&
+      latched.bodyScrollHeight <= latched.innerHeight + 1 &&
+      latched.pageScrollHeight <= latched.pageClientHeight + 1,
+    `landscape suggestion scrolls: ${JSON.stringify(latched)}`
+  );
+  assert(
+    latched.controlsTop >= 0 && latched.controlsBottom <= latched.innerHeight,
+    `landscape suggestion controls are clipped: ${JSON.stringify(latched)}`
   );
   await page.close();
 }
 
 const { chromium } = loadPlaywright();
-const chromeCandidates = [
-  path.join(
-    os.homedir(),
-    "Library",
-    "Caches",
-    "ms-playwright",
-    "chromium_headless_shell-1208",
-    "chrome-headless-shell-mac-arm64",
-    "chrome-headless-shell"
-  ),
-  chromium.executablePath(),
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  "/Applications/Chromium.app/Contents/MacOS/Chromium",
-];
-const executablePath = chromeCandidates.find((candidate) => fs.existsSync(candidate));
-const browser = await chromium.launch({
-  headless: true,
-  ...(executablePath ? { executablePath } : {}),
-});
+const browser = await chromium.launch({ headless: true });
 try {
-  const evidence = [];
-  for (const viewport of [
-    { width: 430, height: 932 },
-    { width: 900, height: 900 },
-    { width: 1440, height: 900 },
-  ]) {
-    evidence.push(await exerciseViewport(browser, viewport));
-  }
-  await exerciseFailureStates(browser);
-  await exerciseMicrophoneStop(browser);
-  await exerciseBabyMode(browser);
-  process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
-  process.stdout.write("Live session browser checks passed.\n");
+  await runLivePath(browser);
+  await runNoCryPath(browser);
+  await runSequentialOutcomePath(browser);
+  await runLandscapeListeningFit(browser);
+  await checkResponsiveShell(browser, { width: 932, height: 430 });
+  await checkResponsiveShell(browser, { width: 1440, height: 900 });
+  console.log("continuous care browser checks passed");
 } finally {
   await browser.close();
 }

@@ -4534,3 +4534,110 @@ controls in the corner. The capture harness (web/capture.html, untracked) plus ?
 regenerate any Figma or screenshot artifact.
 
 STATUS: FYI, integrate by editing the shipped files, not by rebuilding from the spec
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 Task 2 care sessions
+
+Task 2 adds the approved additive care-session schema and persistent infant-only state machine.
+Implementation, TDD evidence, verification, self-review, and concerns are recorded in:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-2-report.md`
+
+STATUS: Task 2 verified, commit pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 Task 2 review fixes
+
+Task 2 round 1 now claims discard before cleanup, reports and recovers cleanup failures honestly,
+uses an explicit recursive decision schema, and makes concurrent Stop idempotent. Updated evidence
+and the multi-file partial-cleanup policy are recorded in:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-2-report.md`
+
+STATUS: Task 2 round 1 fixes verified, commit pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 Task 3 rolling chunks
+
+Task 3 adds ordered, idempotent rolling infant chunk analysis, cry-before-identity gating,
+selected-profile-only history, and the first-grounded-guidance latch. Implementation, TDD
+evidence, verification, self-review, and concerns are recorded in:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-3-report.md`
+
+STATUS: Task 3 verified, commit pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 Task 3 review round 1
+
+Task 3 now claims each database, session, and sequence before cry, identity, or history inference.
+Concurrent identical submissions replay the winner and conflicting submissions return
+`sequence_conflict` without duplicate identity audit. Updated RED and GREEN evidence is in:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-3-report.md`
+
+STATUS: Task 3 review round 1 verified, commit pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 Task 4 structured completion
+
+Task 4 adds deterministic structured caregiver outcomes, representative matched-chunk selection,
+the shared completion/discard mutation lock, persistent exactly-once recovery, and the restricted
+completion result. Implementation, TDD evidence, concurrency probes, full verification, and the
+single-process uniqueness boundary are recorded in:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-4-report.md`
+
+STATUS: Task 4 verified, commit pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 Task 4 review round 1
+
+Task 4 now removes an extracted exact duplicate of the structured caregiver action and always
+appends the literal typed action as the final intervention. Other extracted actions retain stable
+order. Updated RED and GREEN evidence is in:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-4-report.md`
+
+STATUS: Task 4 review round 1 verified, commit pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 minimum Listen routes green
+
+Task 6A adds only the phone-testable Listen HTTP surface and profile-scoped representative
+incident audio. The focused route class passed 10 of 10 tests. The final bounded HTTP, startup,
+end-to-end, and real-audio selection passed 12 tests with 1 fixed-rig fixture skip, and the
+existing recursive privacy regression passed 1 test. Python compilation, diff whitespace, changed
+scope, and forbidden dash checks passed.
+
+The owner approved accelerated test-build mode, so full unittest discovery is deferred to the
+background release review. History, incident detail JSON, Baby detail, and care-event routes
+remain pending Task 5 and the full Task 6.
+
+Implementation and verification details:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-6a-report.md`
+
+STATUS: O9 minimum Listen routes green; later history and detail routes remain pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 phone test client
+
+The first accelerated phone-testable Listen client now uses the live care-session routes, durable
+same-bytes and same-sequence retry, server-only cry states, latched verbatim guidance, structured
+Save and Discard, active infant selection, and responsive phone and desktop layouts. History and
+Baby remain explicitly limited until their routes exist.
+
+Implementation, focused tests, and exact remaining caveats:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-8-report.md`
+
+STATUS: experimental phone test client verified; physical iPhone run still required

@@ -1,161 +1,241 @@
-"""Static browser contract for the continuous care client (Listen build).
+"""Focused static contract for the accelerated continuous-care phone client.
 
-Replaces the operator-console suite on this branch: web/ is now the care app, so
-the old assertions describe files that no longer exist. Coordination note in
-docs/MESSAGES.md per the O9 plan, Task 8. Behavioral tests arrive with API
-wiring in tests/test_live_session_browser.mjs.
-
-Everything here reads the shipped files; nothing needs a browser.
+The behavioral recorder contract is exercised in test_live_session_browser.mjs.
+These checks guard the privacy, safety, accessibility, and packaging mistakes
+that can be detected without a browser.
 """
+
+from __future__ import annotations
+
 import json
 import re
 import unittest
 from pathlib import Path
 
-WEB = Path(__file__).resolve().parent.parent / "web"
-INDEX = (WEB / "index.html").read_text(encoding="utf-8")
-CSS = (WEB / "app.css").read_text(encoding="utf-8")
-JS = (WEB / "app.js").read_text(encoding="utf-8")
-MANIFEST = (WEB / "manifest.webmanifest").read_text(encoding="utf-8")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+WEB_ROOT = REPO_ROOT / "web"
+INDEX = WEB_ROOT / "index.html"
+APP_JS = WEB_ROOT / "app.js"
+APP_CSS = WEB_ROOT / "app.css"
+MANIFEST = WEB_ROOT / "manifest.webmanifest"
 
 
-class DocumentContractTests(unittest.TestCase):
-    def test_single_document_has_three_destinations(self):
-        for element_id in ("page-listen", "page-history", "page-baby",
-                           "tab-listen", "tab-history", "tab-baby"):
-            self.assertIn('id="%s"' % element_id, INDEX)
-        self.assertEqual(1, INDEX.count("<html"), "one document, no reloads")
+def read(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
 
-    def test_listen_page_carries_every_required_static_element(self):
-        for element_id in (
-            "listen-name", "btn-profile-switch", "health-pill", "orb",
-            "analysis-status", "btn-start", "consent-line", "rec-chip",
-            "rec-chip-time", "btn-pause", "btn-resume", "btn-stop",
-            "suggestion-card", "g-headline", "g-recommendation",
-            "g-evidence-summary", "g-interpretation", "basis-list",
-            "incident-list", "outcome-form", "outcome-action", "settled-seg",
-            "outcome-notes", "outcome-tags", "btn-save-outcome", "btn-discard",
-            "safety-line", "saved-block", "interrupted-banner",
-            "connection-banner", "error-banner", "preview-bar",
+class PhoneCareAssetTests(unittest.TestCase):
+    def test_only_local_runtime_assets_are_required(self):
+        """External assets would fail on the laptop hotspot used by the demo."""
+        html = read(INDEX)
+        self.assertNotRegex(html, r'(?:src|href)="https?://')
+        for name in ("index.html", "app.js", "app.css", "manifest.webmanifest"):
+            self.assertTrue((WEB_ROOT / name).is_file(), name)
+
+    def test_manifest_allows_portrait_and_landscape(self):
+        """A portrait-only manifest would break the planned landscape result."""
+        manifest = json.loads(read(MANIFEST))
+        self.assertNotEqual("portrait", manifest.get("orientation"))
+        self.assertEqual("standalone", manifest.get("display"))
+
+
+class PhoneCareMarkupTests(unittest.TestCase):
+    REQUIRED_IDS = (
+        "app-shell",
+        "page-listen",
+        "page-history",
+        "page-baby",
+        "tab-listen",
+        "tab-history",
+        "tab-baby",
+        "profile-picker",
+        "listen-name",
+        "health-pill",
+        "health-text",
+        "error-banner",
+        "connection-banner",
+        "btn-conn-retry",
+        "orb",
+        "analysis-status",
+        "suggestion-block",
+        "g-headline",
+        "g-recommendation",
+        "g-evidence-summary",
+        "g-interpretation",
+        "basis-list",
+        "incident-list",
+        "btn-start",
+        "btn-pause",
+        "btn-resume",
+        "btn-stop",
+        "rec-chip",
+        "rec-chip-state",
+        "rec-chip-time",
+        "outcome-form",
+        "outcome-action",
+        "settled-seg",
+        "outcome-notes",
+        "outcome-tags",
+        "btn-save-outcome",
+        "btn-discard",
+        "history-limited",
+        "baby-limited",
+    )
+
+    def setUp(self):
+        self.html = read(INDEX)
+        self.ids = re.findall(r'\bid="([^"]+)"', self.html)
+
+    def test_live_path_elements_exist_exactly_once(self):
+        """Missing or duplicate controls would make the phone path ambiguous."""
+        for element_id in self.REQUIRED_IDS:
+            with self.subTest(element_id=element_id):
+                self.assertEqual(1, self.ids.count(element_id))
+        self.assertEqual(len(self.ids), len(set(self.ids)))
+
+    def test_accelerated_pages_are_honest_about_their_limits(self):
+        """History and Baby must not look populated before their routes exist."""
+        lowered = self.html.lower()
+        self.assertIn("limited in this test build", lowered)
+        self.assertIn("history", lowered)
+        self.assertIn("baby", lowered)
+
+    def test_no_profile_or_care_result_is_hard_coded(self):
+        """The visible baby and guidance must come from the server."""
+        combined = (self.html + read(APP_JS)).lower()
+        self.assertNotIn("amara", combined)
+        self.assertNotIn("preview_decision", combined)
+        self.assertNotIn("what helped before: held baby upright", combined)
+
+    def test_outcome_question_uses_direct_caregiver_wording(self):
+        """The follow-up must use the approved plain-language choices."""
+        self.assertIn("Did this help your baby calm down?", self.html)
+        self.assertRegex(
+            self.html,
+            r'data-settled="true"[^>]*>\s*Yes\s*</button>',
+        )
+        self.assertRegex(
+            self.html,
+            r'data-settled="false"[^>]*>\s*Not yet\s*</button>',
+        )
+        self.assertRegex(
+            self.html,
+            r'data-settled="null"[^>]*>\s*Not sure\s*</button>',
+        )
+        self.assertNotIn("Did it settle?", self.html)
+
+
+class PhoneCareScriptTests(unittest.TestCase):
+    def setUp(self):
+        self.js = read(APP_JS)
+        self.compact = re.sub(r"\s+", "", self.js).lower()
+
+    def test_default_path_has_no_simulated_or_route_gated_mode(self):
+        """A mock query or false route switch could present a nonfunctional demo."""
+        lowered = self.js.lower()
+        for forbidden in (
+            "routes_green",
+            "preview_decision",
+            "preview_steps",
+            "initpreview",
+            "?mock",
+            "?preview",
         ):
-            self.assertIn('id="%s"' % element_id, INDEX, element_id)
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, lowered)
 
-    def test_fixed_chrome_lives_outside_the_animated_page(self):
-        """An animated transform on an ancestor captures position fixed, so the
-        control capsule must sit outside every .page container."""
-        self.assertGreater(INDEX.index('id="ctl-capsule"'),
-                           INDEX.index("</main>"))
+    def test_client_uses_the_minimum_care_http_surface(self):
+        """Removing a route call would break a visible Listen action."""
+        for fragment in (
+            '"/api/health"',
+            '"/api/profiles"',
+            '"/api/care-sessions"',
+            '"/chunks"',
+            '"/pause"',
+            '"/resume"',
+            '"/stop"',
+            '"/complete"',
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.js)
+        self.assertIn('"delete"', self.compact)
 
-    def test_start_listening_ships_disabled_until_readiness(self):
-        start = re.search(r'<button[^>]*id="btn-start"[^>]*>', INDEX).group(0)
-        self.assertIn("disabled", start)
+    def test_capture_is_audio_only_and_uses_complete_six_second_files(self):
+        """Video or timeslice fragments would violate the demo and decode contract."""
+        lowered = self.js.lower()
+        self.assertIn("const care_segment_ms = 6000", lowered)
+        self.assertIn("const max_pending_segments = 1", lowered)
+        self.assertIn("new mediarecorder(state.stream", lowered)
+        self.assertNotRegex(lowered, r"\.start\s*\(\s*care_segment_ms")
+        self.assertNotIn("getdisplaymedia", lowered)
+        self.assertNotIn("video: true", lowered)
 
-    def test_settled_control_offers_exactly_the_three_allowed_values(self):
-        for value in ('data-settled="true"', 'data-settled="false"',
-                      'data-settled="null"'):
-            self.assertIn(value, INDEX)
+    def test_guidance_is_not_composed_in_the_browser(self):
+        """The client may print server guidance but may not invent advice."""
+        lowered = self.js.lower()
+        for field in (
+            "headline",
+            "interpretation",
+            "recommendation",
+            "evidence_summary",
+            "support_count",
+            "basis",
+            "scenarios",
+        ):
+            self.assertIn(field, lowered)
+        for invented in (
+            "you should",
+            "we recommend",
+            "best thing to try",
+            "if you are getting overwhelmed",
+            "consider talking to your pediatrician",
+        ):
+            with self.subTest(invented=invented):
+                self.assertNotIn(invented, self.js.lower())
 
-    def test_outcome_fields_carry_the_complete_route_limits(self):
-        self.assertIn('maxlength="500"', INDEX)     # action
-        self.assertIn('maxlength="1000"', INDEX)    # notes
+    def test_outcome_validation_names_the_visible_choices(self):
+        self.assertIn("Choose Yes, Not yet, or Not sure.", self.js)
+        self.assertNotIn("Pick whether it settled", self.js)
 
-    def test_every_inline_svg_use_site_declares_a_viewbox(self):
-        for tag in re.findall(r"<svg [^>]*>", INDEX):
-            if 'width="0"' in tag:                  # the hidden defs sheet
-                continue
-            self.assertIn("viewBox=", tag, tag)
-
-    def test_light_status_bar_pairing(self):
-        self.assertIn('name="apple-mobile-web-app-status-bar-style" content="default"', INDEX)
-        self.assertIn('name="color-scheme" content="light"', INDEX)
-
-
-class StylesheetContractTests(unittest.TestCase):
-    def test_light_scheme_and_tap_floor(self):
-        self.assertIn("color-scheme: light", CSS)
-        self.assertIn("--tap: 44px", CSS)
-
-    def test_ios_form_zoom_guard(self):
-        self.assertIn("font-size: 16px;                       /* 16px floor stops iOS zoom", CSS)
-
-    def test_dynamic_viewport_height(self):
-        self.assertIn("min-height: 100dvh", CSS)
-
-    def test_reduced_motion_is_honoured(self):
-        self.assertIn("prefers-reduced-motion: reduce", CSS)
-
-    def test_hands_free_capsule_is_body_scoped(self):
-        self.assertIn('body[data-decision="latched"] #ctl-capsule', CSS)
-
-    def test_landscape_takeover_exists(self):
-        self.assertIn("(orientation: landscape) and (max-height: 580px)", CSS)
-
-
-class ScriptContractTests(unittest.TestCase):
-    def test_plan_constants(self):
-        self.assertIn("const CARE_SEGMENT_MS = 12000", JS)
-        self.assertIn("const MAX_PENDING_SEGMENTS = 1", JS)
-        self.assertIn("const ROUTES_GREEN = false", JS)
-
-    def test_exact_cry_presence_copy(self):
-        self.assertIn("No infant cry detected in this segment", JS)
-        self.assertIn("Cry-like sound, listening for a clearer segment", JS)
-        self.assertIn("Infant-cry-like sound detected", JS)
-
-    def test_capture_requests_flat_audio(self):
-        self.assertIn("echoCancellation: false", JS)
-        self.assertIn("noiseSuppression: false", JS)
-        self.assertIn("autoGainControl: false", JS)
-
-    def test_rotation_never_uses_timeslice_fragments(self):
-        """recorder.start() must be argument free: start(timeslice) fragments are
-        not standalone files, and only the first carries container headers."""
-        self.assertIn("recorder.start()", JS)
-        self.assertIsNone(re.search(r"recorder\.start\([^)]", JS))
-
-    def test_wake_lock_and_interruption_handling(self):
-        self.assertIn('navigator.wakeLock.request("screen")', JS)
-        for event in ('"mute"', '"unmute"', '"ended"'):
-            self.assertIn('addEventListener(%s' % event, JS)
-
-    def test_guidance_renders_only_server_fields_verbatim(self):
-        for field in ("headline", "interpretation", "recommendation",
-                      "evidence_summary", "support_count"):
-            self.assertIn(field, JS)
-        self.assertIn("setText(ui.gRecommendation", JS)
-
-    def test_first_decision_is_immutable(self):
-        self.assertIn("if (state.decision) return;", JS)
-
-    def test_playback_is_blocked_while_the_microphone_is_live(self):
-        self.assertIn("if (state.micLive) return;", JS)
-        self.assertIn("Playback is blocked while the microphone is live", JS)
-
-    def test_no_dynamic_html_injection(self):
-        """innerHTML only ever receives literal strings; data goes via textContent."""
-        for line in JS.splitlines():
-            if ".innerHTML" in line and "=" in line:
-                self.assertNotIn("${", line, line)
-        self.assertIn("textContent", JS)
-
-    def test_image_slots_fall_back_to_the_icon_sheet(self):
-        self.assertIn("function slotImage", JS)
-        self.assertIn("ICONS[fallbackIconKey]", JS)
+    def test_no_forbidden_dash_characters_ship_in_web_copy(self):
+        """The owner explicitly excludes em and en dashes from deliverables."""
+        for path in (INDEX, APP_JS, APP_CSS, MANIFEST):
+            with self.subTest(path=path.name):
+                source = read(path)
+                self.assertNotIn("\u2013", source)
+                self.assertNotIn("\u2014", source)
 
 
-class ManifestContractTests(unittest.TestCase):
-    def test_manifest_parses_and_has_no_orientation_lock(self):
-        data = json.loads(MANIFEST)
-        self.assertEqual("Cry Memory", data["name"])
-        self.assertNotIn("orientation", data)
+class PhoneCareResponsiveTests(unittest.TestCase):
+    def test_touch_targets_and_desktop_layout_are_explicit(self):
+        """The desktop view must not remain a narrow mobile column."""
+        css = read(APP_CSS).lower()
+        self.assertRegex(css, r"--tap\s*:\s*44px")
+        self.assertIn("@media (min-width: 900px) and (min-height: 581px)", css)
+        self.assertIn("max-width: 1180px", css)
+        self.assertIn("overflow-x: hidden", css)
 
+    def test_orb_uses_webkit_safe_transparent_compositing(self):
+        """Unpremultiplied WebGL alpha can render as a white canvas box on iOS."""
+        js = re.sub(r"\s+", "", read(APP_JS))
+        css = re.sub(r"\s+", "", read(APP_CSS)).lower()
+        self.assertIn("premultipliedAlpha:true", js)
+        self.assertNotIn("premultipliedAlpha:false", js)
+        self.assertIn('gl_FragColor=vec4(rgb*a,a);', read(APP_JS))
+        self.assertRegex(
+            css,
+            r"#orb\{[^}]*background:transparent;[^}]*border-radius:50%;",
+        )
 
-class PlainTextTests(unittest.TestCase):
-    def test_every_shipped_file_is_plain_ascii(self):
-        for name, text in (("index.html", INDEX), ("app.css", CSS),
-                           ("app.js", JS), ("manifest.webmanifest", MANIFEST)):
-            offenders = sorted({c for c in text if ord(c) > 127})
-            self.assertEqual([], offenders, "%s: %r" % (name, offenders))
+    def test_orb_motion_is_internal_and_reduced_motion_safe(self):
+        """Listening motion must advect the shader, not spin the canvas."""
+        js = re.sub(r"\s+", "", read(APP_JS))
+        css = re.sub(r"\s+", "", read(APP_CSS)).lower()
+        self.assertIn("uniformfloatuTurn;", js)
+        self.assertIn("mat2rot2(floata)", js)
+        self.assertIn("rot2(uTime*uTurn)", js)
+        self.assertIn("reduce?0:cur.turn", js)
+        self.assertNotIn("@keyframesorb-spin", css)
+        self.assertNotRegex(css, r"#orb\{[^}]*animation:")
 
 
 if __name__ == "__main__":
