@@ -90,27 +90,33 @@ body {
 
 /* ------------------------------------------------------------- ambient --- */
 
-#ambient { position: fixed; inset: 0; pointer-events: none; z-index: 0; color: #D4D7E5; }
+/* The wall exists only where the app is: a fixed layer clipped to the same
+   centered column as the shell. On a phone that is the whole screen; on a
+   desktop the stickers stay inside the app, not across the browser. */
+#ambient {
+  position: fixed;
+  top: 0; bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(100vw, var(--col));
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
 #ambient::before {
   content: "";
-  position: fixed; inset: -10%;
+  position: absolute; inset: -12%;
   background:
     radial-gradient(42% 30% at 10% 6%, rgba(196, 198, 239, .30), transparent 70%),
     radial-gradient(38% 28% at 90% 12%, rgba(244, 214, 224, .34), transparent 70%),
     radial-gradient(46% 34% at 86% 92%, rgba(199, 224, 213, .30), transparent 70%),
     radial-gradient(34% 26% at 8% 88%, rgba(243, 217, 107, .10), transparent 70%);
 }
-#ambient .am { position: fixed; }
-.am-1 { width: 80px;  top: calc(var(--sat) + 88px); left: -16px; opacity: .4; }
-.am-2 { width: 24px;  top: calc(var(--sat) + 58px); right: 40px; opacity: .6; }
-.am-3 { width: 32px;  top: 44%; left: 18px; opacity: .35; }
-.am-4 { width: 18px;  top: 56%; right: 26px; opacity: .5; }
-.am-5 { width: 104px; bottom: 132px; right: -28px; opacity: .3; }
 
 /* the sticker wall: scattered like a real nursery wall, faded into the paint.
    Sizes and tilts vary; a few drift very slowly. */
 #ambient .stk {
-  position: fixed;
+  position: absolute;
   opacity: .07;
   filter: saturate(.9);
   will-change: transform;
@@ -998,10 +1004,10 @@ body[data-decision="latched"] #preview-bar {
    it back for a few seconds. */
 
 @media (orientation: landscape) and (max-height: 580px) {
+  #ambient { width: 100vw; }
   #app-shell { max-width: none;
     padding: calc(var(--sat) + 14px) calc(var(--sar) + 18px)
              calc(var(--sab) + 12px) calc(var(--sal) + 18px); }
-  .am-3, .am-5 { display: none; }
 
   /* nav: hidden until tapped for */
   #tabbar { display: none; }
