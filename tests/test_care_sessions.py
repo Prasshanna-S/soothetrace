@@ -1191,13 +1191,53 @@ class CareSessionTests(unittest.TestCase):
             )
         careflow.preview_profile_incident.assert_called_once_with(
             selected["id"],
-            str(self.root / "managed" / "identity-selected" / "canonical.wav"),
+            str(self.root / "managed" / "identity-selected" / "identity.wav"),
             explicit_tags=[],
             now=results[2]["chunk"]["created_at"],
             db_path=self.db,
         )
         enroll.assert_not_called()
         create_profile.assert_not_called()
+
+    def test_live_retrieval_uses_normalized_audio_and_keeps_canonical_evidence(self):
+        profile = self._profile("Baby A")
+        care_session = care_sessions.create(profile["id"], db_path=self.db)
+        ingested = self._ingested("quiet-live-selected")
+        with (
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions.identity, "identify") as identify,
+            patch.object(care_sessions, "careflow", create=True) as careflow,
+        ):
+            cry_gate.classify.return_value = self._cry_result("infant_cry_detected")
+            identify.return_value = self._selected_identity(profile["id"])
+            careflow.preview_profile_incident.return_value = (
+                self._no_guidance_preview(profile)
+            )
+            result = care_sessions.submit_chunk(
+                care_session["id"],
+                1,
+                ingested,
+                self.db,
+            )
+
+        self.assertEqual("matched_no_guidance", result["chunk"]["status"])
+        careflow.preview_profile_incident.assert_called_once_with(
+            profile["id"],
+            ingested["identity_path"],
+            explicit_tags=[],
+            now=result["chunk"]["created_at"],
+            db_path=self.db,
+        )
+        with sqlite3.connect(self.db) as connection:
+            stored = connection.execute(
+                "SELECT canonical_audio_path, identity_audio_path "
+                "FROM care_session_chunk WHERE session_id=? AND sequence=1",
+                (care_session["id"],),
+            ).fetchone()
+        self.assertEqual(
+            (ingested["canonical_path"], ingested["identity_path"]),
+            stored,
+        )
 
     def test_first_grounded_guidance_latches_and_later_guidance_cannot_replace_it(self):
         profile = self._profile("Baby A")

@@ -1053,7 +1053,7 @@ def _submit_claimed_chunk(
                 try:
                     preview = careflow.preview_profile_incident(
                         row["profile_id"],
-                        canonical_path,
+                        identity_path,
                         explicit_tags=_decoded_list(row["tags_json"]),
                         now=created_at,
                         db_path=db_path,
