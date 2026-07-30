@@ -807,6 +807,15 @@ function renderChunkResult(payload) {
   const cry = chunk.cry_presence;
   if (cry && typeof cry.status === "string") renderCryStatus(cry.status);
   else if (typeof chunk.status === "string") renderCryStatus(chunk.status);
+  const progress = chunk.decision_progress;
+  if (
+    progress &&
+    typeof progress === "object" &&
+    typeof progress.label === "string" &&
+    progress.label
+  ) {
+    setAnalysis(progress.label, CRY_STATUS_TTL_MS);
+  }
 }
 
 function notifyUploadWaiters() {

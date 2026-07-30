@@ -462,8 +462,38 @@ async function runLivePath(browser) {
       timers.push({ callback, delay });
       return 7000 + timers.length;
     };
-    state.activeUpload = { sequence: 1 };
-    acceptUploadedSegment({ sequence: 1 }, payload);
+    const progress = [];
+    for (let sequence = 1; sequence <= 3; sequence += 1) {
+      state.activeUpload = { sequence };
+      acceptUploadedSegment({ sequence }, {
+        session: {
+          ...payload.session,
+          last_sequence: sequence,
+          decision: null,
+        },
+        chunk: {
+          ...payload.chunk,
+          id: 89 + sequence,
+          sequence,
+          status: "matched_no_guidance",
+          decision_progress: {
+            accepted_cry_segments: sequence,
+            required_cry_segments: 4,
+            decision_eligible: false,
+            label: `Infant cry detected. Building evidence ${sequence} of 4`,
+          },
+        },
+      });
+      progress.push({
+        status: document.querySelector("#analysis-status").textContent,
+        orb: document.querySelector("#orb").dataset.visualState,
+        suggestionHidden: document.querySelector("#suggestion-block").hidden,
+        decision: document.querySelector("#page-listen").dataset.decision,
+        acceptedSequence: state.acceptedSequence,
+      });
+    }
+    state.activeUpload = { sequence: 4 };
+    acceptUploadedSegment({ sequence: 4 }, payload);
     scheduleDecisionReveal({
       ...payload.session.decision,
       id: 999,
@@ -491,17 +521,24 @@ async function runLivePath(browser) {
     state.acceptedSequence = 0;
     window.setTimeout = realSetTimeout;
     return {
+      progress,
       immediate,
       after,
       revealTimerCount: timers.filter((timer) => timer.delay === 1200).length,
     };
   }, {
-    session: publicSession("listening", 1, decision),
+    session: publicSession("listening", 4, decision),
     chunk: {
-      id: 90,
-      sequence: 1,
+      id: 93,
+      sequence: 4,
       status: "guidance_latched",
       reason_codes: [],
+      decision_progress: {
+        accepted_cry_segments: 4,
+        required_cry_segments: 4,
+        decision_eligible: true,
+        label: "Infant cry detected. Evidence ready 4 of 4",
+      },
       cry_presence: {
         status: "infant_cry_detected",
         label: "Infant-cry-like sound detected",
@@ -513,14 +550,25 @@ async function runLivePath(browser) {
     },
   });
   assert(
-    revealOrder.immediate.status === "Infant-cry-like sound detected" &&
+    revealOrder.progress.length === 3 &&
+      revealOrder.progress.every((step, index) =>
+        step.status === `Infant cry detected. Building evidence ${index + 1} of 4` &&
+        step.orb === "detected" &&
+        step.suggestionHidden &&
+        step.decision === "none" &&
+        step.acceptedSequence === index + 1
+      ),
+    `early evidence produced guidance or lost progress: ${JSON.stringify(revealOrder)}`
+  );
+  assert(
+    revealOrder.immediate.status === "Infant cry detected. Evidence ready 4 of 4" &&
       revealOrder.immediate.orb === "detected" &&
       revealOrder.immediate.suggestionHidden &&
       revealOrder.immediate.decision === "none",
     `server detection was not revealed first: ${JSON.stringify(revealOrder)}`
   );
   assert(
-    revealOrder.immediate.acceptedSequence === 1 &&
+    revealOrder.immediate.acceptedSequence === 4 &&
       revealOrder.immediate.uploadCleared,
     `decision reveal blocked upload progress: ${JSON.stringify(revealOrder)}`
   );

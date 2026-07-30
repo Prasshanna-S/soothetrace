@@ -1199,7 +1199,7 @@ class CareSessionTests(unittest.TestCase):
         enroll.assert_not_called()
         create_profile.assert_not_called()
 
-    def test_demo_baby_accepts_strong_close_top_match_at_demo_margin(self):
+    def test_demo_baby_waits_for_four_cry_evidence_segments_before_guidance(self):
         selected = self._profile("Demo Baby")
         other = self._profile("Learning Baby")
         care_session = care_sessions.create(selected["id"], db_path=self.db)
@@ -1232,25 +1232,77 @@ class CareSessionTests(unittest.TestCase):
             cry_gate.classify.return_value = self._cry_result("infant_cry_detected")
             identify.return_value = uncertain
             careflow.preview_profile_incident.return_value = preview
-            result = care_sessions.submit_chunk(
-                care_session["id"],
-                1,
-                self._ingested("demo-strong-close-top"),
-                self.db,
-            )
+            results = [
+                care_sessions.submit_chunk(
+                    care_session["id"],
+                    sequence,
+                    self._ingested(f"demo-strong-close-top-{sequence}"),
+                    self.db,
+                )
+                for sequence in range(1, 5)
+            ]
 
-        self.assertEqual("guidance_latched", result["chunk"]["status"])
+        self.assertEqual(
+            [
+                "matched_no_guidance",
+                "matched_no_guidance",
+                "matched_no_guidance",
+                "guidance_latched",
+            ],
+            [result["chunk"]["status"] for result in results],
+        )
+        self.assertEqual(
+            [None, None, None],
+            [result["session"]["decision"] for result in results[:3]],
+        )
+        self.assertEqual(
+            [
+                {
+                    "accepted_cry_segments": 1,
+                    "required_cry_segments": 4,
+                    "decision_eligible": False,
+                    "label": "Infant cry detected. Building evidence 1 of 4",
+                },
+                {
+                    "accepted_cry_segments": 2,
+                    "required_cry_segments": 4,
+                    "decision_eligible": False,
+                    "label": "Infant cry detected. Building evidence 2 of 4",
+                },
+                {
+                    "accepted_cry_segments": 3,
+                    "required_cry_segments": 4,
+                    "decision_eligible": False,
+                    "label": "Infant cry detected. Building evidence 3 of 4",
+                },
+                {
+                    "accepted_cry_segments": 4,
+                    "required_cry_segments": 4,
+                    "decision_eligible": True,
+                    "label": "Infant cry detected. Evidence ready 4 of 4",
+                },
+            ],
+            [result["chunk"]["decision_progress"] for result in results],
+        )
         self.assertEqual(
             "What helped before: turned on white noise.",
-            result["session"]["decision"]["guidance"]["recommendation"],
+            results[3]["session"]["decision"]["guidance"]["recommendation"],
         )
         with sqlite3.connect(self.db) as connection:
             stored = connection.execute(
-                "SELECT matched_profile_id FROM care_session_chunk "
-                "WHERE session_id=? AND sequence=1",
+                "SELECT sequence, matched_profile_id, status "
+                "FROM care_session_chunk WHERE session_id=? ORDER BY sequence",
                 (care_session["id"],),
-            ).fetchone()
-        self.assertEqual((selected["id"],), stored)
+            ).fetchall()
+        self.assertEqual(
+            [
+                (1, selected["id"], "matched_no_guidance"),
+                (2, selected["id"], "matched_no_guidance"),
+                (3, selected["id"], "matched_no_guidance"),
+                (4, selected["id"], "guidance_latched"),
+            ],
+            stored,
+        )
 
     def test_demo_margin_does_not_change_other_profiles_or_weak_margins(self):
         demo = self._profile("Demo Baby")

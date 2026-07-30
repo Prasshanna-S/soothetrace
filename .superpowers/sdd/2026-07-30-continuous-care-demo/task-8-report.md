@@ -34,6 +34,11 @@ This is not a presentation-release claim.
 - Latched only the first grounded server decision.
 - Presented a server-owned infant detection before revealing a decision returned in the same
   chunk response, using a nonblocking 1200 ms presentation delay.
+- Added a backend evidence gate for `Demo Baby`: the first three selected infant-cry segments
+  report detection and evidence progress without returning a decision. The fourth selected
+  infant-cry segment can return the first grounded decision.
+- Rendered the backend-owned progress copy for evidence 1 through 4 without estimating cry
+  presence or decision eligibility in the browser.
 - Rendered the server recommendation and evidence without rewriting or fallback advice.
 - Restricted representative audio playback to profile-scoped incident URLs.
 - Used real disabled controls to block playback while the microphone is live.
@@ -92,6 +97,11 @@ The same-response sequencing regression initially showed the grounded card immed
 detected orb state or reveal timer. The corrected path first renders the server detection, advances
 the accepted upload immediately, then reveals the exact first server decision after 1200 ms.
 
+The evidence-gate regression initially latched the first grounded `Demo Baby` chunk. The corrected
+backend now withholds a decision for three selected infant-cry chunks, exposes their accumulated
+progress, and permits the fourth chunk to latch. Normal infant profiles retain their calibrated
+first-grounded-result behavior.
+
 ## Verification
 
 ```text
@@ -100,6 +110,9 @@ PASS
 
 python -m unittest tests.test_web_client -v
 15 tests passed
+
+python -m unittest tests.test_care_sessions -v
+41 tests passed
 
 node tests/test_live_session_browser.mjs
 PASS
@@ -118,6 +131,7 @@ The browser test verifies:
 - synchronous replacement of the visible analysis phase label;
 - reason-aware listener copy for uneven, quiet, and unreadable segments;
 - detected status and orb state before a same-response grounded decision;
+- three visible evidence updates with no early decision, followed by fourth-segment eligibility;
 - one delayed reveal, immutable first decision, and reset cleanup of the pending timer;
 - quiet and cry microphone levels reaching distinct exported orb energy bands;
 - Web Audio priming before the first microphone permission await without blocking Start;
@@ -139,7 +153,7 @@ The browser test verifies:
 - The PNG files are checked in under `web/img`, but the current HTTP server serves only the four
   top-level web files. The client falls back to embedded owner artwork until `/img` receives an
   explicit static allowlist route.
-- Full Python discovery was intentionally deferred under the owner-approved accelerated test-build
-  mode.
+- Full Python discovery remains deferred under the owner-approved accelerated test-build mode.
+  The complete 41-test care-session module and the 15-test web-client module passed.
 - Five consecutive fixed-rig baby query passes are still required before calling the recorded
   choreography presentation-safe.

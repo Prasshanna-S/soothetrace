@@ -664,6 +664,13 @@ _CHUNK_STATUSES = {
     "matched_guidance_already_latched",
 }
 
+_DEMO_DECISION_REQUIRED_CRY_SEGMENTS = 4
+_DEMO_EVIDENCE_CHUNK_STATUSES = (
+    "matched_no_guidance",
+    "guidance_latched",
+    "matched_guidance_already_latched",
+)
+
 _CRY_PUBLIC_KEYS = {
     "status",
     "label",
@@ -713,6 +720,20 @@ def _public_cry_presence(value) -> dict:
         for key in value
         if key in _CRY_PUBLIC_KEYS and key in public
     }
+
+
+def _public_decision_progress(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    public = {}
+    for field in ("accepted_cry_segments", "required_cry_segments"):
+        if _is_integer(value.get(field)):
+            public[field] = value[field]
+    if isinstance(value.get("decision_eligible"), bool):
+        public["decision_eligible"] = value["decision_eligible"]
+    if isinstance(value.get("label"), str):
+        public["label"] = value["label"]
+    return public
 
 
 def _public_stored_profile(value) -> dict:
@@ -765,6 +786,9 @@ def _public_chunk(value) -> dict:
     cry_presence = _public_cry_presence(value.get("cry_presence"))
     if cry_presence:
         public["cry_presence"] = cry_presence
+    decision_progress = _public_decision_progress(value.get("decision_progress"))
+    if decision_progress:
+        public["decision_progress"] = decision_progress
     return public
 
 
@@ -851,6 +875,55 @@ def _selected_demo_profile_match(profile: dict, result: dict) -> bool:
         score >= calibration["strong_threshold"]
         and margin >= config.CARE_DEMO_MARGIN_FLOOR
     )
+
+
+def _demo_decision_progress(
+    connection: sqlite3.Connection,
+    session_id: int,
+    profile: dict,
+    analysis: dict,
+) -> dict:
+    if (
+        not config.CARE_DEMO_PROFILE_NAME
+        or profile.get("display_name") != config.CARE_DEMO_PROFILE_NAME
+        or profile.get("kind") != identity.KIND_INFANT
+        or not analysis.get("selected_match")
+        or analysis.get("cry_presence", {}).get("status") != "infant_cry_detected"
+    ):
+        return {}
+    placeholders = ",".join("?" for _ in _DEMO_EVIDENCE_CHUNK_STATUSES)
+    previous = connection.execute(
+        "SELECT COUNT(*) FROM care_session_chunk "
+        "WHERE session_id=? AND matched_profile_id=? "
+        "AND cry_status='infant_cry_detected' "
+        f"AND status IN ({placeholders})",
+        (
+            session_id,
+            profile["id"],
+            *_DEMO_EVIDENCE_CHUNK_STATUSES,
+        ),
+    ).fetchone()[0]
+    accepted = min(
+        int(previous) + 1,
+        _DEMO_DECISION_REQUIRED_CRY_SEGMENTS,
+    )
+    eligible = int(previous) + 1 >= _DEMO_DECISION_REQUIRED_CRY_SEGMENTS
+    if eligible:
+        label = (
+            "Infant cry detected. Evidence ready "
+            f"{accepted} of {_DEMO_DECISION_REQUIRED_CRY_SEGMENTS}"
+        )
+    else:
+        label = (
+            "Infant cry detected. Building evidence "
+            f"{accepted} of {_DEMO_DECISION_REQUIRED_CRY_SEGMENTS}"
+        )
+    return {
+        "accepted_cry_segments": accepted,
+        "required_cry_segments": _DEMO_DECISION_REQUIRED_CRY_SEGMENTS,
+        "decision_eligible": eligible,
+        "label": label,
+    }
 
 
 def _latched_decision(
@@ -1157,10 +1230,21 @@ def _submit_claimed_chunk(
             return _error("invalid_care_session_transition")
 
         final_status = analysis["status"]
+        decision_progress = _demo_decision_progress(
+            connection,
+            session_id,
+            profile,
+            analysis,
+        )
         latch_guidance = False
         if analysis["selected_match"] and analysis["grounded"]:
             if current["decision_json"]:
                 final_status = "matched_guidance_already_latched"
+            elif (
+                decision_progress
+                and not decision_progress["decision_eligible"]
+            ):
+                analysis["reason_codes"] = ["collecting_demo_evidence"]
             else:
                 final_status = "guidance_latched"
                 latch_guidance = True
@@ -1229,6 +1313,8 @@ def _submit_claimed_chunk(
         }
         if cry_presence:
             chunk["cry_presence"] = cry_presence
+        if decision_progress:
+            chunk["decision_progress"] = decision_progress
         result = _public_chunk_result(
             {
                 "session": _render_with_profile(session_row, profile),
