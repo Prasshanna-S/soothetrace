@@ -11,10 +11,11 @@
 <meta name="apple-mobile-web-app-title" content="Cry Memory">
 <meta name="theme-color" content="#F1F2F8">
 <meta name="color-scheme" content="light">
-<link rel="manifest" href="/manifest.webmanifest">
+
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20180%20180%22%3E%3Crect%20width%3D%22180%22%20height%3D%22180%22%20fill%3D%22%23F1F2F8%22%2F%3E%3Ccircle%20cx%3D%2278%22%20cy%3D%2286%22%20r%3D%2246%22%20fill%3D%22%23B9C0F0%22%2F%3E%3Ccircle%20cx%3D%22104%22%20cy%3D%2298%22%20r%3D%2238%22%20fill%3D%22%23BFE2D2%22%20fill-opacity%3D%22.85%22%2F%3E%3Ccircle%20cx%3D%2296%22%20cy%3D%2272%22%20r%3D%2230%22%20fill%3D%22%23FBE7C8%22%20fill-opacity%3D%22.8%22%2F%3E%3Ccircle%20cx%3D%2272%22%20cy%3D%2270%22%20r%3D%2212%22%20fill%3D%22%23FFFFFF%22%20fill-opacity%3D%22.85%22%2F%3E%3C%2Fsvg%3E">
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2214%22%20fill%3D%22%23F1F2F8%22%2F%3E%3Ccircle%20cx%3D%2228%22%20cy%3D%2231%22%20r%3D%2216%22%20fill%3D%22%23B9C0F0%22%2F%3E%3Ccircle%20cx%3D%2237%22%20cy%3D%2235%22%20r%3D%2213%22%20fill%3D%22%23BFE2D2%22%20fill-opacity%3D%22.85%22%2F%3E%3Ccircle%20cx%3D%2234%22%20cy%3D%2226%22%20r%3D%2210%22%20fill%3D%22%23FBE7C8%22%20fill-opacity%3D%22.8%22%2F%3E%3C%2Fsvg%3E">
 <link rel="stylesheet" href="/app.css">
+<script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
 </head>
 <body data-mic="off">
 
@@ -99,6 +100,7 @@
 
     <header class="page-head">
       <div class="head-left">
+        <p class="kicker" id="listen-kicker">Listening for</p>
         <button type="button" class="baby-chip" id="btn-profile-switch"
                 aria-label="Switch profile">
           <span class="avatar"><img data-slot-name="avatar-baby" data-slot-fallback="tummy" alt=""></span>

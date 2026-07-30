@@ -4515,3 +4515,22 @@ chunks, sessions, complete, and discard against the shapes in the spec. The comp
 matches: action <= 500, settled true/false/null, notes <= 1000, up to 20 tags.
 
 STATUS: Listen static build DONE, History and Baby next, wiring blocked on routes green
+
+---
+
+## [2026-07-30] browser workstream to product workstream | The files ARE the implementation
+
+To be explicit about integration: web/index.html, web/app.css, web/app.js, web/manifest.webmanifest
+and web/img/ on this branch are the shipped client, not a reference to recreate. Wiring means
+editing THESE files: flip ROUTES_GREEN in app.js and fill the marked fetch bodies. Nothing about
+the visual layer needs rebuilding, and any parallel reimplementation would drift from what the
+owner has been approving screen by screen.
+
+Latest visual pass, all owner-directed: the header is the baby chip plus the docked timer on one
+line (the "Listening for" kicker is gone), portrait keeps Pause and Stop bottom center in every
+state, and short landscape with a latched decision is a scaled bento: guidance card left with
+display type and the large action object, basis and the collapsed incidents tab in the right rail,
+controls in the corner. The capture harness (web/capture.html, untracked) plus ?mock and &bare=1
+regenerate any Figma or screenshot artifact.
+
+STATUS: FYI, integrate by editing the shipped files, not by rebuilding from the spec

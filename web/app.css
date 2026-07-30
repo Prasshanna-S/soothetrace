@@ -140,8 +140,8 @@ body {
   100% { opacity: 1; transform: none; }
 }
 @keyframes drop-in {
-  from { opacity: 0; transform: translate(-50%, -10px); }
-  to   { opacity: 1; transform: translate(-50%, 0); }
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: none; }
 }
 @keyframes tab-pop {
   0% { transform: scale(.7); } 55% { transform: scale(1.18); } 100% { transform: none; }
@@ -393,11 +393,11 @@ h2 {
    guidance owns the page */
 #page-listen[data-decision="latched"] #orb-stage {
   position: absolute;
-  top: 0;
+  top: 46px;
   right: 0;
   flex: 0 0 auto;
 }
-#page-listen[data-decision="latched"] #orb-wrap { width: 58px; }
+#page-listen[data-decision="latched"] #orb-wrap { width: 54px; }
 #page-listen[data-decision="latched"] #orb-shadow { opacity: 0; }
 #page-listen[data-decision="latched"] #analysis-status { display: none; }
 
@@ -409,17 +409,18 @@ h2 {
 
 #rec-chip {
   position: fixed;
-  top: calc(var(--sat) + 8px);
-  left: 50%;
-  transform: translateX(-50%);
+  top: calc(var(--sat) + 22px);
+  right: calc(var(--sar) + var(--pad));
+  left: auto;
+  transform: none;
   z-index: 40;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   margin: 0;
-  padding: 3px 10px;
+  padding: 5px 12px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, .82);
+  background: rgba(255, 255, 255, .85);
   -webkit-backdrop-filter: blur(16px) saturate(1.4);
   backdrop-filter: blur(16px) saturate(1.4);
   border: 1px solid rgba(255, 255, 255, .9);
@@ -427,7 +428,7 @@ h2 {
   font-size: 9.5px;
   font-weight: 700;
   letter-spacing: .07em;
-  box-shadow: var(--float);
+  box-shadow: var(--edge);
 }
 #rec-chip i {
   width: 6px; height: 6px; flex: none;
@@ -716,19 +717,7 @@ body[data-mic="muted"] #rec-chip i { background: #D9A13C; animation: none; }
   color: #FFF;
 }
 
-/* hands free: the capsule leaves the thumb zone for the edge */
-body[data-decision="latched"] #ctl-capsule {
-  left: auto;
-  right: calc(var(--sar) + 6px);
-  top: 58%;
-  bottom: auto;
-  transform: translateY(-50%);
-  flex-direction: column;
-  padding: 8px 6px;
-  gap: 8px;
-}
-body[data-decision="latched"] #ctl-capsule .cbtn { width: 40px; height: 40px; }
-#page-listen[data-decision="latched"] #suggestion-block { padding-right: 56px; }
+/* portrait keeps the controls where the thumb already is: bottom center */
 
 /* ---------------------------------------------------------- outcome form --- */
 
@@ -932,6 +921,8 @@ body[data-session="saved"] #tabbar { display: none; }
 #page-listen[data-state="saved"] .page-head,
 #page-listen[data-state="saved"] #health-pill { display: none; }
 #page-listen[data-decision="latched"] #health-pill { display: none; }
+body[data-session="listening"] #health-pill,
+body[data-session="paused"] #health-pill { display: none; }
 
 /* the chip without its affordance: still the name, no longer a button */
 .baby-chip.static { pointer-events: none; }
@@ -964,84 +955,98 @@ body[data-decision="latched"] #preview-bar {
 }
 
 /* ------------------------------------------------- landscape takeover --- */
-/* Landscape with a latched decision is THE demo view. The recommendation card
-   owns the left two thirds at display size; evidence stacks in a right rail
-   over the orb; controls hold the lower right corner. */
+/* Landscape with a latched decision is THE demo view: a bento of three cards
+   that fill the room. Guidance owns the left, evidence stacks right, controls
+   sit inside the rail's bottom, and the timer rides the header line. */
 
 @media (orientation: landscape) and (max-height: 580px) {
-  #app-shell { max-width: none; padding-top: calc(var(--sat) + 8px); }
+  #app-shell { max-width: none;
+    padding: calc(var(--sat) + 8px) calc(var(--sar) + 18px)
+             calc(var(--sab) + 12px) calc(var(--sal) + 18px); }
   .am-3, .am-5 { display: none; }
   #orb-wrap { width: min(52vh, 300px); }
 
   #page-listen[data-decision="latched"] {
     display: grid;
-    grid-template-columns: minmax(0, 1.9fr) minmax(210px, .9fr);
-    grid-template-rows: auto auto minmax(0, 1fr);
-    gap: 8px 16px;
-    align-items: start;
+    grid-template-columns: minmax(0, 1.72fr) minmax(240px, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 12px 14px;
+    align-items: stretch;
   }
-  #page-listen[data-decision="latched"] .page-head { grid-column: 1; grid-row: 1; }
+  #page-listen[data-decision="latched"] .page-head {
+    grid-column: 1 / 3; grid-row: 1;
+    padding: 0;
+    min-height: 52px;
+  }
   #page-listen[data-decision="latched"] #health-pill { display: none; }
 
-  /* the block dissolves so its children take their own grid places */
-  #page-listen[data-decision="latched"] #suggestion-block {
-    display: contents;
-  }
+  #page-listen[data-decision="latched"] #suggestion-block { display: contents; }
   #page-listen[data-decision="latched"] #suggestion-card {
     grid-column: 1; grid-row: 2 / 4;
-    align-self: stretch;
-    padding: 22px 24px 18px;
-    gap: 10px;
+    position: relative;
+    padding: 24px 26px 20px;
+    gap: 12px;
+    justify-content: center;
   }
   #page-listen[data-decision="latched"] #g-recommendation {
-    font-size: clamp(34px, 5.4vh + 18px, 44px);
+    font-size: clamp(36px, 7vh + 12px, 48px);
+    padding-right: 200px;
   }
-  #page-listen[data-decision="latched"] #suggestion-card { position: relative; }
   #page-listen[data-decision="latched"] #suggestion-art {
     position: absolute;
-    right: 26px;
-    top: 54%;
+    right: 30px;
+    top: 50%;
     transform: translateY(-50%);
-    width: 150px; height: 150px;
+    width: 168px; height: 168px;
   }
-  #page-listen[data-decision="latched"] #g-recommendation { padding-right: 180px; }
-  #page-listen[data-decision="latched"] #g-evidence-summary { padding-right: 180px; }
+  #page-listen[data-decision="latched"] #g-evidence-summary {
+    font-size: 14px;
+    padding-right: 200px;
+  }
   #page-listen[data-decision="latched"] #g-interpretation { display: none; }
+
   #page-listen[data-decision="latched"] #basis-card {
     grid-column: 2; grid-row: 2;
-    padding: 11px 13px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
   }
-  #page-listen[data-decision="latched"] #basis-list li { font-size: 12.5px; }
-  #page-listen[data-decision="latched"] #basis-list .bdisc {
-    width: 28px; height: 28px; }
   #page-listen[data-decision="latched"] #incidents-fold {
     grid-column: 2; grid-row: 3;
-    align-self: start;
+    align-self: end;
+    max-height: 42vh;
     overflow-y: auto;
-    max-height: 100%;
   }
+
+  /* the orb keeps the header company on the right, next to the timer */
   #page-listen[data-decision="latched"] #orb-stage {
     position: absolute;
-    top: calc(var(--sat) + 2px);
-    right: 6px;
+    top: -6px;
+    right: 96px;
   }
-  #page-listen[data-decision="latched"] #orb-wrap { width: 54px; }
+  #page-listen[data-decision="latched"] #orb-wrap { width: 48px; }
 
   body[data-decision="latched"] #ctl-capsule {
-    right: calc(var(--sar) + 10px);
-    bottom: calc(var(--sab) + 10px);
-    top: auto;
     left: auto;
+    right: calc(var(--sar) + 18px);
+    bottom: calc(var(--sab) + 12px);
+    top: auto;
     transform: none;
     flex-direction: row;
+    z-index: 45;
   }
   body[data-decision="latched"] #tabbar { display: none; }
   body[data-decision="latched"] #preview-bar {
-    bottom: calc(var(--sab) + 16px);
-    left: auto;
-    right: calc(var(--sar) + 148px);
+    bottom: calc(var(--sab) + 14px);
+    left: calc(var(--sal) + 18px);
+    right: auto;
   }
-  #rec-chip { left: auto; right: calc(var(--sar) + 76px); transform: none; }
+  #rec-chip { top: calc(var(--sat) + 20px); right: calc(var(--sar) + 18px); }
+
+  /* the fold opens over the incident rows inside the rail; capsule floats over
+     the card corner without stealing a grid track */
+  #page-listen[data-decision="latched"] #incidents-fold { margin-bottom: 56px; }
 }
 
 /* -------------------------------------------------------------- desktop --- */
