@@ -26,17 +26,6 @@ _ALLOWED = {
     (LISTENING, "stop"): AWAITING_OUTCOME,
     (PAUSED, "stop"): AWAITING_OUTCOME,
 }
-_PRIVATE_KEY_PARTS = (
-    "path",
-    "digest",
-    "sha256",
-    "embedding",
-    "score",
-    "similarity",
-    "margin",
-    "confidence",
-    "probability",
-)
 
 
 def _now() -> str:
@@ -78,21 +67,127 @@ def _decoded_list(raw) -> list:
     return value if isinstance(value, list) else []
 
 
-def _is_private_key(key) -> bool:
-    name = str(key).casefold()
-    return name.startswith("_") or any(part in name for part in _PRIVATE_KEY_PARTS)
+def _is_integer(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _safe_value(value):
-    if isinstance(value, dict):
-        return {
-            key: _safe_value(child)
-            for key, child in value.items()
-            if not _is_private_key(key)
-        }
-    if isinstance(value, list):
-        return [_safe_value(child) for child in value]
+def _string_fields(value, field_names: tuple[str, ...]) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        field: value[field]
+        for field in field_names
+        if isinstance(value.get(field), str)
+    }
+
+
+def _string_list(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def _public_decision_profile(value) -> dict:
+    public = _string_fields(value, ("display_name",))
+    if isinstance(value, dict) and _is_integer(value.get("id")):
+        public["id"] = value["id"]
+    return public
+
+
+def _public_guidance(value) -> dict:
+    public = _string_fields(
+        value,
+        (
+            "status",
+            "headline",
+            "interpretation",
+            "recommendation",
+            "evidence_summary",
+            "pattern",
+        ),
+    )
+    if not isinstance(value, dict):
+        return public
+    if _is_integer(value.get("support_count")):
+        public["support_count"] = value["support_count"]
+    if isinstance(value.get("incident_ids"), list):
+        public["incident_ids"] = [
+            item for item in value["incident_ids"] if _is_integer(item)
+        ]
+    return public
+
+
+def _public_intervention(value) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    if (
+        not _is_integer(value.get("order"))
+        or not isinstance(value.get("action"), str)
+        or not isinstance(value.get("evidence"), str)
+    ):
+        return None
+    return {
+        "order": value["order"],
+        "action": value["action"],
+        "evidence": value["evidence"],
+    }
+
+
+def _public_audio_url(value) -> str | None:
+    if not isinstance(value, str):
+        return None
+    prefix = "/api/audio/episodes/"
+    episode_id = value.removeprefix(prefix)
+    if not value.startswith(prefix) or not episode_id.isdecimal():
+        return None
     return value
+
+
+def _public_scenario(value) -> dict | None:
+    if not isinstance(value, dict) or not _is_integer(value.get("episode_id")):
+        return None
+    public = {"episode_id": value["episode_id"]}
+    public.update(_string_fields(value, ("started_at",)))
+    if isinstance(value.get("interventions"), list):
+        public["interventions"] = [
+            intervention
+            for item in value["interventions"]
+            if (intervention := _public_intervention(item)) is not None
+        ]
+    for field in ("outcome", "outcome_src"):
+        field_value = value.get(field)
+        if field in value and (field_value is None or isinstance(field_value, str)):
+            public[field] = field_value
+    worked = value.get("worked")
+    if "worked" in value and (worked is None or isinstance(worked, bool)):
+        public["worked"] = worked
+    if isinstance(value.get("contributions"), list):
+        public["contributions"] = _string_list(value["contributions"])
+    audio_url = _public_audio_url(value.get("audio_url"))
+    if audio_url is not None:
+        public["audio_url"] = audio_url
+    return public
+
+
+def _public_decision(value) -> dict:
+    public = {}
+    if _is_integer(value.get("id")):
+        public["id"] = value["id"]
+    if isinstance(value.get("latched_at"), str):
+        public["latched_at"] = value["latched_at"]
+    if isinstance(value.get("profile"), dict):
+        public["profile"] = _public_decision_profile(value["profile"])
+    if isinstance(value.get("guidance"), dict):
+        public["guidance"] = _public_guidance(value["guidance"])
+    if isinstance(value.get("basis"), list):
+        public["basis"] = _string_list(value["basis"])
+    if isinstance(value.get("scenarios"), list):
+        public["scenarios"] = [
+            scenario
+            for item in value["scenarios"]
+            if (scenario := _public_scenario(item)) is not None
+        ]
+    return public
 
 
 def _decoded_decision(raw):
@@ -102,7 +197,7 @@ def _decoded_decision(raw):
         value = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
         return None
-    return _safe_value(value) if isinstance(value, dict) else None
+    return _public_decision(value) if isinstance(value, dict) else None
 
 
 def _public_profile(profile: dict) -> dict:
@@ -220,6 +315,13 @@ def _transition(
         )
         if cursor.rowcount != 1:
             connection.rollback()
+            current = _session_row(connection, session_id)
+            if (
+                operation == "stop"
+                and current
+                and current["status"] == AWAITING_OUTCOME
+            ):
+                return _render(current, db_path)
             return _error("invalid_care_session_transition")
         connection.commit()
         updated = _session_row(connection, session_id)
@@ -250,11 +352,12 @@ def _discard_paths(
     connection: sqlite3.Connection,
     session_id: int,
     audio_root: str | Path,
-) -> None:
+) -> tuple[bool, int]:
+    removed = 0
     try:
         root = Path(audio_root).resolve()
     except (OSError, RuntimeError, TypeError):
-        return
+        return False, removed
     rows = connection.execute(
         "SELECT source_audio_path, canonical_audio_path, identity_audio_path "
         "FROM care_session_chunk WHERE session_id=?",
@@ -272,8 +375,12 @@ def _discard_paths(
                 seen.add(path)
                 if path.is_file():
                     path.unlink()
-            except (OSError, RuntimeError, TypeError):
+                    removed += 1
+            except FileNotFoundError:
                 continue
+            except (OSError, RuntimeError, TypeError):
+                return False, removed
+    return True, removed
 
 
 def discard(
@@ -284,15 +391,35 @@ def discard(
     """Delete unsaved managed chunk audio and make the session immutable."""
     connection = _conn(db_path)
     try:
+        connection.execute("BEGIN IMMEDIATE")
         row = _session_row(connection, session_id)
         if not row:
+            connection.rollback()
             return _error("no_such_care_session")
         if (
-            row["status"] not in (LISTENING, PAUSED, AWAITING_OUTCOME)
+            row["status"] not in (LISTENING, PAUSED, AWAITING_OUTCOME, DISCARDED)
             or row["episode_id"] is not None
         ):
+            connection.rollback()
             return _error("invalid_care_session_transition")
-        _discard_paths(connection, session_id, audio_root)
+        cleanup_complete, removed = _discard_paths(
+            connection,
+            session_id,
+            audio_root,
+        )
+        if not cleanup_complete:
+            if removed and row["status"] != DISCARDED:
+                connection.execute(
+                    "UPDATE care_session SET status=? WHERE id=? AND status=?",
+                    (DISCARDED, session_id, row["status"]),
+                )
+                connection.commit()
+            else:
+                connection.rollback()
+            return _error("care_session_cleanup_failed")
+        if row["status"] == DISCARDED:
+            connection.commit()
+            return _render(row, db_path)
         cursor = connection.execute(
             "UPDATE care_session SET status=? "
             "WHERE id=? AND status=? AND episode_id IS NULL",

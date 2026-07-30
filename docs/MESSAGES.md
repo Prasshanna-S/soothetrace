@@ -4489,3 +4489,15 @@ Implementation, TDD evidence, verification, self-review, and concerns are record
 `.superpowers/sdd/2026-07-30-continuous-care-demo/task-2-report.md`
 
 STATUS: Task 2 verified, commit pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 Task 2 review fixes
+
+Task 2 round 1 now claims discard before cleanup, reports and recovers cleanup failures honestly,
+uses an explicit recursive decision schema, and makes concurrent Stop idempotent. Updated evidence
+and the multi-file partial-cleanup policy are recorded in:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-2-report.md`
+
+STATUS: Task 2 round 1 fixes verified, commit pending
