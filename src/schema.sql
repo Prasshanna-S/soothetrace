@@ -175,3 +175,63 @@ CREATE INDEX IF NOT EXISTS idx_live_participant_session
   ON live_identity_participant(session_id, id);
 CREATE INDEX IF NOT EXISTS idx_live_observation_session
   ON live_identity_observation(session_id, sequence);
+
+-- Persistent infant care sessions (additive, 2026-07-30)
+
+CREATE TABLE IF NOT EXISTS care_session (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  profile_id INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  paused_at TEXT,
+  stopped_at TEXT,
+  completed_at TEXT,
+  last_sequence INTEGER NOT NULL DEFAULT 0,
+  latest_matched_chunk_id INTEGER,
+  selected_chunk_id INTEGER,
+  decision_json TEXT,
+  episode_id INTEGER,
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  FOREIGN KEY (profile_id) REFERENCES profile(id)
+);
+
+CREATE TABLE IF NOT EXISTS care_session_chunk (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL,
+  sequence INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  source_audio_path TEXT,
+  canonical_audio_path TEXT,
+  identity_audio_path TEXT,
+  audio_sha256 TEXT,
+  capture_metadata_json TEXT NOT NULL DEFAULT '{}',
+  quality_json TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL,
+  cry_status TEXT,
+  cry_reason_codes TEXT NOT NULL DEFAULT '[]',
+  cry_model_version TEXT,
+  matched_profile_id INTEGER,
+  reason_codes TEXT NOT NULL DEFAULT '[]',
+  result_json TEXT NOT NULL DEFAULT '{}',
+  UNIQUE(session_id, sequence),
+  FOREIGN KEY (session_id) REFERENCES care_session(id)
+);
+
+CREATE TABLE IF NOT EXISTS care_event (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  profile_id INTEGER NOT NULL,
+  event_type TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  details TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (profile_id) REFERENCES profile(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_care_session_status
+  ON care_session(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_care_session_chunk_order
+  ON care_session_chunk(session_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_care_event_profile_time
+  ON care_event(profile_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_episode_profile_history
+  ON episode(subject_id, started_at DESC, id DESC);

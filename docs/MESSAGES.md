@@ -4478,3 +4478,14 @@ public-metric-leakage, and cross-task interface scans passed. The measured AST r
 earlier unvalidated threshold draft everywhere, including Claude's rendering contract.
 
 STATUS: implementation may begin task by task
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 Task 2 care sessions
+
+Task 2 adds the approved additive care-session schema and persistent infant-only state machine.
+Implementation, TDD evidence, verification, self-review, and concerns are recorded in:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-2-report.md`
+
+STATUS: Task 2 verified, commit pending
