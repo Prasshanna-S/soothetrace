@@ -178,17 +178,18 @@ const show = (node, on) => { if (node) node.hidden = !on; };
    words; microphone level may deepen the breath, never shift the hue. */
 
 const ORB_STATES = {
-  idle:      { c: ["#E4ECFF", "#9DB4F0", "#A9DCC6", "#E3D3F4"], warp: 2.0, speed: 0.30, sat: 1.04, breath: 6.0, scale: 1.00 },
-  listening: { c: ["#DDE2FF", "#7C88E8", "#9FCDF0", "#C9AFF0"], warp: 2.7, speed: 0.62, sat: 1.20, breath: 3.2, scale: 1.03 },
-  detected:  { c: ["#FFE9C4", "#F3C34E", "#F0A07E", "#FFD2B8"], warp: 3.1, speed: 0.95, sat: 1.22, breath: 2.3, scale: 1.06 },
-  grounded:  { c: ["#D5F0E2", "#6FC6A8", "#9BD9E6", "#BCE9C9"], warp: 2.2, speed: 0.42, sat: 1.16, breath: 5.0, scale: 0.99 },
-  paused:    { c: ["#E8EAF1", "#BFC2CE", "#D3D6E0", "#EEF0F6"], warp: 1.5, speed: 0.06, sat: 0.30, breath: 0.0, scale: 0.94 },
+  idle:      { c: ["#E4ECFF", "#9DB4F0", "#A9DCC6", "#E3D3F4"], warp: 2.0, speed: 0.30, sat: 1.04, breath: 6.0, scale: 1.00, turn: 0 },
+  listening: { c: ["#DDE2FF", "#7C88E8", "#9FCDF0", "#C9AFF0"], warp: 2.7, speed: 0.62, sat: 1.20, breath: 3.2, scale: 1.03, turn: 0.42 },
+  detected:  { c: ["#FFE9C4", "#F3C34E", "#F0A07E", "#FFD2B8"], warp: 3.1, speed: 0.95, sat: 1.22, breath: 2.3, scale: 1.06, turn: 0.52 },
+  grounded:  { c: ["#D5F0E2", "#6FC6A8", "#9BD9E6", "#BCE9C9"], warp: 2.2, speed: 0.42, sat: 1.16, breath: 5.0, scale: 0.99, turn: 0 },
+  paused:    { c: ["#E8EAF1", "#BFC2CE", "#D3D6E0", "#EEF0F6"], warp: 1.5, speed: 0.06, sat: 0.30, breath: 0.0, scale: 0.94, turn: 0 },
 };
 
 const ORB_VERT = "attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}";
 const ORB_FRAG = [
   "precision highp float;",
   "uniform vec2 uRes;uniform float uTime;uniform float uWarp;uniform float uSat;",
+  "uniform float uTurn;",
   "uniform vec3 uC1;uniform vec3 uC2;uniform vec3 uC3;uniform vec3 uC4;",
   "vec3 s2l(vec3 c){return pow(max(c,0.0),vec3(2.2));}",
   "vec3 l2s(vec3 c){return pow(max(c,0.0),vec3(1.0/2.2));}",
@@ -212,6 +213,7 @@ const ORB_FRAG = [
   "vec3 mixOk(vec3 a,vec3 b,float t){return ok2lin(mix(lin2ok(a),lin2ok(b),clamp(t,0.0,1.0)));}",
   "vec2 hash2(vec2 p){p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));",
   " return -1.0+2.0*fract(sin(p)*43758.5453123);}",
+  "mat2 rot2(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}",
   "float gn(vec2 p){vec2 i=floor(p),f=fract(p);vec2 u=f*f*f*(f*(f*6.0-15.0)+10.0);",
   " return mix(mix(dot(hash2(i),f),dot(hash2(i+vec2(1.0,0.0)),f-vec2(1.0,0.0)),u.x),",
   "  mix(dot(hash2(i+vec2(0.0,1.0)),f-vec2(0.0,1.0)),dot(hash2(i+vec2(1.0,1.0)),f-vec2(1.0,1.0)),u.x),u.y);}",
@@ -222,7 +224,8 @@ const ORB_FRAG = [
   " float r=length(uv);float R=0.335;float t=uTime;",
   " float k=clamp(r/R,0.0,1.0);float z=sqrt(max(1.0-k*k,0.0));",
   " vec3 N=normalize(vec3(uv/R,z+0.0001));",
-  " vec2 sp=uv/R;float bend=0.24*pow(1.0-z,1.6);vec2 rp=sp+N.xy*bend;",
+  " vec2 sp=uv/R;float bend=0.24*pow(1.0-z,1.6);",
+  " vec2 rp=rot2(uTime*uTurn)*(sp+N.xy*bend);",
   " vec2 q=vec2(fbm(rp*1.8+0.055*t),fbm(rp*1.8+vec2(5.2,1.3)-0.045*t));",
   " vec2 s2=vec2(fbm(rp*1.8+uWarp*q+vec2(1.7,9.2)+0.040*t),",
   "  fbm(rp*1.8+uWarp*q+vec2(8.3,2.8)-0.034*t));",
@@ -275,13 +278,15 @@ function createOrb(canvas) {
   gl.enableVertexAttribArray(loc);
   gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
   const U = {};
-  for (const n of ["uRes", "uTime", "uWarp", "uSat", "uC1", "uC2", "uC3", "uC4"]) {
+  for (const n of [
+    "uRes", "uTime", "uWarp", "uSat", "uTurn", "uC1", "uC2", "uC3", "uC4",
+  ]) {
     U[n] = gl.getUniformLocation(prog, n);
   }
   const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
   const st = ORB_STATES.idle;
   const cur = { c: st.c.map(hex), warp: st.warp, speed: st.speed, sat: st.sat,
-                breath: st.breath, scale: st.scale };
+                breath: st.breath, scale: st.scale, turn: st.turn };
   let tgt = JSON.parse(JSON.stringify(cur));
   let clock = 0;
   let level = 0;          // smoothed microphone RMS, breath depth only
@@ -306,7 +311,7 @@ function createOrb(canvas) {
     for (let i = 0; i < 4; i++) {
       for (let j = 0; j < 3; j++) cur.c[i][j] += (tgt.c[i][j] - cur.c[i][j]) * e;
     }
-    for (const k of ["warp", "speed", "sat", "breath", "scale"]) {
+    for (const k of ["warp", "speed", "sat", "breath", "scale", "turn"]) {
       cur[k] += (tgt[k] - cur[k]) * e;
     }
     clock += dt * cur.speed;
@@ -323,6 +328,7 @@ function createOrb(canvas) {
     gl.uniform1f(U.uTime, clock);
     gl.uniform1f(U.uWarp, cur.warp);
     gl.uniform1f(U.uSat, cur.sat);
+    gl.uniform1f(U.uTurn, reduce ? 0 : cur.turn);
     gl.uniform3fv(U.uC1, cur.c[0]);
     gl.uniform3fv(U.uC2, cur.c[1]);
     gl.uniform3fv(U.uC3, cur.c[2]);
@@ -337,7 +343,7 @@ function createOrb(canvas) {
       const s = ORB_STATES[name];
       if (!s) return;
       tgt = { c: s.c.map(hex), warp: s.warp, speed: s.speed, sat: s.sat,
-              breath: s.breath, scale: s.scale };
+              breath: s.breath, scale: s.scale, turn: s.turn };
     },
     setLevel(v) {
       level = Math.max(0, Math.min(1, v));
@@ -976,7 +982,8 @@ function setSessionState(name) {
   show(ui.savedBlock, name === "saved");
   show(
     ui.suggestion,
-    Boolean(state.decision) && (name === "listening" || name === "paused")
+    Boolean(state.decision) &&
+      (name === "listening" || name === "paused" || name === "awaiting_outcome")
   );
   show(ui.recChip, name === "listening" || name === "paused");
   ui.recChip.setAttribute("aria-hidden", name === "idle" ? "true" : "false");
@@ -1255,7 +1262,7 @@ async function saveOutcome(event) {
   }
   const settled = selectedSettled();
   if (settled === undefined) {
-    setText(ui.outcomeStatus, "Pick whether it settled, or choose Not sure.");
+    setText(ui.outcomeStatus, "Choose Yes, Not yet, or Not sure.");
     return;
   }
   const payload = {
@@ -1314,6 +1321,21 @@ async function discardSession() {
   resetToIdle();
 }
 
+function clearDecisionPresentation() {
+  state.decision = null;
+  ui.listen.dataset.decision = "none";
+  ui.body.dataset.decision = "none";
+  show(ui.suggestion, false);
+  setText(ui.gHeadline, "");
+  setText(ui.gRecommendation, "");
+  setText(ui.gEvidence, "");
+  setText(ui.gInterpretation, "");
+  ui.basisList.textContent = "";
+  ui.incidentList.textContent = "";
+  setText($("incidents-count"), "0");
+  show(ui.gArt, false);
+}
+
 function resetToIdle() {
   clearInterval(state.rotateTimer);
   clearInterval(state.clockTimer);
@@ -1329,10 +1351,7 @@ function resetToIdle() {
   state.drainWaiters = [];
   state.acceptedSequence = 0;
   state.stopRequested = false;
-  state.decision = null;
-  ui.listen.dataset.decision = "none";
-  ui.body.dataset.decision = "none";
-  show(ui.suggestion, false);
+  clearDecisionPresentation();
   show(ui.recChip, false);
   setText(ui.recChipTime, "00:00");
   state.accumulatedMs = 0;

@@ -44,8 +44,14 @@ This is not a presentation-release claim.
   reused the context when the microphone arrived, and retained the connected source until stop.
 - Mapped microphone RMS through the fixed-rig calibrated curve with separate attack and release
   smoothing. This changes orb energy only and never changes cry status, color, or guidance.
+- Added calm internal shader rotation for listening and detected states. Reduced motion disables
+  the turn, and the canvas itself never spins.
 - Simplified the profile chip, aligned the live timer with it, and enlarged the orb in short
   landscape without adding Pro Max scrolling.
+- Kept a latched result visible after Stop as a full-width horizontal summary, followed by the
+  caregiver form, and cleared all decision presentation before the next session.
+- Reworded the outcome question to ask whether the action helped the baby calm down, while keeping
+  the existing true, false, and null payload values.
 - Removed the simulated default path, hard-coded baby, client-authored safety advice, narrow
   desktop column, low-contrast secondary text, and undersized controls.
 
@@ -76,6 +82,10 @@ second. Web Audio is now primed before the microphone permission await.
 The accelerated segment contract failed while the client still rotated at 12 seconds. The
 validated 6-second constant made that focused test pass.
 
+The internal motion and caregiver-copy contracts failed before the shader and wording changes.
+The first sequential browser run also showed that Stop hid the latched result. The final browser
+run completed three start, latch, stop, and discard cycles with a fresh result each time.
+
 ## Verification
 
 ```text
@@ -83,7 +93,7 @@ node --check web/app.js
 PASS
 
 python -m unittest tests.test_web_client -v
-12 tests passed
+15 tests passed
 
 node tests/test_live_session_browser.mjs
 PASS
@@ -107,6 +117,8 @@ The browser test verifies:
 - no horizontal overflow at 430 by 932, 932 by 430, and 1440 by 900;
 - no vertical scroll in the plain or latched 932 by 430 Pro Max landscape view with safe areas;
 - an enlarged short-landscape orb and a timer centered with the active profile;
+- a full-width post-Stop result and unclipped follow-up form;
+- three sequential sessions with no stale decision or recommendation;
 - a desktop shell wider than a phone column.
 
 `git diff --check`, capture exclusion, and the web forbidden-dash scan passed.

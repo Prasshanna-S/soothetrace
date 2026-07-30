@@ -109,6 +109,23 @@ class PhoneCareMarkupTests(unittest.TestCase):
         self.assertNotIn("preview_decision", combined)
         self.assertNotIn("what helped before: held baby upright", combined)
 
+    def test_outcome_question_uses_direct_caregiver_wording(self):
+        """The follow-up must use the approved plain-language choices."""
+        self.assertIn("Did this help your baby calm down?", self.html)
+        self.assertRegex(
+            self.html,
+            r'data-settled="true"[^>]*>\s*Yes\s*</button>',
+        )
+        self.assertRegex(
+            self.html,
+            r'data-settled="false"[^>]*>\s*Not yet\s*</button>',
+        )
+        self.assertRegex(
+            self.html,
+            r'data-settled="null"[^>]*>\s*Not sure\s*</button>',
+        )
+        self.assertNotIn("Did it settle?", self.html)
+
 
 class PhoneCareScriptTests(unittest.TestCase):
     def setUp(self):
@@ -178,6 +195,10 @@ class PhoneCareScriptTests(unittest.TestCase):
             with self.subTest(invented=invented):
                 self.assertNotIn(invented, (read(INDEX) + self.js).lower())
 
+    def test_outcome_validation_names_the_visible_choices(self):
+        self.assertIn("Choose Yes, Not yet, or Not sure.", self.js)
+        self.assertNotIn("Pick whether it settled", self.js)
+
     def test_no_forbidden_dash_characters_ship_in_web_copy(self):
         """The owner explicitly excludes em and en dashes from deliverables."""
         for path in (INDEX, APP_JS, APP_CSS, MANIFEST):
@@ -207,6 +228,17 @@ class PhoneCareResponsiveTests(unittest.TestCase):
             css,
             r"#orb\{[^}]*background:transparent;[^}]*border-radius:50%;",
         )
+
+    def test_orb_motion_is_internal_and_reduced_motion_safe(self):
+        """Listening motion must advect the shader, not spin the canvas."""
+        js = re.sub(r"\s+", "", read(APP_JS))
+        css = re.sub(r"\s+", "", read(APP_CSS)).lower()
+        self.assertIn("uniformfloatuTurn;", js)
+        self.assertIn("mat2rot2(floata)", js)
+        self.assertIn("rot2(uTime*uTurn)", js)
+        self.assertIn("reduce?0:cur.turn", js)
+        self.assertNotIn("@keyframesorb-spin", css)
+        self.assertNotRegex(css, r"#orb\{[^}]*animation:")
 
 
 if __name__ == "__main__":

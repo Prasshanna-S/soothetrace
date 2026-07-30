@@ -543,6 +543,87 @@ async function runNoCryPath(browser) {
   await page.close();
 }
 
+async function runSequentialOutcomePath(browser) {
+  const page = await browser.newPage({ viewport: { width: 932, height: 430 } });
+  const requests = { created: [], chunks: [], stopped: 0, completed: [] };
+  await installBrowserFakes(page);
+  await installRoutes(page, requests, {
+    chunkMode: "no_cry",
+    retryFirst: false,
+    safeArea: true,
+  });
+  await page.goto("http://care.test/", { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => !document.querySelector("#btn-start").disabled);
+
+  for (let index = 1; index <= 3; index++) {
+    await page.click("#btn-start");
+    await page.waitForSelector('body[data-session="listening"]');
+    const runDecision = {
+      ...decision,
+      id: 100 + index,
+      guidance: {
+        ...decision.guidance,
+        recommendation: `Session ${index} recommendation`,
+      },
+    };
+    await page.evaluate((value) => window.latchDecision(value), runDecision);
+    await page.click("#btn-stop");
+    await page.waitForSelector('body[data-session="awaiting_outcome"]');
+    await page.waitForTimeout(500);
+
+    const outcome = await page.evaluate(() => {
+      const pageNode = document.querySelector("#page-listen");
+      const suggestion = document.querySelector("#suggestion-block");
+      const card = document.querySelector("#suggestion-card").getBoundingClientRect();
+      const form = document.querySelector("#outcome-form").getBoundingClientRect();
+      const pageRect = pageNode.getBoundingClientRect();
+      return {
+        suggestionVisible: !suggestion.hidden,
+        recommendation: document.querySelector("#g-recommendation").textContent,
+        pageWidth: Math.round(pageRect.width),
+        cardWidth: Math.round(card.width),
+        cardHeight: Math.round(card.height),
+        formWidth: Math.round(form.width),
+        documentWidth: document.documentElement.scrollWidth,
+        viewportWidth: document.documentElement.clientWidth,
+        formPageBottom: Math.round(form.bottom - pageRect.top),
+        pageScrollHeight: pageNode.scrollHeight,
+      };
+    });
+    assert(outcome.suggestionVisible,
+      `session ${index} hid the latched result after Stop`);
+    assert(outcome.recommendation === `Session ${index} recommendation`,
+      `session ${index} reused stale guidance: ${JSON.stringify(outcome)}`);
+    assert(
+      outcome.cardWidth >= outcome.pageWidth - 2 &&
+        outcome.cardWidth / outcome.cardHeight >= 2.4,
+      `session ${index} result was not a horizontal full-width summary: ` +
+        JSON.stringify(outcome)
+    );
+    assert(outcome.formWidth >= outcome.pageWidth - 2,
+      `session ${index} follow-up form was clipped: ${JSON.stringify(outcome)}`);
+    assert(outcome.documentWidth <= outcome.viewportWidth + 1,
+      `session ${index} outcome has horizontal overflow: ${JSON.stringify(outcome)}`);
+    assert(outcome.formPageBottom <= outcome.pageScrollHeight + 1,
+      `session ${index} outcome is vertically clipped: ${JSON.stringify(outcome)}`);
+
+    await page.click("#btn-discard");
+    await page.waitForSelector('body[data-session="idle"]');
+    const reset = await page.evaluate(() => ({
+      decision: document.querySelector("#page-listen").dataset.decision,
+      suggestionHidden: document.querySelector("#suggestion-block").hidden,
+      recommendation: document.querySelector("#g-recommendation").textContent,
+    }));
+    assert(
+      reset.decision === "none" &&
+        reset.suggestionHidden &&
+        reset.recommendation === "",
+      `session ${index} did not clear before the next recording: ${JSON.stringify(reset)}`
+    );
+  }
+  await page.close();
+}
+
 async function landscapeMetrics(page) {
   return page.evaluate(() => {
     const pageNode = document.querySelector("#page-listen");
@@ -658,6 +739,7 @@ const browser = await chromium.launch({ headless: true });
 try {
   await runLivePath(browser);
   await runNoCryPath(browser);
+  await runSequentialOutcomePath(browser);
   await runLandscapeListeningFit(browser);
   await checkResponsiveShell(browser, { width: 932, height: 430 });
   await checkResponsiveShell(browser, { width: 1440, height: 900 });
