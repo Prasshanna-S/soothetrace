@@ -1,0 +1,206 @@
+{
+  "version": 2,
+  "pre_enrolled_leave_one_out": {
+    "protocol": "three-profile leave-one-out through product HTTP API",
+    "profiles": 3,
+    "queries": 10,
+    "confirmed_correct": 5,
+    "confirmed_wrong": 0,
+    "leaning_correct": 5,
+    "leaning_wrong": 0,
+    "unresolved": 0,
+    "confirmed_coverage": 0.5,
+    "direction_coverage": 1.0,
+    "direction_correct_rate": 1.0,
+    "direction_precision": 1.0,
+    "rows": [
+      {
+        "query": "prasshanna-01.wav",
+        "expected": "Prasshanna",
+        "result": "matched",
+        "profile": "Prasshanna"
+      },
+      {
+        "query": "prasshanna-02.wav",
+        "expected": "Prasshanna",
+        "result": "matched",
+        "profile": "Prasshanna"
+      },
+      {
+        "query": "prasshanna-03.wav",
+        "expected": "Prasshanna",
+        "result": "leaning",
+        "profile": "Prasshanna"
+      },
+      {
+        "query": "blind-query-01.wav",
+        "expected": "Prasshanna",
+        "result": "matched",
+        "profile": "Prasshanna"
+      },
+      {
+        "query": "blind-query-02.wav",
+        "expected": "Prasshanna",
+        "result": "leaning",
+        "profile": "Prasshanna"
+      },
+      {
+        "query": "second-person-01.m4a",
+        "expected": "Second person",
+        "result": "leaning",
+        "profile": "Second person"
+      },
+      {
+        "query": "second-person-02.m4a",
+        "expected": "Second person",
+        "result": "leaning",
+        "profile": "Second person"
+      },
+      {
+        "query": "second-person-03.m4a",
+        "expected": "Second person",
+        "result": "leaning",
+        "profile": "Second person"
+      },
+      {
+        "query": "control-01.wav",
+        "expected": "Legacy control",
+        "result": "matched",
+        "profile": "Legacy control"
+      },
+      {
+        "query": "control-02.wav",
+        "expected": "Legacy control",
+        "result": "matched",
+        "profile": "Legacy control"
+      }
+    ]
+  },
+  "automatic_open_session": {
+    "protocol": "empty session, first encounters followed by known turns",
+    "first_encounters": 3,
+    "new_people_correct": 3,
+    "new_people_missed": 0,
+    "known_turns": 5,
+    "known_turns_confirmed_correct": 3,
+    "known_turns_leaning_correct": 0,
+    "known_turns_wrong": 0,
+    "known_turns_pending_retry": 2,
+    "known_turns_split_as_new": 0,
+    "rows": [
+      {
+        "query": "prasshanna-01.wav",
+        "expected": "Person A",
+        "result": "new",
+        "profile": "Person A"
+      },
+      {
+        "query": "second-person-01.m4a",
+        "retry": "second-person-02.m4a",
+        "expected": "Person B",
+        "result": "new",
+        "profile": "Person B"
+      },
+      {
+        "query": "control-01.wav",
+        "retry": "control-02.wav",
+        "expected": "Person C",
+        "result": "new",
+        "profile": "Person C"
+      },
+      {
+        "query": "prasshanna-02.wav",
+        "expected": "Person A",
+        "result": "matched",
+        "profile": "Person A"
+      },
+      {
+        "query": "prasshanna-03.wav",
+        "expected": "Person A",
+        "result": "matched",
+        "profile": "Person A"
+      },
+      {
+        "query": "blind-query-01.wav",
+        "expected": "Person A",
+        "result": "matched",
+        "profile": "Person A"
+      },
+      {
+        "query": "blind-query-02.wav",
+        "expected": "Person A",
+        "result": "pending_retry",
+        "profile": null
+      },
+      {
+        "query": "second-person-03.m4a",
+        "expected": "Person B",
+        "result": "pending_retry",
+        "profile": null
+      }
+    ]
+  },
+  "new_person_pair_integrity": {
+    "protocol": "two outliers must pass both acoustic pair gates",
+    "version": "dual-encoder-demo-v1",
+    "thresholds": {
+      "ecapa-cryceleb-v1": 0.5,
+      "mfcc87-v1": 0.85
+    },
+    "same_source_trials": [
+      {
+        "files": [
+          "second-person-01.m4a",
+          "second-person-02.m4a"
+        ],
+        "scores": {
+          "ecapa-cryceleb-v1": 0.545693,
+          "mfcc87-v1": 0.922433
+        },
+        "result": "confirmed_new_profile"
+      },
+      {
+        "files": [
+          "control-01.wav",
+          "control-02.wav"
+        ],
+        "scores": {
+          "ecapa-cryceleb-v1": 0.787356,
+          "mfcc87-v1": 0.940532
+        },
+        "result": "confirmed_new_profile"
+      }
+    ],
+    "mixed_source_trials": [
+      {
+        "files": [
+          "second-person-01.m4a",
+          "control-01.wav"
+        ],
+        "scores": {
+          "ecapa-cryceleb-v1": 0.378484,
+          "mfcc87-v1": 0.67244
+        },
+        "result": "rejected_mixed_pair"
+      },
+      {
+        "files": [
+          "prasshanna-01.wav",
+          "control-01.wav"
+        ],
+        "scores": {
+          "ecapa-cryceleb-v1": 0.506988,
+          "mfcc87-v1": 0.784968
+        },
+        "result": "rejected_mixed_pair"
+      }
+    ]
+  },
+  "limitations": [
+    "Small correlated cohort",
+    "Some recordings share capture channels",
+    "The pair thresholds were selected for this proof-of-concept cohort",
+    "Direction is not a probability",
+    "This is not a population accuracy estimate"
+  ]
+}

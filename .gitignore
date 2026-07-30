@@ -1,0 +1,46 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Never commit the public corpus clone, generated captures, or ad hoc audio.
+experiments/donateacry-corpus/
+data/audio/
+*.wav
+*.aiff
+*.m4a
+*.mp3
+*.aac
+*.flac
+*.ogg
+*.opus
+*.webm
+*.npy
+experiments/result.json
+
+# Never commit local databases, credentials, certificates, or downloaded models.
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.mobileconfig
+*.pt
+*.pth
+*.onnx
+*.ckpt
+*.safetensors
+models/
+work/
+
+# Every participant explicitly authorized public distribution of this exact demo cohort.
+# Keep this narrow exception. All other audio remains ignored.
+!demo_assets/
+!demo_assets/human_audio/
+!demo_assets/human_audio/*.wav
+!demo_assets/human_audio/*.m4a

@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "kind": "human_imitation",
+  "profiles": [
+    {
+      "id": "prasshanna",
+      "display_name": "Prasshanna",
+      "files": [
+        "prasshanna-01.wav",
+        "prasshanna-02.wav",
+        "prasshanna-03.wav",
+        "blind-query-01.wav",
+        "blind-query-02.wav"
+      ],
+      "demo_enrollment": [
+        "prasshanna-01.wav",
+        "prasshanna-02.wav",
+        "prasshanna-03.wav"
+      ],
+      "demo_queries": [
+        "blind-query-01.wav",
+        "blind-query-02.wav"
+      ]
+    },
+    {
+      "id": "second_person",
+      "display_name": "Second person",
+      "files": [
+        "second-person-01.m4a",
+        "second-person-02.m4a",
+        "second-person-03.m4a"
+      ],
+      "demo_enrollment": [
+        "second-person-01.m4a",
+        "second-person-02.m4a"
+      ],
+      "demo_queries": [
+        "second-person-03.m4a"
+      ]
+    },
+    {
+      "id": "legacy_control",
+      "display_name": "Legacy control",
+      "files": [
+        "control-01.wav",
+        "control-02.wav"
+      ],
+      "demo_enrollment": [
+        "control-01.wav",
+        "control-02.wav"
+      ],
+      "demo_queries": []
+    }
+  ]
+}

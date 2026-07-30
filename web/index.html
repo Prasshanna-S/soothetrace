@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Baby Cry Identity and Care Memory</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cry Memory">
+<meta name="theme-color" content="#101418">
+<!-- One appearance only, deliberately. apple-mobile-web-app-status-bar-style=black-translucent
+     makes iOS draw the status bar clock and battery in WHITE over this page, so a light theme
+     would hide them, and it would also show the audience a theme nobody rehearsed. -->
+<meta name="color-scheme" content="dark">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20180%20180%22%3E%3Crect%20width%3D%22180%22%20height%3D%22180%22%20fill%3D%22%23101418%22%2F%3E%3Ccircle%20cx%3D%2290%22%20cy%3D%2290%22%20r%3D%2246%22%20fill%3D%22none%22%20stroke%3D%22%2372d6b5%22%20stroke-width%3D%2210%22%2F%3E%3Ccircle%20cx%3D%2290%22%20cy%3D%2290%22%20r%3D%2216%22%20fill%3D%22%2372d6b5%22%2F%3E%3C%2Fsvg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20fill%3D%22%23101418%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2216%22%20fill%3D%22none%22%20stroke%3D%22%2372d6b5%22%20stroke-width%3D%224%22%2F%3E%3C%2Fsvg%3E">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div id="app-shell">
+
+  <!-- Fixed while recording so that scrolling to the query button never hides the fact that the
+       microphone is live. Announcement is left to #record-state, so this is aria-hidden. -->
+  <p id="rec-bar" class="rec-bar" hidden aria-hidden="true">REC <span
+    id="rec-bar-time">00:00</span><span id="rec-bar-note"></span></p>
+
+  <header id="app-header">
+    <h1 id="app-title">Cry Memory</h1>
+    <p id="health-status" class="pill" role="status" aria-live="polite">Checking the local server...</p>
+    <p id="mode-label" class="pill" hidden>No mode selected</p>
+  </header>
+
+  <p id="error-banner" class="banner banner-error" role="alert" hidden></p>
+  <p id="secure-warning" class="banner banner-warn" hidden></p>
+
+  <section id="consent" aria-labelledby="consent-heading">
+    <h2 id="consent-heading">Recording consent</h2>
+    <p id="consent-text">
+      This app records audio only. It never records video. Nothing is captured until you press
+      Start recording, and every person whose voice may be audible must be told and must agree
+      before you record. Audio and results stay on this laptop.
+    </p>
+  </section>
+
+  <!-- ----------------- screen 1: pick the kind ----------------- -->
+  <section id="screen-mode" aria-labelledby="mode-heading">
+    <h2 id="mode-heading" tabindex="-1">What are you recording?</h2>
+    <p class="hint">
+      Pick one. The two kinds are never compared with each other, so choose before you record.
+    </p>
+    <div class="stack">
+      <button type="button" id="btn-kind-infant" class="big primary">
+        Baby cry
+        <span class="sub">An infant cry, played or live</span>
+      </button>
+      <button type="button" id="btn-kind-imitation" class="big primary">
+        Human cry imitation
+        <span class="sub">A person imitating a cry into this device</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ----------------- screen 2: the work screen ----------------- -->
+  <section id="screen-work" aria-labelledby="work-heading" hidden>
+    <h2 id="work-heading" tabindex="-1">Capture</h2>
+    <button type="button" id="btn-change-mode" class="link">Change kind</button>
+
+    <div id="live-session-console" hidden>
+      <section class="card" id="live-capture-panel" aria-labelledby="live-capture-heading">
+        <div class="live-panel-heading">
+          <div>
+            <p class="live-kicker">Independent recordings</p>
+            <h3 id="live-capture-heading">Build a live participant map</h3>
+          </div>
+          <button type="button" id="btn-new-live-session" class="session-reset">
+            New session
+          </button>
+        </div>
+        <p class="hint">
+          Start with an empty session. Each microphone stop or file selection is submitted as one
+          separate recording.
+        </p>
+        <p id="live-session-status" class="live-session-status" role="status"
+           aria-live="polite">
+          No session yet. Press New session to begin.
+        </p>
+
+        <div class="recorder">
+          <p id="live-record-state" class="record-state" role="status" aria-live="polite">
+            Idle - not recording
+          </p>
+          <p id="live-record-timer" class="timer" aria-label="Recording length">00:00</p>
+          <div class="live-capture-actions">
+            <button type="button" id="btn-live-record-start" class="big primary" disabled>
+              Start recording
+            </button>
+            <button type="button" id="btn-live-record-stop" class="big" disabled>
+              Stop recording
+            </button>
+          </div>
+          <p id="live-playback-block-notice" class="banner banner-warn" hidden>
+            Playback is blocked while recording. Never play audio through the device that is
+            recording - iOS suppresses its own speaker feed and the capture comes back silent.
+          </p>
+        </div>
+
+        <div class="filepick">
+          <label for="live-file-input">Or choose one existing audio file</label>
+          <input type="file" id="live-file-input" accept="audio/*" disabled>
+        </div>
+
+        <p id="live-clip-summary" class="clip" role="status" aria-live="polite">
+          Create a session before selecting a recording.
+        </p>
+        <p id="live-submit-status" class="live-submit-status" role="status" aria-live="polite">
+          Use WAV, M4A, MP3, FLAC, WebM, or OGG audio. A duplicate cannot strengthen a pattern.
+        </p>
+        <button type="button" id="btn-live-retry" hidden>
+          Retry selected recording
+        </button>
+
+        <details id="live-capture-diagnostics" hidden>
+          <summary>Capture diagnostics</summary>
+          <p class="hint">
+            Requested: echo cancellation off, noise suppression off, auto gain off. The browser
+            may ignore a requested setting, so the values below come from the live track.
+          </p>
+          <p id="live-constraints-applied" class="mono">No microphone track yet.</p>
+          <p id="live-mime-selected" class="mono">Recorder format: not started.</p>
+          <p id="live-clip-quality" class="mono">No capture measured yet.</p>
+        </details>
+      </section>
+
+      <section class="card" id="live-result-panel" aria-labelledby="live-result-heading"
+               data-status="empty">
+        <p class="live-kicker">Latest recording</p>
+        <h3 id="live-result-heading" tabindex="-1">Waiting for a session</h3>
+        <p id="live-result-status" class="live-verdict" role="status" aria-live="polite">
+          Every recording gets its own result here.
+        </p>
+        <p id="live-result-name" class="live-verdict-name" hidden></p>
+        <p id="live-result-explanation" class="live-result-explanation">
+          Create a session, then record or choose one clip.
+        </p>
+      </section>
+
+      <section class="card" id="live-session-timeline" aria-labelledby="live-timeline-heading">
+        <div class="live-panel-heading">
+          <div>
+            <p class="live-kicker">Session evidence</p>
+            <h3 id="live-timeline-heading">Recording timeline</h3>
+          </div>
+        </div>
+        <ol id="live-timeline-list" class="live-timeline-list"></ol>
+        <p id="live-timeline-empty" class="empty">
+          No recordings in this session yet.
+        </p>
+      </section>
+
+      <section class="card" id="live-participant-strip"
+               aria-labelledby="live-participant-heading">
+        <div class="live-panel-heading">
+          <div>
+            <p class="live-kicker">Patterns in this session</p>
+            <h3 id="live-participant-heading">Participants</h3>
+          </div>
+        </div>
+        <div id="live-participants-list" class="live-participants-list"></div>
+        <p id="live-participants-empty" class="empty">
+          The first usable recording can create a provisional participant.
+        </p>
+      </section>
+    </div>
+
+    <div id="legacy-workflow">
+    <!-- capture -->
+    <div class="card" id="panel-capture">
+      <h3>1 - Get one recording</h3>
+      <p id="capture-hint" class="hint">
+        Record here, or choose an audio file already on this device. Either way you get one
+        selected clip, and you decide afterwards what it is for.
+      </p>
+
+      <div class="recorder">
+        <p id="record-state" class="record-state" role="status" aria-live="polite">Idle - not recording</p>
+        <p id="record-timer" class="timer" aria-label="Recording length">00:00</p>
+        <div class="row">
+          <button type="button" id="btn-record-start" class="big primary">Start recording</button>
+          <button type="button" id="btn-record-stop" class="big" disabled>Stop recording</button>
+        </div>
+        <p id="playback-block-notice" class="banner banner-warn" hidden>
+          Playback is blocked while recording. Never play audio through the device that is
+          recording - iOS suppresses its own speaker feed and the capture comes back silent.
+        </p>
+      </div>
+
+      <div class="filepick">
+        <label for="file-input">Or choose an existing audio file</label>
+        <input type="file" id="file-input" accept="audio/*">
+      </div>
+
+      <p id="clip-summary" class="clip" role="status" aria-live="polite">No clip selected yet.</p>
+
+      <details id="capture-diagnostics">
+        <summary>Capture diagnostics</summary>
+        <p class="hint">
+          Requested: echo cancellation off, noise suppression off, auto gain off. iOS Safari may
+          ignore a requested constraint, so the values below are read back from the live track.
+        </p>
+        <p id="constraints-applied" class="mono">No microphone track yet.</p>
+        <p id="mime-selected" class="mono">Recorder format: not started.</p>
+        <p id="clip-quality" class="mono">No capture measured yet.</p>
+      </details>
+    </div>
+
+    <!-- profiles -->
+    <div class="card" id="panel-profiles">
+      <h3>2 - Profiles</h3>
+      <p class="hint">
+        Identification is comparative: it answers "which enrolled profile is this?". Each query
+        is compared only with profiles of the selected kind.
+      </p>
+      <div id="session-summary" class="session-summary" hidden>
+        <p>
+          Create a session, then record every participant in this session one at a time. The
+          first valid cry becomes Person A. Later cries either match someone already enrolled,
+          register as a clearly distinct new person, or stay uncertain. A session grows to
+          whatever size the room needs; there is no fixed number of people.
+        </p>
+        <p id="session-phase" class="session-phase" role="status" aria-live="polite">
+          No live human session yet.
+        </p>
+        <button type="button" id="btn-new-human-session" class="session-reset">
+          Create new session
+        </button>
+      </div>
+      <div id="manual-profile-create">
+        <div class="row">
+          <label class="grow" for="profile-name-input">New profile name</label>
+        </div>
+        <div class="row">
+          <input type="text" id="profile-name-input" class="grow" autocomplete="off"
+                 placeholder="e.g. Baby A">
+          <button type="button" id="btn-create-profile">Create profile</button>
+        </div>
+      </div>
+      <p id="profile-status" class="status" role="status" aria-live="polite"></p>
+      <ul id="profile-list" class="profiles"></ul>
+      <p id="profiles-empty" class="empty">No profiles of this kind yet. Create two to begin.</p>
+    </div>
+
+    <!-- enrollment: explicit action A -->
+    <div class="card action-card" id="panel-enroll">
+      <h3>3 - Use the clip for enrollment</h3>
+      <p class="hint">
+        Enrollment teaches a profile. Capture three independent recordings for the strongest
+        comparison. An active human session automates this step.
+      </p>
+      <label for="profile-select">Enroll into</label>
+      <select id="profile-select"></select>
+      <button type="button" id="btn-enroll" class="big" disabled>Add this clip as an enrollment</button>
+      <p id="enroll-status" class="status" role="status" aria-live="polite"></p>
+    </div>
+
+    <!-- query: explicit action B -->
+    <div class="card action-card" id="panel-query">
+      <h3>4 - Or use the clip for a blind query</h3>
+      <p class="hint">
+        A blind query asks the system who this is. It never enrolls anything, and it never
+        receives the profile you expect.
+      </p>
+      <button type="button" id="btn-query" class="big primary" disabled>Run blind identity query</button>
+      <p id="query-status" class="status" role="status" aria-live="polite"></p>
+    </div>
+
+    <!-- result -->
+    <div class="card" id="panel-result" hidden>
+      <h3 id="result-heading" tabindex="-1">Result</h3>
+      <p id="result-status" class="verdict" role="status" aria-live="polite"></p>
+      <p id="result-profile" class="verdict-name" hidden></p>
+      <ul id="result-reasons" class="reasons"></ul>
+
+      <div id="retry-block" hidden>
+        <p id="retry-hint" class="banner banner-warn">
+          A retry is a second, independent recording. Record again - sending the same clip twice
+          is not evidence.
+        </p>
+        <button type="button" id="btn-retry" class="big primary" disabled>Send second recording as retry</button>
+      </div>
+
+      <!-- server-authored guidance, large and stable -->
+      <div id="guidance-block" hidden>
+        <h4 id="guidance-heading">From this profile's own recorded history</h4>
+        <p id="guidance-interpretation" class="guidance-large"></p>
+        <p id="guidance-recommendation" class="guidance-large"></p>
+        <p id="guidance-evidence" class="guidance-evidence"></p>
+        <p id="guidance-empty" class="empty" hidden>
+          Nothing to repeat yet from this profile's recorded history.
+        </p>
+        <p class="footnote">
+          Every line above is written by the local server from this profile's own recorded
+          incidents. It is a record of what a caregiver did and said, not a cause and not advice.
+        </p>
+      </div>
+
+      <div id="reveal-block" hidden>
+        <button type="button" id="btn-reveal-guidance" class="big">
+          Show this profile's recorded history
+        </button>
+        <p class="footnote">
+          Reading the history saves nothing. It is a read-only look at incidents this profile
+          already has.
+        </p>
+      </div>
+
+      <!-- supporting incidents, below the result -->
+      <div id="incidents-block" hidden>
+        <h4>Supporting incidents</h4>
+        <p class="hint">Play these on the laptop, never on the device you record with.</p>
+        <ul id="incidents-list" class="incidents"></ul>
+        <p id="incidents-empty" class="empty" hidden>
+          No earlier incident is similar enough to show.
+        </p>
+      </div>
+
+      <!-- outcome save, stays available after the result -->
+      <div id="outcome-form" hidden>
+        <h4>Record what happened</h4>
+        <label for="outcome-input">What did you do, and did it settle?</label>
+        <textarea id="outcome-input" rows="3"
+                  placeholder="e.g. Walked her for five minutes and she settled."></textarea>
+        <label for="outcome-tags">Context tags, comma separated (optional)</label>
+        <!-- Situation only: when and where. Never an example that labels a cause, because the
+             system must not put a cause in the caregiver's mouth. -->
+        <input type="text" id="outcome-tags" autocomplete="off" placeholder="e.g. evening, at home">
+        <button type="button" id="btn-save-outcome" class="big primary">
+          Save this incident and its outcome
+        </button>
+        <p id="outcome-status" class="status" role="status" aria-live="polite"></p>
+        <p id="outcome-note" class="footnote">
+          Saving writes exactly one incident for this profile. Leave the box empty if there is no
+          outcome yet. The local API has no update route, so an incident cannot be edited
+          afterwards: run a new query to record another one.
+        </p>
+      </div>
+
+      <p id="safety-message" class="safety" hidden>
+        If you are getting overwhelmed, it is okay to place your baby on their back in a safe
+        place, such as an empty crib, and step away for a few minutes. Take a breath and return
+        when you feel ready. If you are worried about the crying, consider talking to your
+        pediatrician.
+      </p>
+    </div>
+    </div>
+  </section>
+
+  <!-- Honest disabled surfaces. LIABILITY.md section 7: a disabled surface MAY describe what
+       it would do, and may NEVER display fabricated output as though it were computed. A judge
+       who taps one of these and finds invented data has found the one thing that discredits
+       everything else in the demo, so none of them has a handler and none returns anything. -->
+  <section id="not-in-this-build" aria-labelledby="future-heading" hidden>
+    <h2 id="future-heading">Not in this build</h2>
+    <p class="hint">
+      These are switched off on purpose, and each one says why. None of them produces output in
+      this build, not even an example, because a disabled surface that shows invented data is
+      worse than one that shows nothing.
+    </p>
+    <ul class="future">
+      <li>
+        <button type="button" disabled>Stroke and aphasia mode</button>
+        <p class="footnote">
+          Would carry the same recorded history for an adult with acquired communication
+          difficulty. Off because it has no empirical validation here at all: every number this
+          project has measured comes from infant cries and adult imitations of one.
+        </p>
+      </li>
+      <li>
+        <button type="button" disabled>Dementia and ICU modes</button>
+        <p class="footnote">
+          Would apply the same interaction memory in settings where the person cannot report
+          what helped. Off for the same reason, and both sit closer to clinical care than a
+          wellness tool is allowed to.
+        </p>
+      </li>
+      <li>
+        <button type="button" disabled>Communication Passport export</button>
+        <p class="footnote">
+          Generates the portable caregiver-to-caregiver document from recorded interactions.
+          This one is built and runs locally on the laptop, not from this page, so nothing here
+          would be fabricated. It is off in the phone client only.
+        </p>
+      </li>
+      <li>
+        <button type="button" disabled>Clinician summary report</button>
+        <p class="footnote">
+          Would format the same recorded history for a pediatrician. Off because a document
+          addressed to a clinician invites being read as a clinical finding, which is a line
+          this build does not cross.
+        </p>
+      </li>
+      <li>
+        <button type="button" disabled>Multi-caregiver shared record</button>
+        <p class="footnote">
+          Would let two caregivers contribute to one record. Off because sharing a recording
+          between people crosses into multi-party consent, which varies by state and is not
+          something a demo can satisfy.
+        </p>
+      </li>
+      <li>
+        <button type="button" disabled>Cross-subject population insights</button>
+        <p class="footnote">
+          Would compare one subject against others. Off because that is human-subjects research
+          and needs an approved protocol, and because this tool deliberately never tells anyone
+          how they compare to normal.
+        </p>
+      </li>
+    </ul>
+  </section>
+
+  <footer id="app-footer">
+    <p class="footnote">
+      Audio only, local only. This is a record of what a caregiver said and did. It never reports
+      why a baby is crying, and it shows no confidence numbers - only a status, a band, and plain
+      reasons.
+    </p>
+  </footer>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

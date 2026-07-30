@@ -1,0 +1,47 @@
+{
+ "version": "live-round2-v1",
+ "encoder": "mfcc87-v1",
+ "accept_threshold": 0.788,
+ "margin_threshold": 0.0708,
+ "strong_threshold": 0.8468,
+ "min_enrollments_ready": 2,
+ "trials": {
+  "genuine_n": 15,
+  "impostor_n": 15,
+  "genuine_mean": 0.844529,
+  "impostor_mean": 0.699018,
+  "verification_separable": false,
+  "true_accept_rate": 0.9333,
+  "false_accept_rate": 0.0667,
+  "two_class_correct": 14,
+  "two_class_n": 15,
+  "two_class_accuracy": 0.9333,
+  "gated_matches": 13,
+  "gated_retries": 2,
+  "gated_wrong": 0
+ },
+ "source": "data/audio/round2_h (live, one fixed rig)",
+ "per_kind": {
+  "human_imitation": {
+   "encoder": "ecapa-cryceleb-v1",
+   "accept_threshold": 0.6786,
+   "margin_threshold": 0.0547,
+   "strong_threshold": 0.7868,
+   "novelty_pair_version": "dual-encoder-demo-v1",
+   "novelty_pair_thresholds": {
+    "ecapa-cryceleb-v1": 0.5,
+    "mfcc87-v1": 0.85
+   },
+   "min_enrollments_ready": 2,
+   "trials": {
+    "source": "replay_master references (LOO); blind queries held out",
+    "loo_n": 5,
+    "genuine_mean": 0.767232,
+    "impostor_mean": 0.520523,
+    "separable": true,
+    "people": 2,
+    "caveat": "2 people only; thresholds provisional"
+   }
+  }
+ }
+}

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="dark">
+    <title>iPhone Capture Spike</title>
+    <link rel="stylesheet" href="/app.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body data-state="idle">
+    <main>
+      <p class="eyebrow">SPIKE A · NOT THE PRODUCT UI</p>
+      <h1>3-minute untouched capture</h1>
+      <p id="state" class="state" role="status" aria-live="polite">Ready</p>
+      <p id="timer" class="timer">03:00</p>
+
+      <section class="instructions" aria-labelledby="instructions-title">
+        <h2 id="instructions-title">First run</h2>
+        <ol>
+          <li>Leave your current Auto-Lock setting unchanged.</li>
+          <li>Tap start and allow microphone access.</li>
+          <li>Place the phone face down. Do not touch it for three minutes.</li>
+          <li>After three minutes, pick it up and unlock it.</li>
+          <li>Keep this page open until it says the upload is complete.</li>
+        </ol>
+        <p>No Wake Lock and no chunking are used in this first run.</p>
+      </section>
+
+      <button id="start" type="button">Start uninterrupted test</button>
+      <button id="stop" class="secondary" type="button" disabled>Stop now</button>
+
+      <details>
+        <summary>Capture diagnostics</summary>
+        <dl>
+          <dt>Session</dt><dd id="session">Not created</dd>
+          <dt>Secure context</dt><dd id="secure">Checking</dd>
+          <dt>Selected MIME</dt><dd id="mime">Not selected</dd>
+          <dt>Applied settings</dt><dd><pre id="settings">Not available</pre></dd>
+        </dl>
+        <pre id="log" class="log" aria-label="Event log"></pre>
+      </details>
+    </main>
+  </body>
+</html>

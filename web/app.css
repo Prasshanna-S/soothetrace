@@ -1,0 +1,1260 @@
+/* ============================================================================
+   Cry Memory - operator console
+
+   DESIGN SYSTEM: neutral, high-contrast, low-chroma. A centered reading column,
+   soft radii, a system sans face, and colour used only where it carries meaning.
+   Quiet chrome, so the one thing that matters - the identity decision - is the
+   only loud element on the page.
+
+   LAYOUT: the infant care flow keeps its centered reading column. Human imitation
+   uses a dedicated wide workspace: capture and latest result share the first row,
+   while the evidence timeline and participant strip span the full width.
+
+   SPACING IS A FEATURE, NOT DECORATION. This is read one-handed, at night, by
+   someone exhausted, and on a stage by someone under time pressure. Panels are
+   separated by more than a hairline, body copy runs at 16px minimum with a 1.6
+   line height, and every tap target clears 44px. Vertical rhythm comes from ONE
+   rule (--gap) rather than per-element margins, so nothing is accidentally tight.
+
+   WHY DARK ONLY, and why there is deliberately no light theme:
+   apple-mobile-web-app-status-bar-style is black-translucent, which makes iOS
+   draw the status bar clock and battery in WHITE directly over this page. A
+   light background therefore hides them and shows the audience an appearance
+   nobody rehearsed. color-scheme: dark additionally makes the native <select>
+   list and the <audio> controls render dark rather than as a bright system panel.
+
+   COLOUR CARRIES MEANING, never decoration:
+     green - a CONFIRMED match. Earned, and used almost nowhere else. This is why
+             the two mode buttons are neutral even though the markup marks them
+             primary: two large green buttons on the entry screen would spend the
+             colour the verdict needs.
+     blue  - a LEANING: a visible direction that is explicitly not a claim.
+     red   - a genuine capture fault, or the live microphone. Abstaining is NOT an
+             error, so it is never red; the system declining to name someone is it
+             working.
+
+   TYPE: one fluid scale. Every headline floor is an absolute px value, because a
+   clamp() with a vw middle term collapses to its FLOOR on a narrow screen - the
+   phone renders the floor, not the ceiling.
+
+   No webfonts and no external assets: the server sends default-src 'self' and the
+   demo phone may have no upstream network.
+   ============================================================================ */
+
+:root {
+  color-scheme: dark;
+
+  /* Neutral greys. Light enough to read as a modern surface rather than a black
+     void, dark enough to sit calmly on a stage. */
+  --bg:         #212121;
+  --bg-2:       #1a1a1a;
+  --card:       #2a2a2a;
+  --card-2:     #303030;
+  --card-3:     #3a3a3a;
+  --line:       rgba(255, 255, 255, .09);
+  --line-2:     rgba(255, 255, 255, .17);
+
+  --ink:        #ececec;
+  --ink-dim:    #b9b9b9;
+  --ink-faint:  #949494;
+
+  --accent:      #10a37f;   /* CONFIRMED */
+  --accent-soft: rgba(16, 163, 127, .13);
+  --accent-line: rgba(16, 163, 127, .38);
+  --accent-ink:  #04241c;
+
+  --lead:        #6ea8fe;   /* LEANING: a direction, not a claim */
+  --lead-soft:   rgba(110, 168, 254, .13);
+  --lead-line:   rgba(110, 168, 254, .34);
+
+  --bad:         #f2777a;   /* capture fault, or the live microphone */
+  --bad-soft:    rgba(242, 119, 122, .13);
+  --bad-line:    rgba(242, 119, 122, .34);
+
+  --warn:        #e3b341;
+
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable",
+          "Segoe UI", Roboto, ui-sans-serif, system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+  --col: 760px;      /* the infant reading column */
+  --workspace: 1180px;
+  --pad: 20px;       /* page gutter */
+  --gap: 16px;       /* vertical rhythm inside a panel */
+  --card-gap: 18px;  /* separation between panels */
+  --r-card: 16px;
+  --r-ctl: 11px;
+  --tap: 44px;
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, .28), 0 8px 24px rgba(0, 0, 0, .22);
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html {
+  background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: -webkit-fill-available;   /* iOS Safari 100vh bug */
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.6;
+  letter-spacing: -0.003em;
+  -webkit-font-smoothing: antialiased;
+  touch-action: manipulation;
+}
+
+#app-shell {
+  max-width: var(--col);
+  margin: 0 auto;
+  padding:
+    calc(env(safe-area-inset-top, 0px) + var(--pad))
+    calc(env(safe-area-inset-right, 0px) + var(--pad))
+    calc(env(safe-area-inset-bottom, 0px) + 64px)
+    calc(env(safe-area-inset-left, 0px) + var(--pad));
+}
+
+body[data-workflow="live-session"] #app-shell {
+  max-width: var(--workspace);
+}
+
+[hidden] { display: none !important; }
+
+/* While a capture runs the fixed recording bar overlays the top of the page, so
+   the shell is pushed clear of it. app.js already sets body[data-recording]. */
+body[data-recording="true"] #app-shell {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 76px);
+}
+
+/* ---------------------------------------------------------------- header --- */
+
+#app-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding-bottom: 18px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+h1, #app-title {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: clamp(24px, 1.6vw + 19px, 29px);
+  font-weight: 600;
+  line-height: 1.22;
+  letter-spacing: -0.022em;
+}
+
+h2 {
+  margin: 0 0 14px;
+  font-size: clamp(20px, 1vw + 17px, 23px);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+/* Step labels. Bright enough to scan under pressure, small enough not to compete
+   with the copy underneath. */
+h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink-dim);
+}
+
+h4 {
+  margin: 0 0 10px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+/* The screen headings take programmatic focus so a screen reader announces the
+   new screen. They are not tabbable, so painting a focus ring around a full-width
+   heading only makes the page look like it is reporting an error. */
+h2[tabindex]:focus,
+h2[tabindex]:focus-visible,
+h3[tabindex]:focus,
+h3[tabindex]:focus-visible { outline: none; }
+
+/* Telemetry. Monospace only where a value is genuinely numeric. */
+#session-phase, #enroll-status, #query-status, #profile-status, #outcome-status,
+#clip-summary {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-dim);
+}
+#mime-selected, #constraints-applied, #clip-quality {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+
+#health-status, #mode-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  margin: 0;
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--ink-dim);
+}
+#health-status::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+#health-status[data-health="ready"]::before    { background: var(--accent); }
+#health-status[data-health="degraded"]::before { background: var(--warn); }
+#health-status[data-health="down"]::before     { background: var(--bad); }
+
+/* --------------------------------------------------------------- banners --- */
+
+.banner {
+  margin: var(--gap) 0;
+  padding: 15px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  background: var(--card);
+  font-size: 15.5px;
+  line-height: 1.55;
+  color: var(--ink-dim);
+}
+.banner-error { background: var(--bad-soft);  border-color: var(--bad-line);  color: #ffd9d9; }
+.banner-warn  { background: var(--lead-soft); border-color: var(--lead-line); color: #dceaff; }
+
+/* ---------------------------------------------------------------- panels --- */
+
+.card {
+  margin: 0 0 var(--card-gap);
+  padding: 22px 20px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+}
+
+/* One rhythm rule instead of per-element margins. Adjacent sibling margins
+   collapse to the larger of the two, so the per-element values elsewhere in this
+   file cannot stack on top of this and silently double a gap. */
+.card > * + *,
+#guidance-block > * + *,
+#outcome-form > * + *,
+#retry-block > * + *,
+#reveal-block > * + *,
+#incidents-block > * + *,
+#session-summary > * + *,
+#consent > * + * { margin-top: var(--gap); }
+
+.sub, .hint, .footnote, .clip, .session-reset, .session-summary {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 16px;
+}
+.hint { line-height: 1.6; }
+.footnote { font-size: 14px; line-height: 1.6; color: var(--ink-faint); }
+
+.stack > * + * { margin-top: 12px; }
+.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.grow { flex: 1 1 auto; min-width: 0; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.status { color: var(--ink-dim); font-size: 15px; }
+
+/* Emphasised panels: the two things the operator actually does with a clip. A
+   left edge marks them without changing any typography. This class sits on a
+   card, NOT on a button, so it must not carry button sizing or weight. */
+.action-card {
+  background: var(--card-2);
+  border-left: 3px solid var(--accent-line);
+}
+
+/* -------------------------------------------------------------- controls --- */
+
+button {
+  min-height: 48px;
+  padding: 0 20px;
+  font-family: var(--sans);
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  background: var(--card-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-ctl);
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+  touch-action: manipulation;
+  user-select: none;
+}
+button:hover:not([disabled])  { background: var(--card-3); }
+button:active:not([disabled]) { background: var(--card-2); }
+
+/* NEVER dim a disabled control with opacity: over a coloured primary it
+   composites to roughly 1.7:1 against the card, so the label of the control the
+   presenter needs NEXT becomes unreadable on a stage projector. Explicit colours
+   stay legible while still reading as unavailable. */
+button[disabled] {
+  background: var(--card-2);
+  color: var(--ink-dim);
+  border-color: var(--line);
+  cursor: not-allowed;
+}
+
+button.primary {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: transparent;
+  font-weight: 600;
+}
+button.primary:hover:not([disabled])  { background: #13b88f; }
+button.primary:active:not([disabled]) { background: #0e8e6e; }
+
+/* The main actions are full width on a phone, because a thumb should not have to
+   aim, and a half-width button next to whitespace reads as secondary. */
+button.big {
+  width: 100%;
+  min-height: 52px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+/* A button carrying .link is a text action, not a box. Without this it renders as
+   a bordered control with underlined blue text inside it, which reads as neither. */
+button.link {
+  min-height: var(--tap);
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  color: var(--lead);
+  font-size: 16px;
+  font-weight: 500;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+button.link:hover:not([disabled])  { background: none; color: #97c2ff; }
+button.link:active:not([disabled]) { background: none; }
+.link { color: var(--lead); text-decoration: underline; text-underline-offset: 3px; }
+
+/* A reset is not a primary action and must not look like one. */
+button.session-reset {
+  width: auto;
+  background: var(--card);
+  font-size: 15.5px;
+}
+
+/* The two mode choices are the first thing seen, so they get real presence. The
+   markup marks both of them primary; green is reserved for a confirmed verdict,
+   so the id wins over .primary here on purpose. */
+#btn-kind-infant,
+#btn-kind-imitation {
+  display: block;
+  width: 100%;
+  min-height: 84px;
+  padding: 18px 20px;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-card);
+  text-align: left;
+  font-size: clamp(19px, 1vw + 16px, 21px);
+  font-weight: 600;
+  letter-spacing: -0.018em;
+}
+#btn-kind-infant:hover:not([disabled]),
+#btn-kind-imitation:hover:not([disabled]) {
+  background: var(--card-2);
+  border-color: var(--accent-line);
+}
+/* The description is a second line, not a trailing fragment of the label. */
+button .sub {
+  display: block;
+  margin-top: 5px;
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.45;
+  color: var(--ink-dim);
+}
+
+:focus-visible { outline: 2px solid var(--lead); outline-offset: 2px; }
+
+input[type="text"], input[type="search"], textarea, select {
+  min-height: 48px;
+  width: 100%;
+  padding: 13px 14px;
+  color: var(--ink);
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-ctl);
+  font-family: var(--sans);
+  font-size: 16px;              /* 16px floor stops iOS zoom-on-focus */
+  line-height: 1.45;
+}
+textarea { resize: vertical; min-height: 88px; }
+input::placeholder, textarea::placeholder { color: var(--ink-faint); }
+input:focus, select:focus, textarea:focus { border-color: var(--lead); }
+
+label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 15px;
+  color: var(--ink-dim);
+}
+.row label { margin-bottom: 0; }
+
+/* File picking. The native button is a light system chip by default, which would
+   otherwise be the single brightest thing on the page. */
+.filepick {
+  padding: 16px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-ctl);
+  background: var(--bg-2);
+}
+input[type="file"] {
+  min-height: var(--tap);
+  width: 100%;
+  color: var(--ink-dim);
+  font-family: var(--sans);
+  font-size: 15px;
+}
+input[type="file"]::-webkit-file-upload-button,
+input[type="file"]::file-selector-button {
+  min-height: var(--tap);
+  margin-right: 12px;
+  padding: 0 16px;
+  color: var(--ink);
+  background: var(--card-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-ctl);
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* display:flex on a summary removes the native disclosure marker, which leaves
+   the row looking like inert text rather than something that opens. The triangle
+   is redrawn from borders so it needs no glyph and no asset. */
+details summary {
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-faint);
+  font-size: 14.5px;
+  cursor: pointer;
+  list-style: none;
+}
+details summary::-webkit-details-marker { display: none; }
+details summary::before {
+  content: "";
+  flex: none;
+  width: 0;
+  height: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform .15s ease;
+}
+details[open] summary { color: var(--ink-dim); }
+details[open] summary::before { transform: rotate(90deg); }
+
+/* -------------------------------------------------------------- recorder --- */
+
+/* A column, not a wrapping flex row. As a row, the button pair became a shrunken
+   flex item and the two buttons wrapped onto separate lines on a WIDE screen,
+   which looked like a bug rather than a layout. */
+.recorder { display: flex; flex-direction: column; gap: 14px; align-items: stretch; }
+
+#btn-record-start,
+#btn-record-stop,
+#btn-live-record-start,
+#btn-live-record-stop {
+  min-width: var(--tap);
+  min-height: 56px;
+  font-size: 17px;
+  font-weight: 600;
+}
+#btn-record-start:not([disabled]),
+#btn-live-record-start:not([disabled]) {
+  color: #ffe2e2;
+  background: rgba(242, 119, 122, .16);
+  border-color: var(--bad-line);
+}
+#btn-record-start:hover:not([disabled]),
+#btn-live-record-start:hover:not([disabled]) {
+  background: rgba(242, 119, 122, .24);
+}
+
+#record-state, .record-state {
+  margin: 0;
+  font-size: 15px;
+  color: var(--ink-dim);
+}
+#record-timer, .timer {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 34px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+/* A stopped timer still shows its last value, which reads as a live capture at a
+   glance. When nothing is recording it drops to faint, so the only bright timer
+   on screen is a genuinely running one. */
+body:not([data-recording="true"]) .timer,
+body:not([data-recording="true"]) #record-timer {
+  color: var(--ink-faint);
+}
+
+/* Fixed, not sticky: #record-state sits in normal flow and the next targets are
+   hundreds of pixels below it, so scrolling used to hide the fact that the
+   microphone was still live. */
+.rec-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 14px)
+    calc(env(safe-area-inset-right, 0px) + 16px)
+    14px
+    calc(env(safe-area-inset-left, 0px) + 16px);
+  background: #4a1f21;
+  border-bottom: 1px solid var(--bad-line);
+  box-shadow: var(--shadow);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #ffe2e2;
+}
+.rec-bar::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--bad);
+  animation: pulse 1.3s ease-in-out infinite;
+}
+/* A warn state on the live bar, for example a capture running long. Amber rather
+   than a second red, so the presenter can tell "still fine" from "something is
+   wrong" without reading the text. */
+.rec-bar[data-warn="true"] {
+  background: #45391a;
+  border-bottom-color: rgba(227, 179, 65, .45);
+  color: #ffeec9;
+}
+.rec-bar[data-warn="true"]::before { background: var(--warn); }
+#rec-bar-time { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+#rec-bar-note { font-weight: 500; letter-spacing: 0; }
+
+@keyframes pulse { 50% { opacity: .3; } }
+
+/* --------------------------------------------------------------- verdict --- */
+/* The hero. Read from across a room, so it is the largest thing on the page by a
+   wide margin. Every floor below is an absolute px value: clamp() collapses to
+   its floor on a narrow screen, so the floor is what the phone renders. */
+
+#panel-result { padding: 26px 20px; }
+
+#result-status {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink-dim);
+}
+
+#result-profile {
+  margin: 4px 0 0;
+  font-weight: 700;
+  line-height: 1.03;
+  letter-spacing: -0.035em;
+  color: var(--ink);
+}
+
+.verdict {
+  font-size: clamp(24px, 2.4vw + 17px, 34px);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+/* A confirmed name is the single largest element on the page. */
+.verdict-name {
+  font-size: clamp(46px, 5vw + 27px, 66px);
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+}
+
+/* Only a CONFIRMED match earns green. `leaning` takes blue because it is a
+   visible direction rather than a claim, and its name renders smaller and in ink
+   so it cannot be mistaken for a confirmation at a glance. */
+#panel-result[data-verdict="match"] {
+  background: linear-gradient(180deg, var(--accent-soft), transparent 60%), var(--card);
+  border-color: var(--accent-line);
+}
+#panel-result[data-verdict="match"] #result-status  { color: var(--accent); }
+#panel-result[data-verdict="match"] #result-profile { color: var(--accent); }
+
+#panel-result[data-verdict="leaning"] {
+  background: linear-gradient(180deg, var(--lead-soft), transparent 60%), var(--card);
+  border-color: var(--lead-line);
+}
+#panel-result[data-verdict="leaning"] #result-status  { color: var(--lead); }
+#panel-result[data-verdict="leaning"] #result-profile {
+  color: var(--ink);
+  font-size: clamp(32px, 3.4vw + 20px, 46px);
+}
+
+#panel-result[data-verdict="uncertain"]                 { border-color: var(--line-2); }
+#panel-result[data-verdict="uncertain"] #result-status  { color: var(--ink); }
+#panel-result[data-verdict="unresolved"]                { border-color: var(--line-2); }
+#panel-result[data-verdict="unresolved"] #result-status { color: var(--ink); }
+#panel-result[data-verdict="new"],
+#panel-result[data-verdict="new-pending"]               { border-color: var(--line); }
+
+#panel-result[data-verdict="invalid"] {
+  background: linear-gradient(180deg, var(--bad-soft), transparent 60%), var(--card);
+  border-color: var(--bad-line);
+}
+#panel-result[data-verdict="invalid"] #result-status { color: var(--bad); }
+
+/* generic tone hook, set by app.js on status nodes */
+[data-tone="ok"]   { color: var(--accent); }
+[data-tone="warn"] { color: var(--warn); }
+[data-tone="bad"]  { color: var(--bad); }
+
+#clip-summary[data-has-clip="true"]  { color: var(--ink); }
+#clip-summary[data-has-clip="false"] { color: var(--ink-faint); }
+
+/* Playback suppressed because the microphone is live: iOS suppresses its own
+   speaker feed, so this is a correctness guard rather than a nicety. */
+audio[data-blocked="true"] { filter: grayscale(1); pointer-events: none; }
+body[data-mic-muted="true"] #playback-block-notice { color: var(--warn); }
+
+/* reason codes: one per line, quiet, scannable */
+.reasons { list-style: none; margin: 20px 0 0; padding: 0; }
+.reasons li {
+  padding: 7px 0 7px 14px;
+  border-left: 2px solid var(--line-2);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-dim);
+  overflow-wrap: anywhere;
+}
+.reasons li + li { margin-top: 5px; }
+
+.pill {
+  display: inline-block;
+  max-width: 100%;
+  padding: 5px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: var(--card-2);
+  font-size: 13.5px;
+  color: var(--ink-dim);
+}
+
+/* -------------------------------------------------------------- guidance --- */
+/* Server-authored care copy. Large, calm, stable. Deliberately excluded from the
+   entrance animation so it can never appear to flicker. */
+
+#guidance-block {
+  padding: 22px 20px;
+  background: var(--card-2);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-card);
+}
+
+.guidance-large {
+  margin: 0;
+  font-size: clamp(34px, 3.4vw + 22px, 44px);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+#guidance-interpretation { color: var(--ink-dim); }
+#guidance-recommendation { color: var(--ink); }
+
+.guidance-evidence {
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  font-size: clamp(19px, 1vw + 17px, 21px);
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+
+/* ------------------------------------------------------------ provenance --- */
+/* Where a claim came from is never decoration. Seeded data must be unmistakable
+   so it can never be read as a real caregiver report. */
+
+.src {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  vertical-align: 2px;
+}
+.src-caregiver { background: var(--accent-soft); color: #8ee0c6; border: 1px solid var(--accent-line); }
+.src-inferred  { background: var(--lead-soft);   color: #b9d4ff; border: 1px solid var(--lead-line); }
+.src-seed      { background: var(--bad-soft);    color: #ffc9ca; border: 1px solid var(--bad-line); }
+.src-seed::after { content: " / synthetic"; }
+.src-unknown   { background: var(--card-2); color: var(--ink-faint); border: 1px solid var(--line); }
+
+/* -------------------------------------------------- profiles & incidents --- */
+
+.profiles, .incidents { list-style: none; margin: 0; padding: 0; }
+
+.profiles li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--tap);
+  padding: 15px 0;
+  border-bottom: 1px solid var(--line);
+}
+.profiles li:last-child, .incident-line:last-child { border-bottom: 0; }
+
+.profile-name { font-size: 17.5px; font-weight: 500; }
+.profile-meta {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-faint);
+}
+/* enrollment count as filled marks: countable at a glance, which is the entire
+   reason for showing it at all */
+.profile-meta.dots { letter-spacing: 0.3em; font-size: 15px; color: var(--accent); }
+
+.tag {
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.tag-ready   { background: var(--accent-soft); color: #8ee0c6; border: 1px solid var(--accent-line); }
+.tag-partial { background: var(--card-2); color: var(--ink-faint); border: 1px solid var(--line); }
+
+.incident-line { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.incident-line > * + * { margin-top: 8px; }
+.incident-line p { margin: 0; }
+
+/* color-scheme: dark already renders native audio controls dark, so there is no
+   filter hack here - one would also invert the play glyph. */
+audio { display: block; width: 100%; margin-top: 12px; }
+
+.empty {
+  margin: 0;
+  padding: 26px 18px;
+  text-align: center;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-ctl);
+  color: var(--ink-faint);
+  font-size: 15px;
+}
+
+/* ---------------------------------------------------------------- safety --- */
+/* Required, and it must never look like a dismissible toast. */
+
+#safety-message, .safety {
+  margin: 20px 0 0;
+  padding: 18px;
+  background: var(--lead-soft);
+  border: 1px solid var(--lead-line);
+  border-radius: var(--r-card);
+  color: #dceaff;
+  font-size: 17px;
+  line-height: 1.55;
+}
+
+/* --------------------------------------------------------------- consent --- */
+
+#consent {
+  padding: 20px;
+  margin-bottom: 24px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+}
+#consent h2 { margin: 0 0 12px; }
+#consent-text { margin: 0; color: var(--ink-dim); font-size: 16px; line-height: 1.6; }
+
+#screen-mode .stack { margin-top: 18px; }
+#screen-mode .hint { margin-bottom: 0; }
+
+/* "Change kind" is a text action directly under the screen heading, so it needs
+   air beneath it before the first panel. */
+#btn-change-mode { margin-bottom: 20px; }
+
+/* ------------------------------------------------ live identity workspace --- */
+
+#live-session-console {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 28px;
+  min-width: 0;
+}
+
+#live-session-console > .card {
+  min-width: 0;
+  margin: 0;
+}
+
+#live-session-console > .card > * + * {
+  margin-top: 18px;
+}
+
+.live-panel-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px 20px;
+}
+
+.live-panel-heading h3 {
+  margin: 3px 0 0;
+  color: var(--ink);
+  font-size: clamp(19px, 1vw + 16px, 22px);
+  letter-spacing: -0.015em;
+}
+
+.live-kicker {
+  margin: 0;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.live-session-status,
+.live-submit-status,
+.live-result-explanation {
+  margin: 0;
+  color: var(--ink-dim);
+  overflow-wrap: anywhere;
+}
+
+.live-session-status {
+  padding: 14px 16px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  font-size: 15px;
+}
+
+.live-capture-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+#live-capture-panel button.big {
+  width: 100%;
+  min-width: 0;
+}
+
+#btn-new-live-session,
+#btn-live-retry {
+  min-height: var(--tap);
+}
+
+#btn-live-retry {
+  width: 100%;
+}
+
+#live-clip-summary[data-has-clip="true"] {
+  color: var(--ink);
+}
+
+#live-clip-summary[data-has-clip="false"] {
+  color: var(--ink-faint);
+}
+
+#live-result-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+#live-result-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--line-2);
+}
+
+#live-result-panel[data-status="participant"] {
+  background: linear-gradient(180deg, var(--accent-soft), transparent 68%), var(--card);
+  border-color: var(--accent-line);
+}
+
+#live-result-panel[data-status="participant"]::after {
+  background: var(--accent);
+}
+
+#live-result-panel[data-status="provisional_created"],
+#live-result-panel[data-status="leaning"] {
+  background: linear-gradient(180deg, var(--lead-soft), transparent 68%), var(--card);
+  border-color: var(--lead-line);
+}
+
+#live-result-panel[data-status="provisional_created"]::after {
+  border-left: 3px dotted var(--lead);
+  background: transparent;
+}
+
+#live-result-panel[data-status="leaning"]::after {
+  background: var(--lead);
+}
+
+#live-result-panel[data-status="duplicate"] {
+  border-color: rgba(227, 179, 65, .45);
+}
+
+#live-result-panel[data-status="duplicate"]::after {
+  background: var(--warn);
+}
+
+#live-result-panel[data-status="invalid"] {
+  background: linear-gradient(180deg, var(--bad-soft), transparent 68%), var(--card);
+  border-color: var(--bad-line);
+}
+
+#live-result-panel[data-status="invalid"]::after {
+  background: var(--bad);
+}
+
+.live-verdict {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(30px, 3vw + 19px, 48px);
+  font-weight: 650;
+  letter-spacing: -.035em;
+  line-height: 1.04;
+  overflow-wrap: anywhere;
+}
+
+.live-verdict-name {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(40px, 4vw + 24px, 62px);
+  font-weight: 720;
+  letter-spacing: -.045em;
+  line-height: 1;
+  overflow-wrap: anywhere;
+}
+
+#live-result-panel[data-status="participant"] .live-verdict,
+#live-result-panel[data-status="participant"] .live-verdict-name {
+  color: var(--accent);
+}
+
+#live-result-panel[data-status="leaning"] .live-verdict {
+  color: var(--lead);
+}
+
+.live-timeline-list {
+  max-block-size: 300px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+
+.live-timeline-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px 16px;
+  min-width: 0;
+  padding: 17px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.live-timeline-item:last-child {
+  border-bottom: 0;
+}
+
+.live-timeline-source,
+.live-timeline-result {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.live-timeline-source {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+.live-timeline-result {
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.live-timeline-item[data-status="participant"] .live-timeline-result {
+  color: var(--accent);
+}
+
+.live-timeline-item[data-status="leaning"] .live-timeline-result {
+  color: var(--lead);
+}
+
+.live-timeline-item[data-status="duplicate"] .live-timeline-result {
+  color: var(--warn);
+}
+
+.live-timeline-item[data-status="invalid"] .live-timeline-result {
+  color: var(--bad);
+}
+
+.live-timeline-item audio {
+  max-width: 100%;
+  margin: 0;
+}
+
+.live-participants-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  min-width: 0;
+}
+
+.live-participant {
+  flex: 1 1 210px;
+  min-width: 0;
+  max-width: 320px;
+  padding: 18px;
+  background: var(--bg-2);
+  border: 2px dotted var(--lead);
+  border-radius: 999px;
+  transition: background .2s ease, border-color .2s ease;
+}
+
+.live-participant[data-state="established"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  border-style: solid;
+}
+
+.live-participant-name,
+.live-participant-state,
+.live-participant-support {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.live-participant-name {
+  color: var(--ink);
+  font-size: 19px;
+  font-weight: 650;
+}
+
+.live-participant-state {
+  color: var(--lead);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.live-participant[data-state="established"] .live-participant-state {
+  color: var(--accent);
+}
+
+.live-participant-support {
+  color: var(--ink-faint);
+  font-size: 13.5px;
+}
+
+/* -------------------------------------------------- not in this build --- */
+/* Honest disabled surfaces (LIABILITY.md section 7). Styled to read as clearly
+   unavailable WITHOUT using opacity, and deliberately not as a teaser: no accent
+   colour, no hover, nothing that invites a tap. The description carries the
+   weight, because the point of the section is the reason each one is off. */
+
+#not-in-this-build {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+#not-in-this-build h2 { color: var(--ink-dim); }
+
+.future { list-style: none; margin: 18px 0 0; padding: 0; }
+.future li + li { margin-top: 18px; }
+.future li {
+  padding: 16px 17px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+}
+.future button[disabled] {
+  width: 100%;
+  margin-bottom: 8px;
+  background: transparent;
+  border: 1px dashed var(--line-2);
+  color: var(--ink-dim);
+  font-size: 16px;
+  font-weight: 600;
+  text-align: left;
+}
+.future button[disabled]:hover { background: transparent; }
+
+#app-footer {
+  margin-top: 36px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+#app-footer .footnote { font-size: 13.5px; }
+
+/* ---------------------------------------------------------------- motion --- */
+/* One orchestrated entrance, staggered. Nothing loops except the live recording
+   dot, and nothing moves a control the thumb is already heading for. */
+
+@media (prefers-reduced-motion: no-preference) {
+  #app-header, #consent, #screen-mode > *, .card {
+    animation: rise .4s cubic-bezier(.2, .7, .3, 1) both;
+  }
+  #screen-mode > *:nth-child(1) { animation-delay: .03s; }
+  #screen-mode > *:nth-child(2) { animation-delay: .07s; }
+  #screen-mode > *:nth-child(3) { animation-delay: .11s; }
+  .card:nth-of-type(1) { animation-delay: .04s; }
+  .card:nth-of-type(2) { animation-delay: .08s; }
+  .card:nth-of-type(3) { animation-delay: .12s; }
+  .card:nth-of-type(4) { animation-delay: .16s; }
+  .card:nth-of-type(5) { animation-delay: .20s; }
+  #guidance-block { animation: none; }   /* guidance must never appear to flicker */
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+  /* the live dot must stay visible without motion */
+  .rec-bar::before { opacity: 1; }
+}
+
+/* ------------------------------------------------------------ responsive --- */
+
+/* Phones. Deliberately NOT a reduction: the gutter tightens slightly so the
+   reading measure stays wide, but panel padding, separation and type all stay
+   generous, because this is the size the app is actually used at. */
+@media (max-width: 480px) {
+  :root { --pad: 16px; --gap: 16px; --card-gap: 16px; }
+  .card { padding: 20px 17px; }
+  #guidance-block, #consent { padding: 20px 17px; }
+  #panel-result { padding: 24px 17px; }
+  .profile-meta { width: 100%; margin-left: 0; }
+}
+
+/* Tablets and up: the column stops growing and the margins absorb the extra
+   width, which is what keeps line length readable on a laptop. */
+@media (min-width: 768px) {
+  :root { --pad: 32px; --gap: 18px; --card-gap: 20px; }
+  .card { padding: 26px 24px; }
+  #guidance-block { padding: 26px 24px; }
+  #panel-result { padding: 30px 26px; }
+  #consent { padding: 24px; }
+  /* On a pointer device a full-width action button looks stretched. */
+  button.big { width: auto; min-width: 260px; }
+  #btn-record-start, #btn-record-stop { min-width: 200px; }
+  #btn-kind-infant, #btn-kind-imitation { width: 100%; }
+}
+
+@media (max-width: 819px) {
+  #live-session-console {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .live-participant {
+    max-width: none;
+  }
+}
+
+@media (min-width: 900px) {
+  #live-session-console {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: 28px;
+  }
+
+  #live-session-console > .card {
+    padding: 28px;
+  }
+
+  #live-capture-panel {
+    grid-column: 1;
+    align-self: start;
+  }
+
+  #live-result-panel {
+    grid-column: 2;
+    align-self: start;
+  }
+
+  #live-session-timeline,
+  #live-participant-strip {
+    grid-column: 1 / -1;
+  }
+
+  .live-timeline-item {
+    grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr);
+    align-items: center;
+  }
+
+  .live-timeline-item audio {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 1200px) {
+  #app-shell { padding-top: calc(env(safe-area-inset-top, 0px) + 44px); }
+
+  .live-capture-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

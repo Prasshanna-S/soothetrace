@@ -1,0 +1,139 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+  color: #f8fafc;
+  background: #09090b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at 50% 0, #27272a, #09090b 55%);
+}
+
+main {
+  width: min(100%, 42rem);
+  margin: 0 auto;
+  padding: max(1.5rem, env(safe-area-inset-top)) 1.25rem
+    max(2rem, env(safe-area-inset-bottom));
+}
+
+.eyebrow {
+  margin: 0 0 0.5rem;
+  color: #a1a1aa;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2rem, 9vw, 3.5rem);
+  line-height: 1;
+}
+
+.state {
+  display: inline-block;
+  margin: 1.5rem 0 0;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid #3f3f46;
+  border-radius: 999px;
+  color: #d4d4d8;
+  font-weight: 700;
+}
+
+body[data-state="recording"] .state {
+  border-color: #ef4444;
+  color: white;
+  background: #b91c1c;
+}
+
+.timer {
+  margin: 0.5rem 0 1.5rem;
+  font-size: clamp(4rem, 25vw, 8rem);
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.instructions {
+  margin: 1rem 0 1.5rem;
+  padding: 1rem;
+  border: 1px solid #3f3f46;
+  border-radius: 1rem;
+  background: rgba(24, 24, 27, 0.88);
+}
+
+.instructions h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.instructions ol {
+  padding-left: 1.3rem;
+  line-height: 1.45;
+}
+
+.instructions p {
+  margin-bottom: 0;
+  color: #fbbf24;
+}
+
+button {
+  width: 100%;
+  min-height: 3.5rem;
+  margin: 0.35rem 0;
+  border: 0;
+  border-radius: 0.9rem;
+  background: #f8fafc;
+  color: #18181b;
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 800;
+  touch-action: manipulation;
+}
+
+button.secondary {
+  border: 1px solid #52525b;
+  color: #f4f4f5;
+  background: #27272a;
+}
+
+button:disabled {
+  opacity: 0.42;
+}
+
+details {
+  margin-top: 1.5rem;
+  color: #d4d4d8;
+}
+
+dt {
+  margin-top: 0.7rem;
+  color: #a1a1aa;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+dd {
+  margin: 0.2rem 0;
+  overflow-wrap: anywhere;
+}
+
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.log {
+  max-height: 18rem;
+  overflow: auto;
+  padding: 0.8rem;
+  border-radius: 0.7rem;
+  background: #18181b;
+  font-size: 0.72rem;
+}
