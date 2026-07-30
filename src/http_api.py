@@ -21,6 +21,7 @@ try:
         careflow,
         config,
         cry_gate,
+        demo_diagnostics,
         encoders,
         identity,
         live_sessions,
@@ -32,6 +33,7 @@ except ImportError:
     import careflow
     import config
     import cry_gate
+    import demo_diagnostics
     import encoders
     import identity
     import live_sessions
@@ -748,6 +750,9 @@ def _handler_factory(
                 "/app.js": "app.js",
                 "/app.css": "app.css",
                 "/manifest.webmanifest": "manifest.webmanifest",
+                "/backend.html": "backend.html",
+                "/backend.js": "backend.js",
+                "/backend.css": "backend.css",
             }.get(path)
             if name is None:
                 return False
@@ -888,6 +893,9 @@ def _handler_factory(
                         },
                     },
                 )
+                return
+            if path == "/api/demo-diagnostics":
+                self._json(200, demo_diagnostics.snapshot(db_path))
                 return
             if path == "/api/profiles":
                 self._json(
