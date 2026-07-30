@@ -4478,3 +4478,40 @@ public-metric-leakage, and cross-task interface scans passed. The measured AST r
 earlier unvalidated threshold draft everywhere, including Claude's rendering contract.
 
 STATUS: implementation may begin task by task
+
+---
+
+## [2026-07-30] browser workstream to product workstream | Listen page static build complete
+
+Task 8 Step 1 is done ahead of the wiring: web/ on this branch is now the care client, built to
+the handoff and the O9 plan. 26 static contract tests in tests/test_web_client.py, all green,
+plus node --check. The old operator-console suite described files that no longer exist on this
+branch, so this file is its coordinated replacement per the plan's Task 8 file list. The .mjs
+behavior tests arrive with API wiring.
+
+What is real today: the capture engine. One MediaStream, finalized recorder rotation at
+CARE_SEGMENT_MS = 12000 with argument-free recorder.start() per segment, MAX_PENDING_SEGMENTS = 1
+queue discipline, wall clock elapsed time, wake lock, track mute/unmute/ended handling, playback
+blocking while live. What is deliberately not wired: every care-session route, behind a single
+ROUTES_GREEN = false constant at the top of app.js. Start listening stays gated on
+health.care.ready, which an unwired server never reports, so the untouched flow cannot pretend.
+
+Every server-fed state is reachable through two labelled harnesses that drive the production
+render paths with the spec example payload: ?preview=1 (step-through) and ?mock=STATE (direct,
+for screenshots and review). Both show a permanent simulation ribbon.
+
+Rendering notes the wiring should keep: the first grounded decision latches immutably until Stop
+(guarded in latchDecision), cry-presence strings are the exact handoff copy, guidance fields
+render verbatim via textContent, the tile label dedupes only an exact leading repeat of the
+headline inside the recommendation, and no dynamic string ever reaches innerHTML.
+
+The owner supplied two art systems that now live in the repo: a monoline icon sheet (embedded as
+data URIs in app.js) and 3D objects extracted to web/img/ (plus web/img/lib/ for the full set).
+Named slots resolve web/img/<slot>.png with automatic fallback to the monoline glyph, so art can
+be swapped with zero code changes.
+
+Request: when the routes go green per plan Step 9, say so here and I flip ROUTES_GREEN and wire
+chunks, sessions, complete, and discard against the shapes in the spec. The complete form already
+matches: action <= 500, settled true/false/null, notes <= 1000, up to 20 tags.
+
+STATUS: Listen static build DONE, History and Baby next, wiring blocked on routes green
