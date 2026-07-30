@@ -118,7 +118,7 @@ body {
   display: flex;
   flex-direction: column;
   padding:
-    calc(var(--sat) + 12px)
+    calc(var(--sat) + 24px)
     calc(var(--sar) + var(--pad))
     calc(var(--sab) + 90px)
     calc(var(--sal) + var(--pad));
@@ -262,9 +262,9 @@ h2 {
   display: grid; place-items: center;
 }
 .baby-chip .avatar img { width: 100%; height: 100%; object-fit: contain;
-  transform: translateY(-2px);
+  transform: translateY(-1px);
   filter: drop-shadow(0 3px 4px rgba(26, 26, 24, .16)); }
-.baby-chip h1 { font-size: 21px; }
+.baby-chip h1 { font-size: 21px; line-height: 1; padding-bottom: 2px; }
 .baby-chip svg { color: var(--ink-3); flex: none; }
 
 .circ {
@@ -409,7 +409,7 @@ h2 {
 
 #rec-chip {
   position: fixed;
-  top: calc(var(--sat) + 22px);
+  top: calc(var(--sat) + 34px);
   right: calc(var(--sar) + var(--pad));
   left: auto;
   transform: none;
@@ -954,23 +954,68 @@ body[data-decision="latched"] #preview-bar {
   box-shadow: var(--float);
 }
 
-/* ------------------------------------------------- landscape takeover --- */
-/* Landscape with a latched decision is THE demo view: a bento of three cards
-   that fill the room. Guidance owns the left, evidence stacks right, controls
-   sit inside the rail's bottom, and the timer rides the header line. */
+/* --------------------------------------------------- landscape, entire --- */
+/* The phone lives on a charger in landscape for the showcase, so EVERY state
+   composes for it. The nav bar stays out of the way; tapping open ground peeks
+   it back for a few seconds. */
 
 @media (orientation: landscape) and (max-height: 580px) {
   #app-shell { max-width: none;
-    padding: calc(var(--sat) + 8px) calc(var(--sar) + 18px)
+    padding: calc(var(--sat) + 14px) calc(var(--sar) + 18px)
              calc(var(--sab) + 12px) calc(var(--sal) + 18px); }
   .am-3, .am-5 { display: none; }
-  #orb-wrap { width: min(52vh, 300px); }
 
+  /* nav: hidden until tapped for */
+  #tabbar { display: none; }
+  body[data-navpeek="true"] #tabbar {
+    display: flex;
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: calc(var(--sab) + 12px);
+    margin: 0;
+    z-index: 50;
+    animation: rise .3s cubic-bezier(.2, .7, .3, 1) both;
+  }
+
+  #rec-chip { top: calc(var(--sat) + 22px); right: calc(var(--sar) + 18px); }
+  #ctl-capsule { bottom: calc(var(--sab) + 14px); }
+  body[data-decision="latched"] #preview-bar,
+  #preview-bar {
+    bottom: calc(var(--sab) + 14px);
+    left: calc(var(--sal) + 18px);
+    right: auto;
+  }
+
+  /* ---- idle: orb left, actions right ---- */
+  #page-listen[data-state="idle"] {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 4px 18px;
+  }
+  #page-listen[data-state="idle"] .page-head { grid-column: 1 / 3; }
+  #page-listen[data-state="idle"] #orb-stage { grid-column: 1; grid-row: 2; }
+  #page-listen[data-state="idle"] #orb-wrap { width: min(56vh, 270px); }
+  #page-listen[data-state="idle"] #idle-stack {
+    grid-column: 2; grid-row: 2;
+    align-self: center;
+    justify-self: center;
+    width: min(100%, 330px);
+  }
+
+  /* ---- listening, nothing concluded: the orb holds the room ---- */
+  #page-listen[data-state="listening"][data-decision="none"] #orb-wrap,
+  #page-listen[data-state="paused"][data-decision="none"] #orb-wrap {
+    width: min(44vh, 210px);
+  }
+
+  /* ---- latched: the bento ---- */
   #page-listen[data-decision="latched"] {
     display: grid;
-    grid-template-columns: minmax(0, 1.72fr) minmax(240px, 1fr);
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    gap: 12px 14px;
+    grid-template-columns: minmax(0, 1.72fr) minmax(250px, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: 10px 14px;
     align-items: stretch;
   }
   #page-listen[data-decision="latched"] .page-head {
@@ -979,50 +1024,58 @@ body[data-decision="latched"] #preview-bar {
     min-height: 52px;
   }
   #page-listen[data-decision="latched"] #health-pill { display: none; }
-
   #page-listen[data-decision="latched"] #suggestion-block { display: contents; }
   #page-listen[data-decision="latched"] #suggestion-card {
     grid-column: 1; grid-row: 2 / 4;
     position: relative;
-    padding: 24px 26px 20px;
+    padding: 22px 26px 18px;
     gap: 12px;
     justify-content: center;
   }
   #page-listen[data-decision="latched"] #g-recommendation {
-    font-size: clamp(36px, 7vh + 12px, 48px);
-    padding-right: 200px;
+    font-size: clamp(34px, 7vh + 10px, 46px);
+    padding-right: 196px;
   }
   #page-listen[data-decision="latched"] #suggestion-art {
     position: absolute;
-    right: 30px;
+    right: 28px;
     top: 50%;
     transform: translateY(-50%);
-    width: 168px; height: 168px;
+    width: 164px; height: 164px;
   }
   #page-listen[data-decision="latched"] #g-evidence-summary {
-    font-size: 14px;
-    padding-right: 200px;
+    font-size: 13.5px;
+    padding-right: 196px;
   }
   #page-listen[data-decision="latched"] #g-interpretation { display: none; }
 
+  /* the rail: compact basis, then the incidents tab, both clear of the corner
+     controls, which get their own reserved row width */
   #page-listen[data-decision="latched"] #basis-card {
     grid-column: 2; grid-row: 2;
-    padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
+    padding: 10px 13px;
   }
+  #page-listen[data-decision="latched"] .card-kicker { margin-bottom: 5px; }
+  #page-listen[data-decision="latched"] #basis-list { gap: 5px; }
+  #page-listen[data-decision="latched"] #basis-list li {
+    font-size: 12px; line-height: 1.3; gap: 9px; }
+  #page-listen[data-decision="latched"] #basis-list .bdisc {
+    width: 26px; height: 26px; }
+  #page-listen[data-decision="latched"] #basis-list .bdisc svg {
+    width: 14px; height: 14px; }
   #page-listen[data-decision="latched"] #incidents-fold {
     grid-column: 2; grid-row: 3;
-    align-self: end;
-    max-height: 42vh;
+    align-self: start;
     overflow-y: auto;
+    max-height: calc(100% - 64px);   /* the corner controls own the rest */
   }
+  #page-listen[data-decision="latched"] #incidents-fold summary {
+    min-height: 44px; padding: 4px 12px; font-size: 12.5px; }
 
-  /* the orb keeps the header company on the right, next to the timer */
+  /* the orb rides the header line, aligned to its top row */
   #page-listen[data-decision="latched"] #orb-stage {
     position: absolute;
-    top: -6px;
+    top: 2px;
     right: 96px;
   }
   #page-listen[data-decision="latched"] #orb-wrap { width: 48px; }
@@ -1030,23 +1083,41 @@ body[data-decision="latched"] #preview-bar {
   body[data-decision="latched"] #ctl-capsule {
     left: auto;
     right: calc(var(--sar) + 18px);
-    bottom: calc(var(--sab) + 12px);
+    bottom: calc(var(--sab) + 14px);
     top: auto;
     transform: none;
     flex-direction: row;
     z-index: 45;
   }
-  body[data-decision="latched"] #tabbar { display: none; }
-  body[data-decision="latched"] #preview-bar {
-    bottom: calc(var(--sab) + 14px);
-    left: calc(var(--sal) + 18px);
-    right: auto;
-  }
-  #rec-chip { top: calc(var(--sat) + 20px); right: calc(var(--sar) + 18px); }
 
-  /* the fold opens over the incident rows inside the rail; capsule floats over
-     the card corner without stealing a grid track */
-  #page-listen[data-decision="latched"] #incidents-fold { margin-bottom: 56px; }
+  /* ---- survey: two column form ---- */
+  #outcome-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px 20px;
+    padding: 18px 22px calc(var(--sab) + 14px);
+    align-content: start;
+  }
+  #outcome-form > #outcome-title { grid-column: 1 / 3; grid-row: 1; }
+  #outcome-form > #outcome-sub { grid-column: 1 / 3; grid-row: 2; margin: -4px 0 0; }
+  #outcome-form > label[for="outcome-action"] { grid-column: 1; grid-row: 3; }
+  #outcome-form > #outcome-action { grid-column: 1; grid-row: 4; }
+  #outcome-form > #action-chips { grid-column: 1; grid-row: 5 / 9; align-content: start; }
+  #outcome-form > .field-label { grid-column: 2; grid-row: 3; }
+  #outcome-form > #settled-seg { grid-column: 2; grid-row: 4; }
+  #outcome-form > label[for="outcome-notes"] { grid-column: 2; grid-row: 5; }
+  #outcome-form > #outcome-notes { grid-column: 2; grid-row: 6; min-height: 56px; }
+  #outcome-form > label[for="outcome-tags"] { grid-column: 2; grid-row: 7; }
+  #outcome-form > #outcome-tags { grid-column: 2; grid-row: 8; }
+  #outcome-form > #btn-save-outcome { grid-column: 1; grid-row: 9; align-self: end; }
+  #outcome-form > #btn-discard { grid-column: 2; grid-row: 9; align-self: center; }
+  #outcome-form > #outcome-status { grid-column: 1 / 3; grid-row: 10; }
+  #outcome-form > .footnote { grid-column: 1 / 3; grid-row: 11; margin: 0; }
+
+  /* ---- saved: compact center ---- */
+  #saved-block { padding-bottom: 8px; gap: 6px; }
+  #saved-block #saved-art { width: 92px; height: 92px; }
+  #saved-block .pillbtn { max-width: 200px; margin-top: 4px; }
 }
 
 /* -------------------------------------------------------------- desktop --- */

@@ -1170,6 +1170,17 @@ function initSettled() {
   });
 }
 
+const LAND_MQ = window.matchMedia("(orientation: landscape) and (max-height: 580px)");
+let navPeekTimer = null;
+document.addEventListener("click", (event) => {
+  if (!LAND_MQ.matches) return;
+  if (event.target.closest("button, a, input, textarea, select, summary, details, " +
+                           "#tabbar, #ctl-capsule, #preview-bar, audio")) return;
+  ui.body.dataset.navpeek = "true";
+  clearTimeout(navPeekTimer);
+  navPeekTimer = setTimeout(() => { delete ui.body.dataset.navpeek; }, 3500);
+});
+
 document.addEventListener("visibilitychange", () => {
   /* iOS does not fire track events for every backgrounding; recheck on return. */
   if (!document.hidden && state.session === "listening" &&
