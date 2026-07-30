@@ -15,6 +15,9 @@ SCHEMA_SQL = _p("src", "schema.sql")
 SAMPLE_RATE = 16000
 
 # --- models (speech path, product workstream) ---
+MODEL_DIR = _p("models")
+CRY_GATE_MODEL_ID = "MIT/ast-finetuned-audioset-10-10-0.4593"
+CRY_GATE_MODEL_VERSION = "ast-audioset-baby-cry-v1"
 TRANSCRIBE_MODEL = "gpt-4o-transcribe"
 REASONING_MODEL  = "gpt-5.5"
 OPENAI_ENV_PATH  = os.path.expanduser("~/apphatchery-discovery/.env")

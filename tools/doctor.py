@@ -8,7 +8,7 @@ health check - it is a list of this project's real failure modes, each of which 
   * mixed corpus + live episodes -> cross-channel matching measured at -0.258 vs 0.909
   * fingerprint DIM != 87 -> the measured results in FINDINGS.md no longer describe the code
 
-Usage:  python tools/doctor.py [subject_id ...]
+Usage:  python tools/doctor.py [--infant-care] [subject_id ...]
 Exit 0 = ready. Exit 1 = at least one FAIL.
 """
 from __future__ import annotations
@@ -173,6 +173,24 @@ def check_models():
                 f"{name} failed to load - identity requests using this encoder "
                 "will be rejected"
             )
+
+
+def check_cry_gate(required: bool = False):
+    print("\nInfant cry gate")
+    try:
+        from src import cry_gate
+    except ImportError:
+        import cry_gate
+
+    state = cry_gate.readiness()
+    if state.get("ready"):
+        ok("cry gate model cached and runnable")
+        ok("target label present: Baby cry, infant cry")
+        ok(f"cry gate model version {state.get('model_version')}")
+    elif required:
+        fail("cry gate unavailable - requested infant care cannot start")
+    else:
+        warn("cry gate unavailable - infant care is disabled")
 
 
 def check_storage_and_baseline(subjects):
@@ -360,6 +378,9 @@ def check_audio_device():
 
 
 def main() -> int:
+    args = sys.argv[1:]
+    infant_care_requested = "--infant-care" in args
+    subjects = [arg for arg in args if arg != "--infant-care"]
     print("=" * 62)
     print(" interaction-memory preflight")
     print("=" * 62)
@@ -367,8 +388,9 @@ def main() -> int:
     check_deps()
     if check_modules():
         check_models()
+        check_cry_gate(required=infant_care_requested)
         check_config()
-        check_storage_and_baseline(sys.argv[1:])
+        check_storage_and_baseline(subjects)
     check_audio_device()
     print("\n" + "=" * 62)
     if FAILS:
