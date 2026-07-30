@@ -153,6 +153,30 @@ class BabyDemoAssetTests(unittest.TestCase):
             ],
         )
 
+        clean_clone = self.showcase["clean_clone_bootstrap_validation"]
+        self.assertEqual(clean_clone["confirmation_segments"], 4)
+        self.assertEqual(
+            (
+                clean_clone["result"]["passed"],
+                clean_clone["result"]["tested"],
+            ),
+            (3, 3),
+        )
+        for item in clean_clone["result"]["outputs"]:
+            self.assertEqual(
+                item["chunk_statuses"],
+                [
+                    "matched_no_guidance",
+                    "matched_no_guidance",
+                    "matched_no_guidance",
+                    "guidance_latched",
+                ],
+            )
+            self.assertEqual(
+                item["decision_present_by_segment"],
+                [False, False, False, True],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

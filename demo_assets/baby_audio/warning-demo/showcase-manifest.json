@@ -11,6 +11,9 @@
     "fixed_path_required": true,
     "instructions": "Keep the playback device, volume, distance, room, phone microphone, and phone position unchanged for all three files.",
     "segment_seconds": 6,
+    "confirmation_segments": 4,
+    "earliest_suggestion_seconds": 24,
+    "confirmation_rule": "Hold the first grounded candidate, then process three additional accepted infant-cry segments before showing it.",
     "asset_duration_seconds": 45,
     "composition": "Each asset contains three exact copies of one distinct 15-second source recording.",
     "independence_limit": "The three repetitions inside one asset are not independent recordings."
@@ -20,6 +23,54 @@
       "path": "demo-baby-warning.wav",
       "role": "short unlooped X8 source kept for quick checks",
       "sha256": "66ac3230db9dfbd5ddacf2057f9614f4b0741535f2794c019e6c2efc070da5d1",
+      "duration_seconds": 15.0,
+      "sample_rate_hz": 16000,
+      "channels": 1
+    },
+    {
+      "path": "enrollment/demo-baby-x1.wav",
+      "role": "independent fixed-rig Demo Baby enrollment 1",
+      "sha256": "d30ce723d600e2f7b4eb4b706afefb8e5150ef05ced1984c6e8ae7c998395ddf",
+      "duration_seconds": 15.0,
+      "sample_rate_hz": 16000,
+      "channels": 1
+    },
+    {
+      "path": "enrollment/demo-baby-x2.wav",
+      "role": "independent fixed-rig Demo Baby enrollment 2",
+      "sha256": "be902a08f45cc7828f08af291399210db8ee81964637d185ff6a908b35e17f99",
+      "duration_seconds": 15.0,
+      "sample_rate_hz": 16000,
+      "channels": 1
+    },
+    {
+      "path": "enrollment/demo-baby-x3.wav",
+      "role": "independent fixed-rig Demo Baby enrollment 3",
+      "sha256": "40dc7daba46f961e53a8e31cbe12afdb29c40aed69003825d0c7ada7d91a5617",
+      "duration_seconds": 15.0,
+      "sample_rate_hz": 16000,
+      "channels": 1
+    },
+    {
+      "path": "enrollment/learning-baby-y1.wav",
+      "role": "independent fixed-rig Learning Baby enrollment 1",
+      "sha256": "c9d02db4fa4f9f24727cf8507b2fce0a22ef93fdc14c4e7e2c6d2f306eb540f6",
+      "duration_seconds": 15.0,
+      "sample_rate_hz": 16000,
+      "channels": 1
+    },
+    {
+      "path": "enrollment/learning-baby-y2.wav",
+      "role": "independent fixed-rig Learning Baby enrollment 2",
+      "sha256": "06a673339bafc7e25c481661ab07bc46665e2aea043a8ae4738eed66c3f2e61c",
+      "duration_seconds": 15.0,
+      "sample_rate_hz": 16000,
+      "channels": 1
+    },
+    {
+      "path": "enrollment/learning-baby-y4.wav",
+      "role": "independent fixed-rig Learning Baby enrollment 3",
+      "sha256": "c8ae635ec009e64ba7dab94ec47eb5cf578a0a624ec46261bd85a217b70e00be",
       "duration_seconds": 15.0,
       "sample_rate_hz": 16000,
       "channels": 1
@@ -132,6 +183,73 @@
       ]
     },
     "interpretation": "The real retrieval and guidance path can produce three distinct history-grounded outputs when the selected profile contains repeated pattern-linked records. This spike is not the current default seed and does not establish population accuracy."
+  },
+  "clean_clone_bootstrap_validation": {
+    "run_at": "2026-07-30T15:55:00-04:00",
+    "database": "new disposable database prepared by scripts/prepare_care_demo.py",
+    "profile_enrollments": [
+      "X1",
+      "X2",
+      "X3"
+    ],
+    "synthetic_memory_count": 6,
+    "query_segment_seconds": 6,
+    "confirmation_segments": 4,
+    "result": {
+      "passed": 3,
+      "tested": 3,
+      "outputs": [
+        {
+          "asset": "X4",
+          "chunk_statuses": [
+            "matched_no_guidance",
+            "matched_no_guidance",
+            "matched_no_guidance",
+            "guidance_latched"
+          ],
+          "decision_present_by_segment": [
+            false,
+            false,
+            false,
+            true
+          ],
+          "recommendation": "What helped before: offered bottle."
+        },
+        {
+          "asset": "X7",
+          "chunk_statuses": [
+            "matched_no_guidance",
+            "matched_no_guidance",
+            "matched_no_guidance",
+            "guidance_latched"
+          ],
+          "decision_present_by_segment": [
+            false,
+            false,
+            false,
+            true
+          ],
+          "recommendation": "What helped before: held baby upright."
+        },
+        {
+          "asset": "X8",
+          "chunk_statuses": [
+            "matched_no_guidance",
+            "matched_no_guidance",
+            "matched_no_guidance",
+            "guidance_latched"
+          ],
+          "decision_present_by_segment": [
+            false,
+            false,
+            false,
+            true
+          ],
+          "recommendation": "What helped before: turned on white noise."
+        }
+      ]
+    },
+    "interpretation": "A clean clone can prepare the two demo profiles and produce three distinct history-grounded suggestions through the real four-segment confirmation path. This is controlled proof-of-concept evidence, not population accuracy."
   },
   "assets": [
     {

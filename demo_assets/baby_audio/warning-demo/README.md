@@ -12,6 +12,12 @@ trial. Each playback file repeats its one source recording three times so the
 presenter has enough time to start the phone session. Repetition makes the file
 longer, but it does not create extra evidence.
 
+The `enrollment` folder contains three earlier, independent Baby X captures for
+`Demo Baby` and three Baby Y captures for `Learning Baby`. The bootstrap uses
+those six files to prepare the two profiles. The three X4, X7, and X8 showcase
+files remain separate queries, so the demo is not matching a file against
+itself.
+
 X7 and X8 were held out from the X1 through X6 acceptance comparison. X4 was one
 of the stored trial examples. These are controlled demonstration fixtures, not
 population accuracy evidence.
@@ -23,7 +29,8 @@ population accuracy evidence.
 3. Start one playback file from its beginning.
 4. Keep the playback device, volume, distance, room, phone position, and phone
    microphone unchanged.
-5. Wait for a six-second segment to finish processing.
+5. Let four accepted six-second cry segments process. The first possible
+   suggestion is therefore about 24 seconds after recording starts.
 6. Stop the session after the guidance card latches.
 7. Complete or discard the follow-up, then start a fresh session for the next
    file.
