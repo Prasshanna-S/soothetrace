@@ -1199,6 +1199,102 @@ class CareSessionTests(unittest.TestCase):
         enroll.assert_not_called()
         create_profile.assert_not_called()
 
+    def test_demo_baby_accepts_strong_close_top_match_at_demo_margin(self):
+        selected = self._profile("Demo Baby")
+        other = self._profile("Learning Baby")
+        care_session = care_sessions.create(selected["id"], db_path=self.db)
+        preview = self._no_guidance_preview(selected)
+        preview["guidance"] = {
+            "status": "grounded",
+            "headline": "What helped before",
+            "interpretation": "This resembles an earlier incident.",
+            "recommendation": "What helped before: turned on white noise.",
+            "evidence_summary": "Supported by 1 similar recorded incident.",
+            "support_count": 1,
+            "incident_ids": [101],
+        }
+        uncertain = {
+            "status": "uncertain",
+            "profile_id": None,
+            "score": 0.91,
+            "margin": 0.05,
+            "candidates": [
+                {"profile_id": selected["id"], "score": 0.91},
+                {"profile_id": other["id"], "score": 0.86},
+            ],
+            "reasons": ["close_top_profiles"],
+        }
+        with (
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions.identity, "identify") as identify,
+            patch.object(care_sessions, "careflow", create=True) as careflow,
+        ):
+            cry_gate.classify.return_value = self._cry_result("infant_cry_detected")
+            identify.return_value = uncertain
+            careflow.preview_profile_incident.return_value = preview
+            result = care_sessions.submit_chunk(
+                care_session["id"],
+                1,
+                self._ingested("demo-strong-close-top"),
+                self.db,
+            )
+
+        self.assertEqual("guidance_latched", result["chunk"]["status"])
+        self.assertEqual(
+            "What helped before: turned on white noise.",
+            result["session"]["decision"]["guidance"]["recommendation"],
+        )
+        with sqlite3.connect(self.db) as connection:
+            stored = connection.execute(
+                "SELECT matched_profile_id FROM care_session_chunk "
+                "WHERE session_id=? AND sequence=1",
+                (care_session["id"],),
+            ).fetchone()
+        self.assertEqual((selected["id"],), stored)
+
+    def test_demo_margin_does_not_change_other_profiles_or_weak_margins(self):
+        demo = self._profile("Demo Baby")
+        other = self._profile("Baby A")
+        cases = (
+            (demo, 0.02, "demo-too-close"),
+            (other, 0.05, "ordinary-profile"),
+        )
+        results = []
+        with (
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions.identity, "identify") as identify,
+            patch.object(care_sessions, "careflow", create=True) as careflow,
+        ):
+            cry_gate.classify.return_value = self._cry_result("infant_cry_detected")
+            careflow.preview_profile_incident.return_value = self._no_guidance_preview(demo)
+            for selected, margin, name in cases:
+                care_session = care_sessions.create(selected["id"], db_path=self.db)
+                identify.return_value = {
+                    "status": "uncertain",
+                    "profile_id": None,
+                    "score": 0.91,
+                    "margin": margin,
+                    "candidates": [
+                        {"profile_id": selected["id"], "score": 0.91},
+                        {"profile_id": demo["id"], "score": 0.91 - margin},
+                    ],
+                    "reasons": ["close_top_profiles"],
+                }
+                results.append(
+                    care_sessions.submit_chunk(
+                        care_session["id"],
+                        1,
+                        self._ingested(name),
+                        self.db,
+                    )
+                )
+
+        self.assertEqual(
+            ["not_selected_profile", "not_selected_profile"],
+            [result["chunk"]["status"] for result in results],
+        )
+        careflow.preview_profile_incident.assert_not_called()
+
     def test_live_retrieval_uses_normalized_audio_and_keeps_canonical_evidence(self):
         profile = self._profile("Baby A")
         care_session = care_sessions.create(profile["id"], db_path=self.db)

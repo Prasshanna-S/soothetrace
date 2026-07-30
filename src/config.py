@@ -26,6 +26,17 @@ OPENAI_ENV_PATH  = os.path.expanduser("~/apphatchery-discovery/.env")
 # The acoustic path is offline regardless; this only affects transcription.
 OFFLINE = os.environ.get("IM_OFFLINE", "").lower() in ("1", "true", "yes")
 
+# --- controlled care demo ---
+# The seeded presentation profile is recorded through a phone and speaker path that
+# narrows its runner-up margin. Keep the global identity calibration unchanged, but
+# allow this one named profile to use a measured demo floor after it is already the
+# strongest candidate and its absolute score clears the normal strong threshold.
+CARE_DEMO_PROFILE_NAME = os.environ.get(
+    "IM_CARE_DEMO_PROFILE_NAME",
+    "Demo Baby",
+).strip()
+CARE_DEMO_MARGIN_FLOOR = 0.045
+
 # --- retrieval ---
 # Below this many PRIOR episodes, find_similar() returns [] and the UI must render
 # the honest "not enough to compare yet" state. See docs/CONTRACTS.md.
