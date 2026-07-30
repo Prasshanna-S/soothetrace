@@ -4538,3 +4538,15 @@ single-process uniqueness boundary are recorded in:
 `.superpowers/sdd/2026-07-30-continuous-care-demo/task-4-report.md`
 
 STATUS: Task 4 verified, commit pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 Task 4 review round 1
+
+Task 4 now removes an extracted exact duplicate of the structured caregiver action and always
+appends the literal typed action as the final intervention. Other extracted actions retain stable
+order. Updated RED and GREEN evidence is in:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-4-report.md`
+
+STATUS: Task 4 review round 1 verified, commit pending

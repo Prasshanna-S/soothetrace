@@ -303,6 +303,21 @@ class StructuredFinishTests(unittest.TestCase):
         from src import session
 
         audio_transcript = overrides.pop("_audio_transcript", "I picked her up.")
+        extracted_interventions = overrides.pop(
+            "_extracted_interventions",
+            [
+                {
+                    "order": 9,
+                    "action": "picked her up",
+                    "evidence": "I picked her up.",
+                },
+                {
+                    "order": 10,
+                    "action": "Held baby upright.",
+                    "evidence": "Held baby upright.",
+                },
+            ],
+        )
         arguments = {
             "subject_id": "profile-7",
             "audio_path": self.audio_path,
@@ -335,18 +350,7 @@ class StructuredFinishTests(unittest.TestCase):
             patch.object(
                 session.speech,
                 "extract_interventions",
-                return_value=[
-                    {
-                        "order": 9,
-                        "action": "picked her up",
-                        "evidence": "I picked her up.",
-                    },
-                    {
-                        "order": 10,
-                        "action": "Held baby upright.",
-                        "evidence": "Held baby upright.",
-                    },
-                ],
+                return_value=extracted_interventions,
             ),
         ):
             result = session.finish_structured(**arguments)
@@ -427,6 +431,48 @@ class StructuredFinishTests(unittest.TestCase):
         )
         self.assertEqual("caregiver", result["outcome_src"])
         transcribe.assert_called_once_with(self.audio_path)
+
+    def test_structured_finish_moves_an_earlier_exact_duplicate_to_the_end(self):
+        result, _ = self._finish(
+            _extracted_interventions=[
+                {
+                    "order": 7,
+                    "action": "Held baby upright.",
+                    "evidence": "Held baby upright.",
+                },
+                {
+                    "order": 8,
+                    "action": "picked her up",
+                    "evidence": "I picked her up.",
+                },
+                {
+                    "order": 9,
+                    "action": "dimmed the lights",
+                    "evidence": "I dimmed the lights.",
+                },
+            ]
+        )
+
+        self.assertEqual(
+            [
+                {
+                    "order": 1,
+                    "action": "picked her up",
+                    "evidence": "I picked her up.",
+                },
+                {
+                    "order": 2,
+                    "action": "dimmed the lights",
+                    "evidence": "I dimmed the lights.",
+                },
+                {
+                    "order": 3,
+                    "action": "Held baby upright.",
+                    "evidence": "Held baby upright.",
+                },
+            ],
+            result["interventions"],
+        )
 
     def test_structured_finish_maps_each_settled_state_without_truthiness(self):
         expected = {

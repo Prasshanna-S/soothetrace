@@ -122,3 +122,38 @@ a clean retry and proved that the process claim was released.
 Exactly-once coordination is process-local plus persistent recovery. It is correct for the current
 single-process threaded server. A future multi-process deployment requires a schema uniqueness
 constraint or another cross-process claim keyed by care session.
+
+## Review Round 1
+
+### Important Finding
+
+The first implementation skipped appending the structured caregiver pair when an identical
+action/evidence pair already appeared among automatically extracted actions. If that duplicate
+occurred before another extracted action, the later automatic action incorrectly remained final.
+The original test placed the duplicate last and did not distinguish deduplication from final
+position.
+
+### RED
+
+An adversarial regression supplied the structured pair first, followed by two different extracted
+actions. Before the fix, the stored order began with the typed pair and ended with the later
+automatic action:
+
+```text
+FAIL: test_structured_finish_moves_an_earlier_exact_duplicate_to_the_end
+Ran 1 test in 1.125s
+FAILED (failures=1)
+```
+
+### GREEN
+
+Structured completion now removes every extracted exact duplicate of the typed pair, preserves the
+stable order of all other unique extracted pairs, and appends the literal typed pair exactly once
+at the end.
+
+```text
+Ran 8 structured-finish tests in 0.798s
+OK
+```
+
+The bounded review verification passed 87 Task 4, speech, careflow, context, and store tests.

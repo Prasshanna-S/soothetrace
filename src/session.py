@@ -272,6 +272,7 @@ def finish_structured(
 
         intervention_pairs = []
         seen_pairs = set()
+        structured_pair = (clean_action, clean_action)
         for item in extracted if isinstance(extracted, list) else []:
             if not isinstance(item, dict):
                 continue
@@ -280,13 +281,11 @@ def finish_structured(
             if not isinstance(extracted_action, str) or not isinstance(evidence, str):
                 continue
             pair = (extracted_action, evidence)
-            if pair in seen_pairs:
+            if pair == structured_pair or pair in seen_pairs:
                 continue
             seen_pairs.add(pair)
             intervention_pairs.append(pair)
-        structured_pair = (clean_action, clean_action)
-        if structured_pair not in seen_pairs:
-            intervention_pairs.append(structured_pair)
+        intervention_pairs.append(structured_pair)
         interventions = [
             {"order": index, "action": item_action, "evidence": evidence}
             for index, (item_action, evidence) in enumerate(intervention_pairs, start=1)
