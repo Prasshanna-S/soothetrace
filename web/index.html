@@ -81,9 +81,8 @@
 <!-- Preview harness. Visible ONLY with ?preview=1 in the URL. Everything it injects is the
      example payload from the design spec and it stays labelled as simulation on screen, so
      fabricated output is never presented as computed. -->
-<div id="preview-bar" hidden>
-  <span>Preview: simulated states with example data, not a real analysis.</span>
-  <button type="button" id="preview-next">Next state</button>
+<div id="preview-bar" hidden aria-label="Preview stepper, simulated example data">
+  <button type="button" id="preview-next">Next</button>
 </div>
 
 <!-- Live capture chip: the live dot and the wall clock are one object so the two can never
@@ -163,10 +162,7 @@
 
     <!-- idle bottom stack -->
     <div id="idle-stack">
-      <p id="consent-line">
-        Audio only, kept on the laptop. Nothing is captured until you press start, and
-        everyone whose voice may be audible agrees first.
-      </p>
+      <p id="consent-line">Audio only. Nothing records until you start.</p>
       <button type="button" class="pillbtn" id="btn-start" disabled>
         <svg viewBox="0 0 24 24" width="20" height="20"><use href="#i-mic"/></svg>
         <span>Start listening</span>

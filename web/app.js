@@ -79,8 +79,9 @@ const ACTION_CHIPS = [
   ["diaper", "Changed the diaper"],
   ["bath", "Warm bath"],
 ];
-const CHIP_TINTS = { cuddle: "#DCE8F6", feeding: "#F5DFA0", walk: "#F0DCD7",
-                     sleeping: "#E4E0D6", diaper: "#F5E9C8", bath: "#D6E4F2" };
+const CHIP_TINTS = { cuddle: "var(--peri)", feeding: "var(--butter)",
+                     walk: "var(--blush)", sleeping: "var(--peri)",
+                     diaper: "var(--butter)", bath: "var(--mint)" };
 
 /* action string -> icon key, first hit wins, no hit means text only. The image
    can therefore never say something the server's words did not. */
@@ -177,10 +178,10 @@ const show = (node, on) => { if (node) node.hidden = !on; };
    words; microphone level may deepen the breath, never shift the hue. */
 
 const ORB_STATES = {
-  idle:      { c: ["#E4ECFF", "#9DB4F0", "#A9DCC6", "#E3D3F4"], warp: 2.0, speed: 0.30, sat: 0.95, breath: 6.0, scale: 1.00 },
-  listening: { c: ["#DDE2FF", "#7C88E8", "#9FCDF0", "#C9AFF0"], warp: 2.7, speed: 0.62, sat: 1.10, breath: 3.2, scale: 1.03 },
-  detected:  { c: ["#FFE9C4", "#F3C34E", "#F0A07E", "#FFD2B8"], warp: 3.1, speed: 0.95, sat: 1.14, breath: 2.3, scale: 1.06 },
-  grounded:  { c: ["#D5F0E2", "#6FC6A8", "#9BD9E6", "#BCE9C9"], warp: 2.2, speed: 0.42, sat: 1.08, breath: 5.0, scale: 0.99 },
+  idle:      { c: ["#E4ECFF", "#9DB4F0", "#A9DCC6", "#E3D3F4"], warp: 2.0, speed: 0.30, sat: 1.04, breath: 6.0, scale: 1.00 },
+  listening: { c: ["#DDE2FF", "#7C88E8", "#9FCDF0", "#C9AFF0"], warp: 2.7, speed: 0.62, sat: 1.20, breath: 3.2, scale: 1.03 },
+  detected:  { c: ["#FFE9C4", "#F3C34E", "#F0A07E", "#FFD2B8"], warp: 3.1, speed: 0.95, sat: 1.22, breath: 2.3, scale: 1.06 },
+  grounded:  { c: ["#D5F0E2", "#6FC6A8", "#9BD9E6", "#BCE9C9"], warp: 2.2, speed: 0.42, sat: 1.16, breath: 5.0, scale: 0.99 },
   paused:    { c: ["#E9E7E1", "#BFBBB2", "#D2CEC5", "#EFEDE7"], warp: 1.5, speed: 0.06, sat: 0.30, breath: 0.0, scale: 0.94 },
 };
 
@@ -222,26 +223,26 @@ const ORB_FRAG = [
   " float k=clamp(r/R,0.0,1.0);float z=sqrt(max(1.0-k*k,0.0));",
   " vec3 N=normalize(vec3(uv/R,z+0.0001));",
   " vec2 sp=uv/R;float bend=0.34*pow(1.0-z,1.7);vec2 rp=sp+N.xy*bend;",
-  " vec2 q=vec2(fbm(rp*1.45+0.055*t),fbm(rp*1.45+vec2(5.2,1.3)-0.045*t));",
-  " vec2 s2=vec2(fbm(rp*1.45+uWarp*q+vec2(1.7,9.2)+0.040*t),",
-  "  fbm(rp*1.45+uWarp*q+vec2(8.3,2.8)-0.034*t));",
-  " float f=fbm(rp*1.45+(uWarp+0.4)*s2);",
+  " vec2 q=vec2(fbm(rp*1.8+0.055*t),fbm(rp*1.8+vec2(5.2,1.3)-0.045*t));",
+  " vec2 s2=vec2(fbm(rp*1.8+uWarp*q+vec2(1.7,9.2)+0.040*t),",
+  "  fbm(rp*1.8+uWarp*q+vec2(8.3,2.8)-0.034*t));",
+  " float f=fbm(rp*1.8+(uWarp+0.4)*s2);",
   " vec3 col=mixOk(s2l(uC1),s2l(uC2),0.5+0.85*f);",
   " col=mixOk(col,s2l(uC3),clamp(0.5+0.9*q.x,0.0,1.0)*0.80);",
   " col=mixOk(col,s2l(uC4),clamp(0.5+0.9*s2.y,0.0,1.0)*0.62);",
-  " col*=0.955+0.075*z;",
+  " col*=0.92+0.15*z;",
   " col+=s2l(uC4)*pow(max(-N.y,0.0),2.2)*(1.0-z)*0.16;",
   " vec3 L=normalize(vec3(-0.46,0.60,0.66));",
   " float fres=pow(1.0-z,3.2);",
   " col=mixOk(col,vec3(1.0),fres*0.06);",
   " float d=max(dot(N,L),0.0);",
-  " col+=vec3(1.0)*pow(d,3.0)*0.045;",
-  " col+=vec3(1.0)*pow(d,52.0)*0.52;",
+  " col+=vec3(1.0)*pow(d,3.0)*0.065;",
+  " col+=vec3(1.0)*pow(d,52.0)*0.65;",
   " float lum=dot(col,vec3(0.2126,0.7152,0.0722));",
   " col=max(mix(vec3(lum),col,uSat),0.0);",
   " vec3 outc=l2s(col);",
-  " float body=smoothstep(R,R-0.055,r);",
-  " float halo=exp(-max(r-R*0.96,0.0)*10.0)*0.30;",
+  " float body=smoothstep(R,R-0.014,r);",
+  " float halo=exp(-max(r-R,0.0)*15.0)*0.15;",
   " vec3 haloCol=l2s(mixOk(mixOk(s2l(uC2),s2l(uC3),0.5),vec3(1.0),0.34));",
   " vec3 rgb=mix(haloCol,outc,body);",
   " float a=max(body,halo*(1.0-body));",
@@ -288,7 +289,7 @@ function createOrb(canvas) {
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
     const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
     const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
     if (canvas.width !== w || canvas.height !== h) {
@@ -430,8 +431,14 @@ window.addEventListener("hashchange", () => navigate(location.hash.replace("#", 
 function renderHealth(reachable, ready, text) {
   state.healthReachable = reachable;
   state.healthReady = ready;
-  ui.healthPill.dataset.health = !reachable ? "down" : (ready ? "ready" : "not-ready");
-  setText(ui.healthText, text);
+  if (state.preview || MOCK) {
+    ui.healthPill.dataset.health = "preview";
+    setText(ui.healthText, "Preview");
+  } else {
+    ui.healthPill.dataset.health = !reachable ? "down" : (ready ? "ready" : "not-ready");
+    setText(ui.healthText, !reachable ? "Offline" : (ready ? "Online" : "Not ready"));
+  }
+  void text;
   syncStartGate();
 }
 
@@ -964,7 +971,11 @@ function renderIncident(sc) {
   glyphbox.className = "glyphbox";
   const iconKey = actionIconFor((sc.interventions && sc.interventions[0] &&
                                  sc.interventions[0].action) || "");
+  const DISC_TINTS = { cuddle: "var(--peri)", feeding: "var(--butter)",
+    walk: "var(--blush)", sleeping: "var(--peri)", diaper: "var(--butter)",
+    bath: "var(--mint)", play: "var(--mint)", tummy: "var(--blush)" };
   if (iconKey) {
+    glyphbox.style.background = DISC_TINTS[iconKey] || "";
     const img = document.createElement("img");
     img.alt = "";
     slotImage(img, "action-" + iconKey, iconKey);
@@ -1100,10 +1111,7 @@ function initPreview() {
   if (!state.preview) return;
   show(ui.previewBar, true);
   let step = 0;
-  const label = () => {
-    ui.previewNext.textContent = "Next: " +
-      PREVIEW_STEPS[step][0].split(" (")[0];
-  };
+  const label = () => { ui.previewNext.textContent = "Next"; };
   ui.previewNext.addEventListener("click", () => {
     const [, run] = PREVIEW_STEPS[step];
     step = (step + 1) % PREVIEW_STEPS.length;
@@ -1124,6 +1132,7 @@ function initChips() {
     chip.setAttribute("aria-pressed", "false");
     const img = document.createElement("img");
     img.alt = "";
+    img.style.background = CHIP_TINTS[key] || "";
     slotImage(img, "action-" + key, key);
     const span = document.createElement("span");
     span.textContent = phrase;
