@@ -32,6 +32,8 @@ This is not a presentation-release claim.
 - Kept `no_cry_detected` and `cry_uncertain` free of guidance and incident output.
 - Distinguished uneven and quiet invalid captures from actual decoder failures in listener copy.
 - Latched only the first grounded server decision.
+- Presented a server-owned infant detection before revealing a decision returned in the same
+  chunk response, using a nonblocking 1200 ms presentation delay.
 - Rendered the server recommendation and evidence without rewriting or fallback advice.
 - Restricted representative audio playback to profile-scoped incident URLs.
 - Used real disabled controls to block playback while the microphone is live.
@@ -86,6 +88,10 @@ The internal motion and caregiver-copy contracts failed before the shader and wo
 The first sequential browser run also showed that Stop hid the latched result. The final browser
 run completed three start, latch, stop, and discard cycles with a fresh result each time.
 
+The same-response sequencing regression initially showed the grounded card immediately, with no
+detected orb state or reveal timer. The corrected path first renders the server detection, advances
+the accepted upload immediately, then reveals the exact first server decision after 1200 ms.
+
 ## Verification
 
 ```text
@@ -111,6 +117,8 @@ The browser test verifies:
 - no suggestion or incident output for `no_cry_detected`;
 - synchronous replacement of the visible analysis phase label;
 - reason-aware listener copy for uneven, quiet, and unreadable segments;
+- detected status and orb state before a same-response grounded decision;
+- one delayed reveal, immutable first decision, and reset cleanup of the pending timer;
 - quiet and cry microphone levels reaching distinct exported orb energy bands;
 - Web Audio priming before the first microphone permission await without blocking Start;
 - no CSP violation on the production policy;

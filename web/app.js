@@ -40,6 +40,7 @@ const CARE_SEGMENT_MS = 6000;       // conservative validated prototype window
 const MAX_PENDING_SEGMENTS = 1;     // one completed blob may wait, no more
 const HEALTH_POLL_MS = 4000;
 const UPLOAD_RETRY_MS = 850;
+const DECISION_REVEAL_MS = 1200;
 
 const RECORDER_MIME_CANDIDATES = [
   "audio/mp4;codecs=mp4a.40.2",
@@ -354,7 +355,10 @@ function createOrb(canvas) {
 
 const orb = createOrb(ui.orb);
 if (!orb) document.body.classList.add("orb-fallback");
-const orbState = (n) => { if (orb) orb.setState(n); };
+const orbState = (name) => {
+  ui.orb.dataset.visualState = name;
+  if (orb) orb.setState(name);
+};
 
 /* =================================================================== state --- */
 
@@ -366,6 +370,8 @@ const state = {
   profiles: [],
   selectedProfile: null,
   decision: null,           // latched once, immutable until stop
+  pendingDecision: null,
+  decisionRevealTimer: null,
   micLive: false,
   healthReady: false,
   healthReachable: null,
@@ -746,7 +752,7 @@ async function finalizeCurrentSegment() {
   enqueueSegment(blob);
 }
 
-function applyServerSession(session) {
+function applyServerSession(session, includeDecision = true) {
   if (!session || typeof session !== "object") return;
   state.serverSession = session;
   if (Number.isInteger(session.last_sequence) &&
@@ -757,7 +763,34 @@ function applyServerSession(session) {
     const local = state.profiles.find((profile) => profile.id === session.profile.id);
     applySelectedProfile(local || session.profile);
   }
-  if (session.decision) latchDecision(session.decision);
+  if (includeDecision && session.decision) latchDecision(session.decision);
+}
+
+function cancelDecisionReveal() {
+  clearTimeout(state.decisionRevealTimer);
+  state.decisionRevealTimer = null;
+  state.pendingDecision = null;
+}
+
+function scheduleDecisionReveal(decision) {
+  const guidance = decision && decision.guidance;
+  if (state.decision || state.pendingDecision ||
+      !guidance || guidance.status !== "grounded" || !guidance.recommendation) return;
+  state.pendingDecision = decision;
+  state.decisionRevealTimer = setTimeout(() => {
+    const pending = state.pendingDecision;
+    state.pendingDecision = null;
+    state.decisionRevealTimer = null;
+    if (pending && (state.session === "listening" || state.session === "paused")) {
+      latchDecision(pending);
+    }
+  }, DECISION_REVEAL_MS);
+}
+
+function revealPendingDecisionNow() {
+  const pending = state.pendingDecision;
+  cancelDecisionReveal();
+  if (pending && !state.decision) latchDecision(pending);
 }
 
 function renderChunkResult(payload) {
@@ -815,11 +848,13 @@ function promoteWaitingSegment() {
 }
 
 function acceptUploadedSegment(entry, payload) {
-  applyServerSession(payload && payload.session);
+  const serverDecision = payload && payload.session && payload.session.decision;
+  applyServerSession(payload && payload.session, false);
   if (state.acceptedSequence < entry.sequence) {
     state.acceptedSequence = entry.sequence;
   }
   renderChunkResult(payload);
+  if (serverDecision) scheduleDecisionReveal(serverDecision);
   state.activeUpload = null;
   hideConnectionLoss();
   promoteWaitingSegment();
@@ -1087,10 +1122,7 @@ async function startListening() {
   state.stopRequested = false;
   clearTimeout(state.uploadRetryTimer);
   state.uploadRetryTimer = null;
-  state.decision = null;
-  ui.listen.dataset.decision = "none";
-  ui.body.dataset.decision = "none";
-  show(ui.suggestion, false);
+  clearDecisionPresentation();
   state.startedAt = Date.now();
   setTransitionBusy(false);
   setSessionState("listening");
@@ -1132,6 +1164,7 @@ async function enterPaused(fromInterruption) {
     showConnectionLoss();
     showError("The microphone is paused, but the laptop did not confirm the pause.");
   }
+  revealPendingDecisionNow();
   state.stopRequested = false;
   setTransitionBusy(false);
   setSessionState("paused");
@@ -1218,6 +1251,7 @@ async function stopSession() {
     setSessionState("paused");
     return;
   }
+  revealPendingDecisionNow();
   show(ui.interruptedBanner, false);
   hideConnectionLoss();
   setText(ui.outcomeDuration, clockText(total));
@@ -1322,6 +1356,7 @@ async function discardSession() {
 }
 
 function clearDecisionPresentation() {
+  cancelDecisionReveal();
   state.decision = null;
   ui.listen.dataset.decision = "none";
   ui.body.dataset.decision = "none";
@@ -1378,6 +1413,7 @@ function latchDecision(decision) {
   if (!decision || !decision.guidance) return;
   const g = decision.guidance;
   if (g.status !== "grounded" || !g.recommendation) return;
+  cancelDecisionReveal();
   state.decision = decision;
 
   const headline = g.headline || "";

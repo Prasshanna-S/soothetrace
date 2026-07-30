@@ -455,6 +455,84 @@ async function runLivePath(browser) {
   assert(await page.evaluate(() => window.__getUserMediaCalls) === 1,
     "view navigation replaced the retained MediaStream");
 
+  const revealOrder = await page.evaluate((payload) => {
+    const realSetTimeout = window.setTimeout;
+    const timers = [];
+    window.setTimeout = (callback, delay) => {
+      timers.push({ callback, delay });
+      return 7000 + timers.length;
+    };
+    state.activeUpload = { sequence: 1 };
+    acceptUploadedSegment({ sequence: 1 }, payload);
+    scheduleDecisionReveal({
+      ...payload.session.decision,
+      id: 999,
+      guidance: {
+        ...payload.session.decision.guidance,
+        recommendation: "A later decision must not replace the first",
+      },
+    });
+    const immediate = {
+      status: document.querySelector("#analysis-status").textContent,
+      orb: document.querySelector("#orb").dataset.visualState,
+      suggestionHidden: document.querySelector("#suggestion-block").hidden,
+      decision: document.querySelector("#page-listen").dataset.decision,
+      acceptedSequence: state.acceptedSequence,
+      uploadCleared: state.activeUpload === null,
+    };
+    const reveal = timers.find((timer) => timer.delay === 1200);
+    if (reveal) reveal.callback();
+    const after = {
+      orb: document.querySelector("#orb").dataset.visualState,
+      suggestionHidden: document.querySelector("#suggestion-block").hidden,
+      decision: document.querySelector("#page-listen").dataset.decision,
+      recommendation: document.querySelector("#g-recommendation").textContent,
+    };
+    state.acceptedSequence = 0;
+    window.setTimeout = realSetTimeout;
+    return {
+      immediate,
+      after,
+      revealTimerCount: timers.filter((timer) => timer.delay === 1200).length,
+    };
+  }, {
+    session: publicSession("listening", 1, decision),
+    chunk: {
+      id: 90,
+      sequence: 1,
+      status: "guidance_latched",
+      reason_codes: [],
+      cry_presence: {
+        status: "infant_cry_detected",
+        label: "Infant-cry-like sound detected",
+        reason_codes: ["infant_cry_evidence_strong"],
+        analyzed_duration_s: 6,
+        analysis_view_count: 1,
+        model_version: "test",
+      },
+    },
+  });
+  assert(
+    revealOrder.immediate.status === "Infant-cry-like sound detected" &&
+      revealOrder.immediate.orb === "detected" &&
+      revealOrder.immediate.suggestionHidden &&
+      revealOrder.immediate.decision === "none",
+    `server detection was not revealed first: ${JSON.stringify(revealOrder)}`
+  );
+  assert(
+    revealOrder.immediate.acceptedSequence === 1 &&
+      revealOrder.immediate.uploadCleared,
+    `decision reveal blocked upload progress: ${JSON.stringify(revealOrder)}`
+  );
+  assert(
+    revealOrder.revealTimerCount === 1 &&
+      revealOrder.after.orb === "grounded" &&
+      !revealOrder.after.suggestionHidden &&
+      revealOrder.after.decision === "latched" &&
+      revealOrder.after.recommendation === "Server recommendation, exactly",
+    `grounded decision did not follow the calm reveal delay: ${JSON.stringify(revealOrder)}`
+  );
+
   const invalidCopy = await page.evaluate(() => {
     const read = (reason) => {
       renderChunkResult({
@@ -554,6 +632,36 @@ async function runSequentialOutcomePath(browser) {
   });
   await page.goto("http://care.test/", { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => !document.querySelector("#btn-start").disabled);
+
+  const resetCleanup = await page.evaluate((serverDecision) => {
+    const realSetTimeout = window.setTimeout;
+    let reveal = null;
+    window.setTimeout = (callback, delay) => {
+      if (delay === 1200) reveal = callback;
+      return 9901;
+    };
+    scheduleDecisionReveal(serverDecision);
+    const pendingBefore = Boolean(state.pendingDecision);
+    resetToIdle();
+    if (reveal) reveal();
+    const result = {
+      pendingBefore,
+      pendingAfter: state.pendingDecision,
+      timerAfter: state.decisionRevealTimer,
+      decisionAfter: state.decision,
+      suggestionHidden: document.querySelector("#suggestion-block").hidden,
+    };
+    window.setTimeout = realSetTimeout;
+    return result;
+  }, decision);
+  assert(
+    resetCleanup.pendingBefore &&
+      resetCleanup.pendingAfter === null &&
+      resetCleanup.timerAfter === null &&
+      resetCleanup.decisionAfter === null &&
+      resetCleanup.suggestionHidden,
+    `reset did not cancel the delayed decision: ${JSON.stringify(resetCleanup)}`
+  );
 
   for (let index = 1; index <= 3; index++) {
     await page.click("#btn-start");
