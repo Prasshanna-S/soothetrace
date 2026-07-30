@@ -1,15 +1,18 @@
 """Persistent infant care-session state with safe public snapshots."""
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
 try:
-    from . import config, identity, store
+    from . import careflow, config, cry_gate, identity, store
 except ImportError:
+    import careflow
     import config
+    import cry_gate
     import identity
     import store
 
@@ -133,17 +136,14 @@ def _public_intervention(value) -> dict | None:
     }
 
 
-def _public_audio_url(value) -> str | None:
-    if not isinstance(value, str):
+def _public_audio_url(value, profile_id: int, episode_id: int) -> str | None:
+    del value
+    if not _is_integer(profile_id) or not _is_integer(episode_id):
         return None
-    prefix = "/api/audio/episodes/"
-    episode_id = value.removeprefix(prefix)
-    if not value.startswith(prefix) or not episode_id.isdecimal():
-        return None
-    return value
+    return f"/api/profiles/{profile_id}/incidents/{episode_id}/audio"
 
 
-def _public_scenario(value) -> dict | None:
+def _public_scenario(value, profile_id: int) -> dict | None:
     if not isinstance(value, dict) or not _is_integer(value.get("episode_id")):
         return None
     public = {"episode_id": value["episode_id"]}
@@ -163,7 +163,11 @@ def _public_scenario(value) -> dict | None:
         public["worked"] = worked
     if isinstance(value.get("contributions"), list):
         public["contributions"] = _string_list(value["contributions"])
-    audio_url = _public_audio_url(value.get("audio_url"))
+    audio_url = _public_audio_url(
+        value.get("audio_url"),
+        profile_id,
+        value["episode_id"],
+    )
     if audio_url is not None:
         public["audio_url"] = audio_url
     return public
@@ -175,17 +179,20 @@ def _public_decision(value) -> dict:
         public["id"] = value["id"]
     if isinstance(value.get("latched_at"), str):
         public["latched_at"] = value["latched_at"]
+    profile_id = None
     if isinstance(value.get("profile"), dict):
         public["profile"] = _public_decision_profile(value["profile"])
+        if _is_integer(public["profile"].get("id")):
+            profile_id = public["profile"]["id"]
     if isinstance(value.get("guidance"), dict):
         public["guidance"] = _public_guidance(value["guidance"])
     if isinstance(value.get("basis"), list):
         public["basis"] = _string_list(value["basis"])
-    if isinstance(value.get("scenarios"), list):
+    if isinstance(value.get("scenarios"), list) and profile_id is not None:
         public["scenarios"] = [
             scenario
             for item in value["scenarios"]
-            if (scenario := _public_scenario(item)) is not None
+            if (scenario := _public_scenario(item, profile_id)) is not None
         ]
     return public
 
@@ -220,8 +227,7 @@ def _session_row(
     ).fetchone()
 
 
-def _render(row, db_path: str | None = None) -> dict:
-    profile = identity.get_profile(row["profile_id"], db_path)
+def _render_with_profile(row, profile: dict) -> dict:
     return {
         "id": row["id"],
         "status": row["status"],
@@ -234,6 +240,11 @@ def _render(row, db_path: str | None = None) -> dict:
         "tags": _decoded_list(row["tags_json"]),
         "decision": _decoded_decision(row["decision_json"]),
     }
+
+
+def _render(row, db_path: str | None = None) -> dict:
+    profile = identity.get_profile(row["profile_id"], db_path)
+    return _render_with_profile(row, profile)
 
 
 def create(
@@ -346,6 +357,480 @@ def resume(session_id: int, db_path: str | None = None) -> dict:
 def stop(session_id: int, db_path: str | None = None) -> dict:
     """Stop capture and await the structured caregiver outcome."""
     return _transition(session_id, "stop", db_path)
+
+
+_CHUNK_STATUSES = {
+    "invalid",
+    "no_cry_detected",
+    "cry_uncertain",
+    "not_selected_profile",
+    "matched_no_guidance",
+    "guidance_latched",
+    "matched_guidance_already_latched",
+}
+
+_CRY_PUBLIC_KEYS = {
+    "status",
+    "label",
+    "reason_codes",
+    "analyzed_duration_s",
+    "analysis_view_count",
+    "model_version",
+}
+
+
+def _source_digest(raw_path) -> str | None:
+    if not isinstance(raw_path, str) or not raw_path:
+        return None
+    digest = hashlib.sha256()
+    try:
+        with open(raw_path, "rb") as source:
+            for block in iter(lambda: source.read(65536), b""):
+                digest.update(block)
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
+def _public_cry_presence(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    public = {}
+    for key in ("status", "model_version"):
+        if isinstance(value.get(key), str):
+            public[key] = value[key]
+    label = value.get("label")
+    if "label" in value and (label is None or isinstance(label, str)):
+        public["label"] = label
+    if isinstance(value.get("reason_codes"), list):
+        public["reason_codes"] = _string_list(value["reason_codes"])
+    duration = value.get("analyzed_duration_s")
+    if (
+        isinstance(duration, (int, float))
+        and not isinstance(duration, bool)
+    ):
+        public["analyzed_duration_s"] = duration
+    view_count = value.get("analysis_view_count")
+    if _is_integer(view_count):
+        public["analysis_view_count"] = view_count
+    return {
+        key: public[key]
+        for key in value
+        if key in _CRY_PUBLIC_KEYS and key in public
+    }
+
+
+def _public_stored_profile(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    public = _string_fields(value, ("display_name", "kind", "status"))
+    for field in ("id", "enrollments"):
+        if _is_integer(value.get(field)):
+            public[field] = value[field]
+    return public
+
+
+def _public_stored_session(value) -> dict:
+    if not isinstance(value, dict) or not _is_integer(value.get("id")):
+        return {}
+    public = {"id": value["id"]}
+    if isinstance(value.get("status"), str):
+        public["status"] = value["status"]
+    if isinstance(value.get("profile"), dict):
+        public["profile"] = _public_stored_profile(value["profile"])
+    for field in ("started_at", "paused_at", "stopped_at", "completed_at"):
+        item = value.get(field)
+        if field in value and (item is None or isinstance(item, str)):
+            public[field] = item
+    if _is_integer(value.get("last_sequence")):
+        public["last_sequence"] = value["last_sequence"]
+    if isinstance(value.get("tags"), list):
+        public["tags"] = _string_list(value["tags"])
+    decision = value.get("decision")
+    if decision is None:
+        public["decision"] = None
+    elif isinstance(decision, dict):
+        public["decision"] = _public_decision(decision)
+    return public
+
+
+def _public_chunk(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    public = {}
+    for field in ("id", "sequence"):
+        if _is_integer(value.get(field)):
+            public[field] = value[field]
+    if value.get("status") in _CHUNK_STATUSES:
+        public["status"] = value["status"]
+    if isinstance(value.get("created_at"), str):
+        public["created_at"] = value["created_at"]
+    if isinstance(value.get("reason_codes"), list):
+        public["reason_codes"] = _string_list(value["reason_codes"])
+    cry_presence = _public_cry_presence(value.get("cry_presence"))
+    if cry_presence:
+        public["cry_presence"] = cry_presence
+    return public
+
+
+def _public_chunk_result(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    session = _public_stored_session(value.get("session"))
+    chunk = _public_chunk(value.get("chunk"))
+    if not session or not chunk:
+        return {}
+    return {"session": session, "chunk": chunk}
+
+
+def _decoded_chunk_result(raw) -> dict:
+    try:
+        value = json.loads(raw) if raw else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return _public_chunk_result(value)
+
+
+def _existing_chunk(connection, session_id: int, sequence: int):
+    return connection.execute(
+        "SELECT * FROM care_session_chunk WHERE session_id=? AND sequence=?",
+        (session_id, sequence),
+    ).fetchone()
+
+
+def _sequence_resolution(
+    connection: sqlite3.Connection,
+    row,
+    sequence: int,
+    digest: str | None,
+) -> dict | None:
+    if sequence <= row["last_sequence"]:
+        existing = _existing_chunk(connection, row["id"], sequence)
+        if (
+            existing
+            and digest is not None
+            and existing["audio_sha256"] == digest
+        ):
+            stored = _decoded_chunk_result(existing["result_json"])
+            return stored or _error("care_session_storage_error")
+        return _error("sequence_conflict")
+    if sequence != row["last_sequence"] + 1:
+        return _error("out_of_order_chunk")
+    return None
+
+
+def _reason_codes(value, fallback: str) -> list[str]:
+    if isinstance(value, list):
+        codes = _string_list(value)
+        if codes:
+            return codes
+    return [fallback]
+
+
+def _latched_decision(
+    chunk_id: int,
+    created_at: str,
+    profile: dict,
+    preview: dict,
+) -> dict:
+    guidance_payload = _public_guidance(preview.get("guidance"))
+    incident_ids = set(guidance_payload.get("incident_ids") or [])
+    scenarios = []
+    for item in preview.get("scenarios") or []:
+        scenario = _public_scenario(item, profile["id"])
+        if (
+            scenario is not None
+            and scenario["episode_id"] in incident_ids
+        ):
+            scenarios.append(scenario)
+    basis = []
+    seen = set()
+    for scenario in scenarios:
+        for contribution in scenario.get("contributions") or []:
+            if contribution not in seen:
+                seen.add(contribution)
+                basis.append(contribution)
+    return _public_decision(
+        {
+            "id": chunk_id,
+            "latched_at": created_at,
+            "profile": {
+                "id": profile["id"],
+                "display_name": profile["display_name"],
+            },
+            "guidance": guidance_payload,
+            "basis": basis,
+            "scenarios": scenarios,
+        }
+    )
+
+
+def submit_chunk(
+    session_id: int,
+    sequence: int,
+    ingested: dict,
+    db_path: str | None = None,
+) -> dict:
+    """Analyse one finalized rolling segment without enrollment or reinforcement."""
+    created_at = _now()
+    if (
+        not _is_integer(session_id)
+        or session_id <= 0
+    ):
+        return _error("no_such_care_session")
+    if not _is_integer(sequence) or sequence <= 0:
+        return _error("invalid_chunk_sequence")
+
+    ingest = ingested if isinstance(ingested, dict) else {}
+    source_path = ingest.get("source_path")
+    canonical_path = ingest.get("canonical_path")
+    identity_path = ingest.get("identity_path")
+    digest = _source_digest(source_path)
+
+    connection = _conn(db_path)
+    try:
+        row = _session_row(connection, session_id)
+        if not row:
+            return _error("no_such_care_session")
+        resolved = _sequence_resolution(connection, row, sequence, digest)
+        if resolved is not None:
+            return resolved
+        if row["status"] != LISTENING:
+            return _error("invalid_care_session_transition")
+    except sqlite3.Error:
+        return _error("care_session_storage_error")
+    finally:
+        connection.close()
+
+    profile = identity.get_profile(row["profile_id"], db_path)
+    if not profile:
+        return _error("care_session_storage_error")
+
+    quality = ingest.get("quality") if isinstance(ingest.get("quality"), dict) else {}
+    capture = ingest.get("capture") if isinstance(ingest.get("capture"), dict) else {}
+    ready = (
+        ingest.get("status") == "ready"
+        and digest is not None
+        and isinstance(canonical_path, str)
+        and Path(canonical_path).is_file()
+        and isinstance(identity_path, str)
+        and Path(identity_path).is_file()
+    )
+    analysis = {
+        "status": "invalid",
+        "reason_codes": [
+            ingest.get("reason")
+            if isinstance(ingest.get("reason"), str)
+            else "invalid_ingest"
+        ],
+        "cry_presence": {},
+        "matched_profile_id": None,
+        "selected_match": False,
+        "grounded": False,
+        "preview": {},
+    }
+
+    if ready:
+        try:
+            cry_result = cry_gate.classify(canonical_path)
+        except Exception:
+            cry_result = {
+                "status": "gate_unavailable",
+                "reason_codes": ["cry_gate_model_unavailable"],
+            }
+        cry_presence = _public_cry_presence(cry_result)
+        gate_status = cry_presence.get("status")
+        analysis["cry_presence"] = cry_presence
+        analysis["reason_codes"] = _reason_codes(
+            cry_presence.get("reason_codes"),
+            "cry_gate_unavailable",
+        )
+        if gate_status == "no_cry_detected":
+            analysis["status"] = "no_cry_detected"
+        elif gate_status == "cry_uncertain":
+            analysis["status"] = "cry_uncertain"
+        elif gate_status != "infant_cry_detected":
+            analysis["status"] = "invalid"
+        else:
+            try:
+                identity_result = identity.identify(
+                    identity_path,
+                    kind=identity.KIND_INFANT,
+                    db_path=db_path,
+                    audit=True,
+                )
+            except Exception:
+                identity_result = {
+                    "status": "uncertain",
+                    "reasons": ["identity_unavailable"],
+                }
+            matched_profile_id = identity_result.get("profile_id")
+            if _is_integer(matched_profile_id):
+                analysis["matched_profile_id"] = matched_profile_id
+            selected_match = (
+                identity_result.get("status") in {"match", "matched"}
+                and matched_profile_id == row["profile_id"]
+            )
+            analysis["reason_codes"] = _reason_codes(
+                identity_result.get("reasons"),
+                "identity_not_selected",
+            )
+            if not selected_match:
+                analysis["status"] = "not_selected_profile"
+            else:
+                analysis["selected_match"] = True
+                try:
+                    preview = careflow.preview_profile_incident(
+                        row["profile_id"],
+                        canonical_path,
+                        explicit_tags=_decoded_list(row["tags_json"]),
+                        now=created_at,
+                        db_path=db_path,
+                    )
+                except Exception:
+                    preview = {
+                        "status": "error",
+                        "reason": "incident_preview_failed",
+                    }
+                analysis["preview"] = preview if isinstance(preview, dict) else {}
+                guidance_payload = analysis["preview"].get("guidance")
+                recommendation = (
+                    guidance_payload.get("recommendation")
+                    if isinstance(guidance_payload, dict)
+                    else None
+                )
+                grounded = (
+                    isinstance(guidance_payload, dict)
+                    and guidance_payload.get("status") == "grounded"
+                    and isinstance(recommendation, str)
+                    and bool(recommendation.strip())
+                )
+                analysis["grounded"] = grounded
+                if grounded:
+                    analysis["reason_codes"] = ["grounded"]
+                else:
+                    preview_reason = analysis["preview"].get("reason")
+                    guidance_status = (
+                        guidance_payload.get("status")
+                        if isinstance(guidance_payload, dict)
+                        else None
+                    )
+                    analysis["reason_codes"] = [
+                        preview_reason
+                        if isinstance(preview_reason, str)
+                        else (
+                            guidance_status
+                            if isinstance(guidance_status, str)
+                            else "no_grounded_guidance"
+                        )
+                    ]
+                analysis["status"] = "matched_no_guidance"
+
+    connection = _conn(db_path)
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        current = _session_row(connection, session_id)
+        if not current:
+            connection.rollback()
+            return _error("no_such_care_session")
+        resolved = _sequence_resolution(connection, current, sequence, digest)
+        if resolved is not None:
+            connection.rollback()
+            return resolved
+        if current["status"] != LISTENING:
+            connection.rollback()
+            return _error("invalid_care_session_transition")
+
+        final_status = analysis["status"]
+        latch_guidance = False
+        if analysis["selected_match"] and analysis["grounded"]:
+            if current["decision_json"]:
+                final_status = "matched_guidance_already_latched"
+            else:
+                final_status = "guidance_latched"
+                latch_guidance = True
+
+        cry_presence = analysis["cry_presence"]
+        cursor = connection.execute(
+            "INSERT INTO care_session_chunk ("
+            "session_id, sequence, created_at, source_audio_path, "
+            "canonical_audio_path, identity_audio_path, audio_sha256, "
+            "capture_metadata_json, quality_json, status, cry_status, "
+            "cry_reason_codes, cry_model_version, matched_profile_id, "
+            "reason_codes, result_json"
+            ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                session_id,
+                sequence,
+                created_at,
+                source_path if isinstance(source_path, str) else None,
+                canonical_path if isinstance(canonical_path, str) else None,
+                identity_path if isinstance(identity_path, str) else None,
+                digest,
+                json.dumps(capture),
+                json.dumps(quality),
+                final_status,
+                cry_presence.get("status"),
+                json.dumps(cry_presence.get("reason_codes") or []),
+                cry_presence.get("model_version"),
+                analysis["matched_profile_id"],
+                json.dumps(analysis["reason_codes"]),
+                "{}",
+            ),
+        )
+        chunk_id = int(cursor.lastrowid)
+
+        assignments = ["last_sequence=?"]
+        values = [sequence]
+        if analysis["selected_match"]:
+            assignments.append("latest_matched_chunk_id=?")
+            values.append(chunk_id)
+        if latch_guidance:
+            decision = _latched_decision(
+                chunk_id,
+                created_at,
+                profile,
+                analysis["preview"],
+            )
+            assignments.extend(("selected_chunk_id=?", "decision_json=?"))
+            values.extend((chunk_id, json.dumps(decision)))
+        values.extend((session_id, LISTENING, current["last_sequence"]))
+        updated = connection.execute(
+            f"UPDATE care_session SET {','.join(assignments)} "
+            "WHERE id=? AND status=? AND last_sequence=?",
+            values,
+        )
+        if updated.rowcount != 1:
+            connection.rollback()
+            return _error("care_session_storage_error")
+
+        session_row = _session_row(connection, session_id)
+        chunk = {
+            "id": chunk_id,
+            "sequence": sequence,
+            "status": final_status,
+            "created_at": created_at,
+            "reason_codes": analysis["reason_codes"],
+        }
+        if cry_presence:
+            chunk["cry_presence"] = cry_presence
+        result = _public_chunk_result(
+            {
+                "session": _render_with_profile(session_row, profile),
+                "chunk": chunk,
+            }
+        )
+        connection.execute(
+            "UPDATE care_session_chunk SET result_json=? WHERE id=?",
+            (json.dumps(result), chunk_id),
+        )
+        connection.commit()
+        return result
+    except sqlite3.Error:
+        connection.rollback()
+        return _error("care_session_storage_error")
+    finally:
+        connection.close()
 
 
 def _discard_paths(

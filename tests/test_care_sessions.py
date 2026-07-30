@@ -1,6 +1,7 @@
 """Persistent infant care-session state and privacy boundaries."""
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import tempfile
@@ -72,6 +73,125 @@ class CareSessionTests(unittest.TestCase):
                     "{}",
                 ),
             )
+
+    def _ingested(self, name, payload=b"source-audio"):
+        capture_dir = self.root / "managed" / name
+        capture_dir.mkdir(parents=True, exist_ok=True)
+        source = capture_dir / "source.webm"
+        canonical = capture_dir / "canonical.wav"
+        identity_audio = capture_dir / "identity.wav"
+        source.write_bytes(payload)
+        canonical.write_bytes(b"canonical-" + payload)
+        identity_audio.write_bytes(b"identity-" + payload)
+        return {
+            "status": "ready",
+            "source_path": str(source),
+            "canonical_path": str(canonical),
+            "identity_path": str(identity_audio),
+            "sha256": "caller-supplied-digest-must-not-be-trusted",
+            "quality": {
+                "duration_s": 12.0,
+                "mean_db": -31.5,
+                "peak_db": -8.0,
+                "voiced_fraction": 0.42,
+            },
+            "capture": {
+                "source": "microphone",
+                "device": "iPhone Safari",
+            },
+            "versions": {
+                "decode": "ffmpeg-pcm16-v1",
+                "normalization": "rms-24db-v1",
+            },
+        }
+
+    def _cry_result(self, status):
+        reasons = {
+            "infant_cry_detected": "infant_cry_evidence_strong",
+            "cry_uncertain": "infant_cry_evidence_borderline",
+            "no_cry_detected": "infant_cry_evidence_low",
+            "gate_unavailable": "cry_gate_model_unavailable",
+        }
+        return {
+            "status": status,
+            "label": (
+                "Infant-cry-like sound detected"
+                if status == "infant_cry_detected"
+                else None
+            ),
+            "reason_codes": [reasons[status]],
+            "analyzed_duration_s": 10.0,
+            "analysis_view_count": 1,
+            "model_version": "ast-audioset-baby-cry-v1",
+            "_infant_score": 0.91,
+            "_generic_cry_score": 0.12,
+        }
+
+    def _selected_identity(self, profile_id):
+        return {
+            "status": "match",
+            "profile_id": profile_id,
+            "display_name": "Baby A",
+            "kind": "infant",
+            "score": 0.99,
+            "margin": 0.31,
+            "embedding": [0.1, 0.2],
+            "candidates": [{"profile_id": profile_id, "score": 0.99}],
+            "reasons": ["accepted"],
+        }
+
+    def _no_guidance_preview(self, profile):
+        return {
+            "status": "preview",
+            "identity": {
+                "profile_id": profile["id"],
+                "display_name": profile["display_name"],
+                "kind": "infant",
+            },
+            "scenarios": [],
+            "guidance": {
+                "status": "insufficient_history",
+                "headline": "Not enough history yet",
+                "recommendation": None,
+                "incident_ids": [],
+            },
+            "_canonical_audio": "/private/internal.wav",
+            "_current_context": {"hour_local": 3},
+        }
+
+    def _session_db_value(self, session_id, field):
+        with sqlite3.connect(self.db) as connection:
+            row = connection.execute(
+                f"SELECT {field} FROM care_session WHERE id=?",
+                (session_id,),
+            ).fetchone()
+        return row[0]
+
+    def assert_public_result_has_no_sensitive_analysis(self, value):
+        forbidden = (
+            "score",
+            "margin",
+            "digest",
+            "path",
+            "embedding",
+            "candidate",
+        )
+
+        def visit(item):
+            if isinstance(item, dict):
+                for key, child in item.items():
+                    lowered = str(key).casefold()
+                    self.assertFalse(
+                        any(term in lowered for term in forbidden),
+                        f"sensitive key was public: {key}",
+                    )
+                    self.assertFalse(lowered.startswith("_"))
+                    visit(child)
+            elif isinstance(item, list):
+                for child in item:
+                    visit(child)
+
+        visit(value)
 
     def assert_error(self, result, reason):
         self.assertEqual({"status": "error", "reason": reason}, result)
@@ -439,7 +559,9 @@ class CareSessionTests(unittest.TestCase):
                         "outcome_src": "caregiver",
                         "worked": True,
                         "contributions": ["occurred at a similar time of day"],
-                        "audio_url": "/api/audio/episodes/101",
+                        "audio_url": (
+                            f"/api/profiles/{profile['id']}/incidents/101/audio"
+                        ),
                     }
                 ],
             },
@@ -460,6 +582,491 @@ class CareSessionTests(unittest.TestCase):
             },
             set(snapshot),
         )
+
+    def test_chunk_sequence_starts_at_one_and_rejects_gaps(self):
+        profile = self._profile()
+        session = care_sessions.create(profile["id"], db_path=self.db)
+        with (
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions, "careflow", create=True) as careflow,
+            patch.object(care_sessions.identity, "identify") as identify,
+        ):
+            first_gap = care_sessions.submit_chunk(
+                session["id"],
+                2,
+                self._ingested("gap-first"),
+                self.db,
+            )
+            cry_gate.classify.return_value = self._cry_result("no_cry_detected")
+            accepted = care_sessions.submit_chunk(
+                session["id"],
+                1,
+                self._ingested("accepted"),
+                self.db,
+            )
+            later_gap = care_sessions.submit_chunk(
+                session["id"],
+                3,
+                self._ingested("gap-later"),
+                self.db,
+            )
+
+        self.assert_error(first_gap, "out_of_order_chunk")
+        self.assertEqual("no_cry_detected", accepted["chunk"]["status"])
+        self.assertEqual(1, accepted["chunk"]["sequence"])
+        self.assertEqual(1, accepted["session"]["last_sequence"])
+        self.assert_error(later_gap, "out_of_order_chunk")
+        self.assertEqual(1, care_sessions.get(session["id"], self.db)["last_sequence"])
+        identify.assert_not_called()
+        careflow.preview_profile_incident.assert_not_called()
+
+    def test_identical_replay_returns_original_result_after_later_state_changes(self):
+        profile = self._profile()
+        session = care_sessions.create(profile["id"], db_path=self.db)
+        first_ingest = self._ingested("first-original", b"same-segment")
+        replay_ingest = self._ingested("first-replay", b"same-segment")
+        second_ingest = self._ingested("second", b"later-segment")
+        grounded = {
+            "status": "preview",
+            "identity": {
+                "profile_id": profile["id"],
+                "display_name": "Baby A",
+                "kind": "infant",
+            },
+            "scenarios": [
+                {
+                    "episode_id": 101,
+                    "started_at": "2026-07-27T20:04:00-04:00",
+                    "interventions": [
+                        {
+                            "order": 1,
+                            "action": "held baby upright",
+                            "evidence": "held baby upright",
+                        }
+                    ],
+                    "outcome": "The baby settled.",
+                    "outcome_src": "caregiver",
+                    "worked": True,
+                    "contributions": ["cry pattern was the strongest available signal"],
+                    "audio_url": (
+                        f"/api/profiles/{profile['id']}/incidents/101/audio"
+                    ),
+                }
+            ],
+            "guidance": {
+                "status": "grounded",
+                "headline": "What helped before",
+                "interpretation": "This resembles earlier incidents.",
+                "recommendation": "What helped before: held baby upright.",
+                "evidence_summary": "Supported by 1 similar recorded incident.",
+                "support_count": 1,
+                "incident_ids": [101],
+                "pattern": None,
+            },
+        }
+        with (
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions.identity, "identify") as identify,
+            patch.object(care_sessions, "careflow", create=True) as careflow,
+        ):
+            cry_gate.classify.side_effect = [
+                self._cry_result("no_cry_detected"),
+                self._cry_result("infant_cry_detected"),
+            ]
+            identify.return_value = self._selected_identity(profile["id"])
+            careflow.preview_profile_incident.return_value = grounded
+            original = care_sessions.submit_chunk(
+                session["id"],
+                1,
+                first_ingest,
+                self.db,
+            )
+            later = care_sessions.submit_chunk(
+                session["id"],
+                2,
+                second_ingest,
+                self.db,
+            )
+            replay = care_sessions.submit_chunk(
+                session["id"],
+                1,
+                replay_ingest,
+                self.db,
+            )
+
+        self.assertEqual("guidance_latched", later["chunk"]["status"])
+        self.assertEqual(original, replay)
+        self.assertEqual(1, replay["session"]["last_sequence"])
+        self.assertIsNone(replay["session"]["decision"])
+        self.assertEqual(2, cry_gate.classify.call_count)
+
+    def test_repeated_sequence_with_different_bytes_is_a_conflict(self):
+        profile = self._profile()
+        session = care_sessions.create(profile["id"], db_path=self.db)
+        with (
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions.identity, "identify") as identify,
+        ):
+            cry_gate.classify.return_value = self._cry_result("no_cry_detected")
+            care_sessions.submit_chunk(
+                session["id"],
+                1,
+                self._ingested("conflict-original", b"original"),
+                self.db,
+            )
+            conflict = care_sessions.submit_chunk(
+                session["id"],
+                1,
+                self._ingested("conflict-replacement", b"replacement"),
+                self.db,
+            )
+
+        self.assert_error(conflict, "sequence_conflict")
+        self.assertEqual(1, cry_gate.classify.call_count)
+        identify.assert_not_called()
+
+    def test_chunks_are_rejected_outside_listening_state(self):
+        profile = self._profile()
+        sessions = {}
+        for state in ("paused", "awaiting_outcome", "complete", "discarded"):
+            created = care_sessions.create(profile["id"], db_path=self.db)
+            self._set_session_state(created["id"], state)
+            sessions[state] = created
+
+        with (
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions.identity, "identify") as identify,
+        ):
+            for state, session in sessions.items():
+                with self.subTest(state=state):
+                    result = care_sessions.submit_chunk(
+                        session["id"],
+                        1,
+                        self._ingested(f"state-{state}"),
+                        self.db,
+                    )
+                    self.assert_error(result, "invalid_care_session_transition")
+
+        cry_gate.classify.assert_not_called()
+        identify.assert_not_called()
+
+    def test_invalid_ingest_and_nonpositive_sequences_fail_before_gate(self):
+        profile = self._profile()
+        session = care_sessions.create(profile["id"], db_path=self.db)
+        with (
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions.identity, "identify") as identify,
+        ):
+            invalid_sequence = care_sessions.submit_chunk(
+                session["id"],
+                0,
+                self._ingested("invalid-sequence"),
+                self.db,
+            )
+            invalid_ingest = care_sessions.submit_chunk(
+                session["id"],
+                1,
+                {
+                    "status": "invalid",
+                    "reason": "decode_failed",
+                    "source_path": str(self.root / "managed" / "broken.webm"),
+                    "sha256": "not-public",
+                },
+                self.db,
+            )
+
+        self.assert_error(invalid_sequence, "invalid_chunk_sequence")
+        self.assertEqual("invalid", invalid_ingest["chunk"]["status"])
+        self.assertEqual(["decode_failed"], invalid_ingest["chunk"]["reason_codes"])
+        cry_gate.classify.assert_not_called()
+        identify.assert_not_called()
+        self.assertEqual(1, care_sessions.get(session["id"], self.db)["last_sequence"])
+
+    def test_chunk_capture_time_precedes_inference_and_audit_metadata_is_persisted(self):
+        profile = self._profile()
+        session = care_sessions.create(profile["id"], db_path=self.db)
+        ingested = self._ingested("audit", b"authoritative-source-bytes")
+        events = []
+        captured_at = "2026-07-30T03:15:00-04:00"
+
+        def stamp():
+            events.append("timestamp")
+            return captured_at
+
+        def classify(_audio_path):
+            events.append("cry_gate")
+            return self._cry_result("no_cry_detected")
+
+        with (
+            patch.object(care_sessions, "_now", side_effect=stamp),
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions.identity, "identify") as identify,
+        ):
+            cry_gate.classify.side_effect = classify
+            result = care_sessions.submit_chunk(
+                session["id"],
+                1,
+                ingested,
+                self.db,
+            )
+
+        with sqlite3.connect(self.db) as connection:
+            connection.row_factory = sqlite3.Row
+            row = connection.execute(
+                "SELECT * FROM care_session_chunk WHERE session_id=? AND sequence=1",
+                (session["id"],),
+            ).fetchone()
+
+        self.assertEqual(["timestamp", "cry_gate"], events)
+        self.assertEqual(captured_at, result["chunk"]["created_at"])
+        self.assertEqual(captured_at, row["created_at"])
+        self.assertEqual(
+            hashlib.sha256(b"authoritative-source-bytes").hexdigest(),
+            row["audio_sha256"],
+        )
+        self.assertNotEqual(ingested["sha256"], row["audio_sha256"])
+        self.assertEqual(ingested["capture"], json.loads(row["capture_metadata_json"]))
+        self.assertEqual(ingested["quality"], json.loads(row["quality_json"]))
+        self.assertEqual(result, json.loads(row["result_json"]))
+        identify.assert_not_called()
+
+    def test_nonpositive_cry_gate_results_never_run_identity_or_history(self):
+        profile = self._profile()
+        with (
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions.identity, "identify") as identify,
+            patch.object(care_sessions, "careflow", create=True) as careflow,
+        ):
+            for index, gate_status in enumerate(
+                ("no_cry_detected", "cry_uncertain", "gate_unavailable"),
+                start=1,
+            ):
+                session = care_sessions.create(profile["id"], db_path=self.db)
+                cry_gate.classify.return_value = self._cry_result(gate_status)
+                result = care_sessions.submit_chunk(
+                    session["id"],
+                    1,
+                    self._ingested(f"gate-{index}"),
+                    self.db,
+                )
+                expected = "invalid" if gate_status == "gate_unavailable" else gate_status
+                self.assertEqual(expected, result["chunk"]["status"])
+                self.assertEqual(
+                    {
+                        key: value
+                        for key, value in self._cry_result(gate_status).items()
+                        if key
+                        in {
+                            "status",
+                            "label",
+                            "reason_codes",
+                            "analyzed_duration_s",
+                            "analysis_view_count",
+                            "model_version",
+                        }
+                    },
+                    result["chunk"]["cry_presence"],
+                )
+
+        identify.assert_not_called()
+        careflow.preview_profile_incident.assert_not_called()
+
+    def test_only_selected_profile_match_can_read_history_and_chunks_never_enroll(self):
+        selected = self._profile("Baby A")
+        other = self._profile("Baby B")
+        with (
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions.identity, "identify") as identify,
+            patch.object(care_sessions.identity, "enroll") as enroll,
+            patch.object(care_sessions.identity, "create_profile") as create_profile,
+            patch.object(care_sessions, "careflow", create=True) as careflow,
+        ):
+            cry_gate.classify.return_value = self._cry_result("infant_cry_detected")
+            identify.side_effect = [
+                self._selected_identity(other["id"]),
+                {
+                    "status": "uncertain",
+                    "reasons": ["below_accept_threshold"],
+                    "score": 0.7,
+                    "margin": 0.01,
+                    "candidates": [{"profile_id": selected["id"]}],
+                },
+                self._selected_identity(selected["id"]),
+            ]
+            careflow.preview_profile_incident.return_value = self._no_guidance_preview(
+                selected
+            )
+            results = []
+            for name in ("other", "uncertain", "selected"):
+                session = care_sessions.create(selected["id"], db_path=self.db)
+                results.append(
+                    care_sessions.submit_chunk(
+                        session["id"],
+                        1,
+                        self._ingested(f"identity-{name}"),
+                        self.db,
+                    )
+                )
+
+        self.assertEqual(
+            ["not_selected_profile", "not_selected_profile", "matched_no_guidance"],
+            [result["chunk"]["status"] for result in results],
+        )
+        self.assertEqual(3, identify.call_count)
+        for call, name in zip(identify.call_args_list, ("other", "uncertain", "selected")):
+            self.assertEqual(
+                (
+                    str(self.root / "managed" / f"identity-{name}" / "identity.wav"),
+                ),
+                call.args,
+            )
+            self.assertEqual(
+                {"kind": "infant", "db_path": self.db, "audit": True},
+                call.kwargs,
+            )
+        careflow.preview_profile_incident.assert_called_once_with(
+            selected["id"],
+            str(self.root / "managed" / "identity-selected" / "canonical.wav"),
+            explicit_tags=[],
+            now=results[2]["chunk"]["created_at"],
+            db_path=self.db,
+        )
+        enroll.assert_not_called()
+        create_profile.assert_not_called()
+
+    def test_first_grounded_guidance_latches_and_later_guidance_cannot_replace_it(self):
+        profile = self._profile("Baby A")
+        session = care_sessions.create(profile["id"], ["evening"], self.db)
+        scenario_a = {
+            "episode_id": 101,
+            "started_at": "2026-07-27T20:04:00-04:00",
+            "interventions": [
+                {
+                    "order": 1,
+                    "action": "held baby upright",
+                    "evidence": "held baby upright",
+                    "score": 0.99,
+                }
+            ],
+            "outcome": "The baby settled.",
+            "outcome_src": "caregiver",
+            "worked": True,
+            "contributions": [
+                "cry pattern was the strongest available signal",
+                "occurred at a similar time of day",
+            ],
+            "audio_url": f"/api/profiles/{profile['id']}/incidents/101/audio",
+            "components": {"score": 4.0},
+            "audio_path": "/private/episode.wav",
+            "embedding": [1.0],
+        }
+        scenario_b = {
+            **scenario_a,
+            "episode_id": 202,
+            "interventions": [
+                {
+                    "order": 1,
+                    "action": "walked around the room",
+                    "evidence": "walked around the room",
+                }
+            ],
+            "audio_url": f"/api/profiles/{profile['id']}/incidents/202/audio",
+        }
+        no_guidance = self._no_guidance_preview(profile)
+        guidance_a = {
+            "status": "preview",
+            "identity": no_guidance["identity"],
+            "scenarios": [scenario_a],
+            "guidance": {
+                "status": "grounded",
+                "headline": "What helped before",
+                "interpretation": "This resembles earlier incidents.",
+                "recommendation": "What helped before: held baby upright.",
+                "evidence_summary": "Supported by 1 similar recorded incident.",
+                "action": "held baby upright",
+                "support_count": 1,
+                "incident_ids": [101],
+                "outcomes": [
+                    {
+                        "incident_id": 101,
+                        "text": "settled",
+                        "source": "caregiver",
+                    }
+                ],
+                "pattern": "similar time of day",
+                "score": 0.99,
+            },
+        }
+        guidance_b = {
+            **guidance_a,
+            "scenarios": [scenario_b],
+            "guidance": {
+                **guidance_a["guidance"],
+                "recommendation": "What helped before: walked around the room.",
+                "action": "walked around the room",
+                "incident_ids": [202],
+            },
+        }
+        with (
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions.identity, "identify") as identify,
+            patch.object(care_sessions, "careflow", create=True) as careflow,
+        ):
+            cry_gate.classify.return_value = self._cry_result("infant_cry_detected")
+            identify.return_value = self._selected_identity(profile["id"])
+            careflow.preview_profile_incident.side_effect = [
+                no_guidance,
+                guidance_a,
+                guidance_b,
+            ]
+            first = care_sessions.submit_chunk(
+                session["id"],
+                1,
+                self._ingested("latch-1", b"one"),
+                self.db,
+            )
+            second = care_sessions.submit_chunk(
+                session["id"],
+                2,
+                self._ingested("latch-2", b"two"),
+                self.db,
+            )
+            third = care_sessions.submit_chunk(
+                session["id"],
+                3,
+                self._ingested("latch-3", b"three"),
+                self.db,
+            )
+
+        self.assertEqual("matched_no_guidance", first["chunk"]["status"])
+        self.assertEqual("guidance_latched", second["chunk"]["status"])
+        self.assertEqual(
+            "matched_guidance_already_latched",
+            third["chunk"]["status"],
+        )
+        decision = third["session"]["decision"]
+        self.assertEqual(
+            "What helped before: held baby upright.",
+            decision["guidance"]["recommendation"],
+        )
+        self.assertEqual([101], decision["guidance"]["incident_ids"])
+        self.assertEqual([101], [item["episode_id"] for item in decision["scenarios"]])
+        self.assertEqual(
+            f"/api/profiles/{profile['id']}/incidents/101/audio",
+            decision["scenarios"][0]["audio_url"],
+        )
+        self.assertEqual(second["chunk"]["id"], decision["id"])
+        self.assertEqual(
+            second["chunk"]["id"],
+            self._session_db_value(session["id"], "selected_chunk_id"),
+        )
+        self.assertEqual(
+            third["chunk"]["id"],
+            self._session_db_value(session["id"], "latest_matched_chunk_id"),
+        )
+        self.assert_public_result_has_no_sensitive_analysis(first)
+        self.assert_public_result_has_no_sensitive_analysis(second)
+        self.assert_public_result_has_no_sensitive_analysis(third)
 
     def test_discard_deletes_only_files_beneath_managed_root(self):
         profile = self._profile()
