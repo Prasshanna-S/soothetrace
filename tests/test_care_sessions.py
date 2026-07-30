@@ -1655,6 +1655,53 @@ class CareSessionTests(unittest.TestCase):
         self.assertEqual(first, second)
         transcribe.assert_called_once_with(latest["canonical_path"])
 
+    def test_demo_baby_completion_saves_typed_follow_up_without_blocking_transcription(self):
+        profile = self._profile("Demo Baby")
+        care_session = care_sessions.create(profile["id"], db_path=self.db)
+        matched = self._insert_matched_chunk(
+            care_session["id"],
+            profile["id"],
+            1,
+            "2026-07-30T12:30:00-04:00",
+            "demo-fast-save",
+        )
+        care_sessions.stop(care_session["id"], self.db)
+
+        with (
+            patch.object(
+                care_sessions.session.fingerprint,
+                "compute_windowed",
+                return_value=[0.0] * 87,
+            ),
+            patch.object(
+                care_sessions.session.fingerprint,
+                "duration_s",
+                return_value=5.0,
+            ),
+            patch.object(
+                care_sessions.session.speech,
+                "transcribe",
+                return_value="This should not run.",
+            ) as transcribe,
+        ):
+            result = care_sessions.complete(
+                care_session["id"],
+                "Held baby upright",
+                True,
+                notes="Calmed after two minutes",
+                db_path=self.db,
+            )
+
+        self.assertEqual("complete", result["session"]["status"])
+        episode = store.get_episode(result["incident"]["id"], self.db)
+        self.assertEqual(matched["id"], episode["context"]["selected_chunk_id"])
+        self.assertEqual(
+            "Typed caregiver follow-up: Action: Held baby upright "
+            "Settled: yes. Notes: Calmed after two minutes",
+            episode["transcript"],
+        )
+        transcribe.assert_not_called()
+
     def test_complete_recovers_one_saved_episode_after_a_transient_attach_failure(self):
         profile = self._profile()
         care_session = care_sessions.create(profile["id"], db_path=self.db)

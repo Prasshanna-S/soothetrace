@@ -240,6 +240,7 @@ def finish_structured(
     started_at: str,
     db_path: str | None = None,
     context_override: dict | None = None,
+    transcribe_audio: bool = True,
 ) -> dict:
     """Save one deterministic caregiver outcome for a representative segment."""
     clean_action = action.strip() if isinstance(action, str) else ""
@@ -263,7 +264,11 @@ def finish_structured(
     try:
         previous = store.latest_episode(subject_id.strip(), db_path)
         acoustic = fingerprint.compute_windowed(audio_path)
-        audio_transcript = speech.transcribe(audio_path).strip()
+        audio_transcript = (
+            speech.transcribe(audio_path).strip()
+            if transcribe_audio
+            else ""
+        )
         extracted = (
             speech.extract_interventions(audio_transcript)
             if audio_transcript

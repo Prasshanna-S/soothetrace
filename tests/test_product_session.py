@@ -432,6 +432,26 @@ class StructuredFinishTests(unittest.TestCase):
         self.assertEqual("caregiver", result["outcome_src"])
         transcribe.assert_called_once_with(self.audio_path)
 
+    def test_structured_finish_can_skip_audio_transcription_for_fast_demo_save(self):
+        result, transcribe = self._finish(transcribe_audio=False)
+
+        self.assertEqual(
+            "Typed caregiver follow-up: Action: Held baby upright. "
+            "Settled: yes. Notes: Settled in two minutes.",
+            result["transcript"],
+        )
+        self.assertEqual(
+            [
+                {
+                    "order": 1,
+                    "action": "Held baby upright.",
+                    "evidence": "Held baby upright.",
+                }
+            ],
+            result["interventions"],
+        )
+        transcribe.assert_not_called()
+
     def test_structured_finish_moves_an_earlier_exact_duplicate_to_the_end(self):
         result, _ = self._finish(
             _extracted_interventions=[

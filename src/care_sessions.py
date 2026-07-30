@@ -578,6 +578,9 @@ def _complete_claimed(
             "selected_chunk_id": chunk["id"],
             "profile_id": row["profile_id"],
         }
+        profile = identity.get_profile(row["profile_id"], db_path)
+        if not profile:
+            return _error("care_session_storage_error")
         profile_id = row["profile_id"]
     except sqlite3.Error:
         return _error("care_session_storage_error")
@@ -593,6 +596,9 @@ def _complete_claimed(
         started_at=started_at,
         db_path=db_path,
         context_override=episode_context,
+        transcribe_audio=(
+            profile.get("display_name") != config.CARE_DEMO_PROFILE_NAME
+        ),
     )
     episode_id = episode.get("id") if isinstance(episode, dict) else None
     if not _is_integer(episode_id):
