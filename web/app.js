@@ -230,11 +230,11 @@ const ORB_FRAG = [
   " vec3 col=mixOk(s2l(uC1),s2l(uC2),0.5+0.85*f);",
   " col=mixOk(col,s2l(uC3),clamp(0.5+0.9*q.x,0.0,1.0)*0.80);",
   " col=mixOk(col,s2l(uC4),clamp(0.5+0.9*s2.y,0.0,1.0)*0.62);",
-  " col*=0.92+0.15*z;",
+  " col*=0.97+0.05*z;",
   " col+=s2l(uC4)*pow(max(-N.y,0.0),2.2)*(1.0-z)*0.16;",
   " vec3 L=normalize(vec3(-0.46,0.60,0.66));",
   " float fres=pow(1.0-z,3.2);",
-  " col=mixOk(col,vec3(1.0),fres*0.06);",
+  " col=mixOk(col,vec3(1.0),fres*0.02);",
   " float d=max(dot(N,L),0.0);",
   " col+=vec3(1.0)*pow(d,3.0)*0.065;",
   " col+=vec3(1.0)*pow(d,52.0)*0.65;",
@@ -242,7 +242,7 @@ const ORB_FRAG = [
   " col=max(mix(vec3(lum),col,uSat),0.0);",
   " vec3 outc=l2s(col);",
   " float body=smoothstep(R,R-0.014,r);",
-  " float halo=exp(-max(r-R,0.0)*15.0)*0.15;",
+  " float halo=exp(-max(r-R,0.0)*18.0)*0.10;",
   " vec3 haloCol=l2s(mixOk(mixOk(s2l(uC2),s2l(uC3),0.5),vec3(1.0),0.34));",
   " vec3 rgb=mix(haloCol,outc,body);",
   " float a=max(body,halo*(1.0-body));",
@@ -971,11 +971,7 @@ function renderIncident(sc) {
   glyphbox.className = "glyphbox";
   const iconKey = actionIconFor((sc.interventions && sc.interventions[0] &&
                                  sc.interventions[0].action) || "");
-  const DISC_TINTS = { cuddle: "var(--peri)", feeding: "var(--butter)",
-    walk: "var(--blush)", sleeping: "var(--peri)", diaper: "var(--butter)",
-    bath: "var(--mint)", play: "var(--mint)", tummy: "var(--blush)" };
   if (iconKey) {
-    glyphbox.style.background = DISC_TINTS[iconKey] || "";
     const img = document.createElement("img");
     img.alt = "";
     slotImage(img, "action-" + iconKey, iconKey);
@@ -1132,7 +1128,6 @@ function initChips() {
     chip.setAttribute("aria-pressed", "false");
     const img = document.createElement("img");
     img.alt = "";
-    img.style.background = CHIP_TINTS[key] || "";
     slotImage(img, "action-" + key, key);
     const span = document.createElement("span");
     span.textContent = phrase;
