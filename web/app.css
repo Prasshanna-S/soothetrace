@@ -1012,7 +1012,10 @@ body[data-session="paused"] #health-pill { display: none; }
     animation: rise .3s cubic-bezier(.2, .7, .3, 1) both;
   }
 
-  #rec-chip { top: calc(var(--sat) + 22px); right: calc(var(--sar) + 18px); }
+  #rec-chip {
+    top: calc(var(--sat) + 27px);
+    right: calc(var(--sar) + 18px);
+  }
   #ctl-capsule { bottom: calc(var(--sab) + 14px); }
   /* ---- idle: orb left, actions right ---- */
   #page-listen[data-state="idle"] {
@@ -1034,7 +1037,7 @@ body[data-session="paused"] #health-pill { display: none; }
   /* ---- listening, nothing concluded: the orb holds the room ---- */
   #page-listen[data-state="listening"][data-decision="none"] #orb-wrap,
   #page-listen[data-state="paused"][data-decision="none"] #orb-wrap {
-    width: min(44vh, 210px);
+    width: min(56vh, 240px);
   }
 
   /* ---- latched: the bento ---- */

@@ -145,10 +145,10 @@ class PhoneCareScriptTests(unittest.TestCase):
                 self.assertIn(fragment, self.js)
         self.assertIn('"delete"', self.compact)
 
-    def test_capture_is_audio_only_and_uses_complete_twelve_second_files(self):
+    def test_capture_is_audio_only_and_uses_complete_six_second_files(self):
         """Video or timeslice fragments would violate the demo and decode contract."""
         lowered = self.js.lower()
-        self.assertIn("const care_segment_ms = 12000", lowered)
+        self.assertIn("const care_segment_ms = 6000", lowered)
         self.assertIn("const max_pending_segments = 1", lowered)
         self.assertIn("new mediarecorder(state.stream", lowered)
         self.assertNotRegex(lowered, r"\.start\s*\(\s*care_segment_ms")

@@ -19,7 +19,7 @@ This is not a presentation-release claim.
 - Requested audio-only microphone access, read applied track settings, and created the server
   care session before showing a live state.
 - Kept one MediaStream for each uninterrupted live stretch.
-- Produced complete independent MediaRecorder files every 12 seconds.
+- Produced complete independent MediaRecorder files every 6 seconds.
 - Added one active upload plus at most one completed waiting file.
 - Kept the same bytes and sequence across network retries.
 - Advanced the client sequence only from a server-accepted `last_sequence`.
@@ -40,6 +40,12 @@ This is not a presentation-release claim.
 - Expanded desktop to a real wide layout while keeping phone portrait and landscape layouts.
 - Changed WebGL to premultiplied transparent output and clipped the canvas itself so iOS cannot
   composite the orb as a white rectangle.
+- Primed Web Audio during the trusted Start and Resume clicks without blocking session startup,
+  reused the context when the microphone arrived, and retained the connected source until stop.
+- Mapped microphone RMS through the fixed-rig calibrated curve with separate attack and release
+  smoothing. This changes orb energy only and never changes cry status, color, or guidance.
+- Simplified the profile chip, aligned the live timer with it, and enlarged the orb in short
+  landscape without adding Pro Max scrolling.
 - Removed the simulated default path, hard-coded baby, client-authored safety advice, narrow
   desktop column, low-contrast secondary text, and undersized controls.
 
@@ -61,6 +67,14 @@ The Pro Max landscape regression exposed two separate overflow causes: the deskt
 activating on a short phone viewport, and the suggestion entrance transform extending below the
 visible page. The desktop breakpoint now requires sufficient height, and the transform animation
 is disabled only for short landscape.
+
+The live orb regression first measured the quiet and cry states as the same exported energy. The
+calibrated RMS curve then separated the fixed-rig floor from a loud cry while retaining server-only
+classification. A second regression exposed the old activation order as microphone first, context
+second. Web Audio is now primed before the microphone permission await.
+
+The accelerated segment contract failed while the client still rotated at 12 seconds. The
+validated 6-second constant made that focused test pass.
 
 ## Verification
 
@@ -87,9 +101,12 @@ The browser test verifies:
 - no suggestion or incident output for `no_cry_detected`;
 - synchronous replacement of the visible analysis phase label;
 - reason-aware listener copy for uneven, quiet, and unreadable segments;
+- quiet and cry microphone levels reaching distinct exported orb energy bands;
+- Web Audio priming before the first microphone permission await without blocking Start;
 - no CSP violation on the production policy;
 - no horizontal overflow at 430 by 932, 932 by 430, and 1440 by 900;
 - no vertical scroll in the plain or latched 932 by 430 Pro Max landscape view with safe areas;
+- an enlarged short-landscape orb and a timer centered with the active profile;
 - a desktop shell wider than a phone column.
 
 `git diff --check`, capture exclusion, and the web forbidden-dash scan passed.

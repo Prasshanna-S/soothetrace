@@ -92,6 +92,9 @@ const decision = {
 async function installBrowserFakes(page) {
   await page.addInitScript(() => {
     window.__getUserMediaCalls = 0;
+    window.__fakeAnalyserRms = 0.00045;
+    window.__audioContextResumeCalls = 0;
+    window.__audioActivationOrder = [];
     class FakeTrack extends EventTarget {
       constructor() {
         super();
@@ -143,10 +146,48 @@ async function installBrowserFakes(page) {
         this.dispatchEvent(new Event("stop"));
       }
     }
+    class FakeAudioContext {
+      constructor() {
+        window.__audioActivationOrder.push("context");
+        this.state = "suspended";
+      }
+      createMediaStreamSource() {
+        return {
+          connect() {},
+          disconnect() {},
+        };
+      }
+      createAnalyser() {
+        return {
+          fftSize: 512,
+          getFloatTimeDomainData(data) {
+            for (let i = 0; i < data.length; i++) {
+              data[i] = (i % 2 ? -1 : 1) * window.__fakeAnalyserRms;
+            }
+          },
+          getByteTimeDomainData(data) {
+            const offset = Math.round(window.__fakeAnalyserRms * 128);
+            for (let i = 0; i < data.length; i++) {
+              data[i] = 128 + (i % 2 ? -offset : offset);
+            }
+          },
+        };
+      }
+      resume() {
+        window.__audioActivationOrder.push("resume");
+        window.__audioContextResumeCalls += 1;
+        this.state = "running";
+        return new Promise(() => {});
+      }
+      async close() {
+        this.state = "closed";
+      }
+    }
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
       value: {
         getUserMedia: async () => {
+          window.__audioActivationOrder.push("getUserMedia");
           window.__getUserMediaCalls += 1;
           return new FakeStream();
         },
@@ -158,11 +199,11 @@ async function installBrowserFakes(page) {
     });
     Object.defineProperty(window, "AudioContext", {
       configurable: true,
-      value: undefined,
+      value: FakeAudioContext,
     });
     Object.defineProperty(window, "webkitAudioContext", {
       configurable: true,
-      value: undefined,
+      value: FakeAudioContext,
     });
   });
 }
@@ -345,6 +386,8 @@ async function runLivePath(browser) {
   await installRoutes(page, requests);
   await page.goto("http://care.test/", { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => !document.querySelector("#btn-start").disabled);
+  assert(await page.locator(".profile-label").count() === 0,
+    "visible Listening for title was not removed");
 
   const phaseStatus = await page.evaluate(() => {
     window.setAnalysis("Listening", 0);
@@ -384,6 +427,24 @@ async function runLivePath(browser) {
     "active baby remained switchable during an open session");
   assert(await page.evaluate(() => window.__getUserMediaCalls) === 1,
     "Start did not retain one MediaStream");
+  await page.waitForTimeout(180);
+  const quietEnergy = Number(await page.locator("#orb").getAttribute("data-energy"));
+  await page.evaluate(() => { window.__fakeAnalyserRms = 0.01; });
+  await page.waitForTimeout(360);
+  const cryEnergy = Number(await page.locator("#orb").getAttribute("data-energy"));
+  assert(quietEnergy <= 0.1 && cryEnergy >= 0.7,
+    `microphone energy was not visually distinct: quiet=${quietEnergy}, cry=${cryEnergy}`);
+  assert(await page.evaluate(() => window.__audioContextResumeCalls) === 1,
+    "suspended iOS AudioContext was not resumed");
+  const activationOrder = await page.evaluate(() => window.__audioActivationOrder);
+  assert(
+    activationOrder.indexOf("resume") < activationOrder.indexOf("getUserMedia"),
+    `AudioContext was not primed during the trusted click: ${activationOrder.join(",")}`
+  );
+  assert(await page.locator("#analysis-status").textContent() === "Listening",
+    "microphone energy changed the server-owned cry status");
+  assert(await page.locator("#suggestion-block").isHidden(),
+    "microphone energy created client-side guidance");
   assert(requests.created.length === 1 && requests.created[0].profile_id === 12,
     "session was not created for the selected infant");
   await page.evaluate(() => { window.__sameDocumentMarker = "kept"; });
@@ -487,6 +548,9 @@ async function landscapeMetrics(page) {
     const pageNode = document.querySelector("#page-listen");
     const pageRect = pageNode.getBoundingClientRect();
     const controls = document.querySelector("#ctl-capsule").getBoundingClientRect();
+    const profile = document.querySelector("#profile-control").getBoundingClientRect();
+    const recorder = document.querySelector("#rec-chip").getBoundingClientRect();
+    const orb = document.querySelector("#orb-wrap").getBoundingClientRect();
     const offenders = Array.from(document.querySelectorAll("body *"))
       .map((node) => {
         const rect = node.getBoundingClientRect();
@@ -533,6 +597,9 @@ async function landscapeMetrics(page) {
         .slice(0, 12),
       controlsTop: Math.round(controls.top),
       controlsBottom: Math.round(controls.bottom),
+      profileCenter: Math.round(profile.top + profile.height / 2),
+      recorderCenter: Math.round(recorder.top + recorder.height / 2),
+      orbWidth: Math.round(orb.width),
       offenders,
     };
   });
@@ -547,6 +614,7 @@ async function runLandscapeListeningFit(browser) {
   await page.waitForFunction(() => !document.querySelector("#btn-start").disabled);
   await page.click("#btn-start");
   await page.waitForSelector('body[data-session="listening"]');
+  await page.waitForTimeout(700);
 
   const plain = await landscapeMetrics(page);
   assert(
@@ -558,6 +626,14 @@ async function runLandscapeListeningFit(browser) {
   assert(
     plain.controlsTop >= 0 && plain.controlsBottom <= plain.innerHeight,
     `landscape controls are clipped: ${JSON.stringify(plain)}`
+  );
+  assert(
+    Math.abs(plain.profileCenter - plain.recorderCenter) <= 4,
+    `landscape timer is not aligned with the baby profile: ${JSON.stringify(plain)}`
+  );
+  assert(
+    plain.orbWidth >= 220,
+    `landscape listening orb remained too small: ${JSON.stringify(plain)}`
   );
 
   await page.evaluate((serverDecision) => {

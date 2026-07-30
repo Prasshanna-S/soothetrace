@@ -2,7 +2,7 @@
    Cry Memory - continuous care client. Listen page, full fidelity.
 
    The capture engine and minimum care-session routes are connected. One retained
-   microphone stream produces independent 12 second files. A failed upload keeps
+   microphone stream produces independent 6 second files. A failed upload keeps
    the same bytes and sequence until the server accepts or rejects that file.
 
    HONESTY RULES BAKED IN
@@ -36,7 +36,7 @@ const ICONS = {
 
 /* ------------------------------------------------------------- constants --- */
 
-const CARE_SEGMENT_MS = 12000;      // finalized recorder rotation, per the plan
+const CARE_SEGMENT_MS = 6000;       // conservative validated prototype window
 const MAX_PENDING_SEGMENTS = 1;     // one completed blob may wait, no more
 const HEALTH_POLL_MS = 4000;
 const UPLOAD_RETRY_MS = 850;
@@ -313,8 +313,10 @@ function createOrb(canvas) {
     resize();
     let pulse = 1;
     if (cur.breath > 0.05) {
-      const depth = 0.024 + level * 0.05;
-      pulse = 1 + depth * Math.sin((now / 1000) * (2 * Math.PI / cur.breath));
+      const depth = 0.018 + level * 0.020;
+      const energyLift = level * 0.070;
+      pulse = 1 + energyLift +
+        depth * Math.sin((now / 1000) * (2 * Math.PI / cur.breath));
     }
     canvas.style.transform = "scale(" + (cur.scale * pulse).toFixed(4) + ")";
     gl.uniform2f(U.uRes, canvas.width, canvas.height);
@@ -337,7 +339,10 @@ function createOrb(canvas) {
       tgt = { c: s.c.map(hex), warp: s.warp, speed: s.speed, sat: s.sat,
               breath: s.breath, scale: s.scale };
     },
-    setLevel(v) { level = Math.max(0, Math.min(1, v)); },
+    setLevel(v) {
+      level = Math.max(0, Math.min(1, v));
+      canvas.dataset.energy = level.toFixed(3);
+    },
   };
 }
 
@@ -365,6 +370,7 @@ const state = {
   recorder: null,
   recorderStopper: null,
   audioCtx: null,
+  audioSource: null,
   analyser: null,
   levelTimer: null,
   rotateTimer: null,
@@ -553,7 +559,7 @@ function showConnectionLoss() {
 function hideConnectionLoss() { show(ui.connectionBanner, false); }
 
 /* ============================================================ capture engine
-   One MediaStream for the whole session. Every 12 seconds the current recorder
+   One MediaStream for the whole session. Every 6 seconds the current recorder
    is stopped so its blob is a COMPLETE standalone file, and the next recorder
    starts on the same stream immediately. start(timeslice) fragments are never
    used as independent files, because only the first carries container headers. */
@@ -565,6 +571,23 @@ function pickRecorderMime() {
     if (MediaRecorder.isTypeSupported(candidate)) return candidate;
   }
   return "";
+}
+
+function primeLevelContext() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    if (!state.audioCtx || state.audioCtx.state === "closed") {
+      state.audioCtx = new Ctx();
+    }
+    if (state.audioCtx.state === "suspended" &&
+        typeof state.audioCtx.resume === "function") {
+      Promise.resolve(state.audioCtx.resume()).catch(() => {});
+    }
+    return state.audioCtx;
+  } catch (error) {
+    return null;
+  }
 }
 
 async function acquireStream() {
@@ -614,20 +637,40 @@ function startLevelMeter(stream) {
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
-    state.audioCtx = new Ctx();
-    const source = state.audioCtx.createMediaStreamSource(stream);
+    if (!state.audioCtx || state.audioCtx.state === "closed") {
+      state.audioCtx = new Ctx();
+    }
+    state.audioSource = state.audioCtx.createMediaStreamSource(stream);
     state.analyser = state.audioCtx.createAnalyser();
     state.analyser.fftSize = 512;
-    source.connect(state.analyser);
-    const data = new Uint8Array(state.analyser.fftSize);
+    state.audioSource.connect(state.analyser);
+    const useFloat = typeof state.analyser.getFloatTimeDomainData === "function";
+    const data = useFloat
+      ? new Float32Array(state.analyser.fftSize)
+      : new Uint8Array(state.analyser.fftSize);
+    let energy = 0;
     state.levelTimer = setInterval(() => {
-      state.analyser.getByteTimeDomainData(data);
+      if (state.audioCtx.state !== "running") {
+        energy += (0 - energy) * 0.14;
+        ui.orb.dataset.energy = energy.toFixed(3);
+        if (orb) orb.setLevel(energy);
+        return;
+      }
+      if (useFloat) state.analyser.getFloatTimeDomainData(data);
+      else state.analyser.getByteTimeDomainData(data);
       let sum = 0;
       for (let i = 0; i < data.length; i++) {
-        const v = (data[i] - 128) / 128;
+        const v = useFloat ? data[i] : (data[i] - 128) / 128;
         sum += v * v;
       }
-      if (orb) orb.setLevel(Math.min(1, Math.sqrt(sum / data.length) * 3.4));
+      const rms = Math.sqrt(sum / data.length);
+      const db = 20 * Math.log10(Math.max(rms, 0.0000001));
+      const linear = Math.max(0, Math.min(1, (db + 60) / 30));
+      const target = Math.pow(linear, 0.65);
+      const response = target > energy ? 0.65 : 0.14;
+      energy += (target - energy) * response;
+      ui.orb.dataset.energy = energy.toFixed(3);
+      if (orb) orb.setLevel(energy);
     }, 90);
   } catch (error) { /* the level meter is decoration, never required */ }
 }
@@ -635,6 +678,11 @@ function startLevelMeter(stream) {
 function stopLevelMeter() {
   clearInterval(state.levelTimer);
   state.levelTimer = null;
+  if (state.audioSource) {
+    try { state.audioSource.disconnect(); } catch (e) {}
+    state.audioSource = null;
+  }
+  ui.orb.dataset.energy = "0.000";
   if (orb) orb.setLevel(0);
   if (state.audioCtx) { try { state.audioCtx.close(); } catch (e) {} state.audioCtx = null; }
   state.analyser = null;
@@ -979,6 +1027,7 @@ function setTransitionBusy(busy) {
 async function startListening() {
   if (state.session !== "idle" || state.transitionBusy ||
       !state.healthReady || !state.selectedProfile) return;
+  primeLevelContext();
   setTransitionBusy(true);
   showError("");
   setSessionState("requesting");
@@ -1085,6 +1134,7 @@ async function enterPaused(fromInterruption) {
 
 async function resumeListening() {
   if (state.session !== "paused" || state.transitionBusy) return;
+  primeLevelContext();
   setTransitionBusy(true);
   show(ui.interruptedBanner, false);
   try {
@@ -1555,7 +1605,10 @@ document.addEventListener("visibilitychange", () => {
     show(ui.interruptedBanner, true);
     enterPaused(true);
   }
-  if (!document.hidden && state.session === "listening") holdScreenAwake();
+  if (!document.hidden && state.session === "listening") {
+    primeLevelContext();
+    holdScreenAwake();
+  }
 });
 
 ui.start.addEventListener("click", startListening);
