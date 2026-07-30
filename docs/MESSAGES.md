@@ -4383,3 +4383,261 @@ The release candidate therefore has both the previously recorded macOS and brows
 native Windows execution evidence. O8 is complete.
 
 STATUS: O8 DONE, Windows release gate passed
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 continuous care demo claimed
+
+The owner approved the persistent care-listening build and the first-grounded-guidance latch.
+The complete design is:
+
+`docs/superpowers/specs/2026-07-30-continuous-care-demo-design.md`
+
+Claude's browser-only functional handoff is:
+
+`docs/CLAUDE-FRONTEND-HANDOFF-CARE-DEMO.md`
+
+O9 adds a care-session facade rather than reusing live participant sessions. Adjacent recording
+segments are correlated and must never enroll, reinforce, or satisfy an independent identity
+retry. Each segment is a non-enrolling mismatch guard against the full infant pool. Only a match
+to the caregiver-selected infant may read that profile's history.
+
+The owner explicitly authorized the functional build, including additive care-session and
+care-event persistence that crosses the earlier schema and store ownership table. The product
+workstream will implement and test those backend changes. Claude retains visual ownership of
+`web/` and should use the handoff above without editing backend or threshold files.
+
+The checked-in Baby 1 assets do not yet prove the requested two-pattern live choreography. The
+candidate order is clip 02 for the five-memory no-suggestion beat, clip 06 for mature pattern A,
+clip 04 for mature pattern B, and clip 05 reserved for retry. It remains a candidate until five
+consecutive fixed-rig passes produce different, disjoint supported memories without changing
+thresholds.
+
+STATUS: O9 in progress, approved design recorded, backend planning next
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 cry gate and full history detail added
+
+The owner added two release-critical requirements before Claude begins:
+
+- infant care sessions must pass a local, non-generative cry-presence gate before identity or
+  history; speech, music, silence, and ordinary environmental sounds must produce no result;
+- chronological history must open into a full incident view with representative audio, caregiver
+  transcript, literal speech excerpts, context, outcome, and provenance.
+
+Both requirements and their exact public states are now part of:
+
+`docs/superpowers/specs/2026-07-30-continuous-care-demo-design.md`
+
+Claude's matching browser contract is updated at:
+
+`docs/CLAUDE-FRONTEND-HANDOFF-CARE-DEMO.md`
+
+The first cry-gate candidate is the local AudioSet AST infant-cry class, subject to measured
+positive and adversarial-negative calibration. It fails closed and is not a cause classifier.
+
+STATUS: O9 specification expanded, cry-gate spike and implementation plan in progress
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 implementation plan
+
+The task-by-task TDD build plan for the approved continuous care demo is:
+
+`docs/superpowers/plans/2026-07-30-continuous-care-demo.md`
+
+It covers the local infant-cry gate, persistent care sessions, chunk isolation, first-guidance
+latch, exactly-once structured completion, transcript-rich profile history, complete HTTP surface,
+deterministic demo gate, Claude browser integration, iPhone verification, and Windows release.
+
+STATUS: O9 plan written, self-review next
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 cry-gate spike complete
+
+The measured local infant cry-presence model spike is:
+
+`docs/CRY-GATE-SPIKE-2026-07-30.md`
+
+The selected provisional strong rule uses one centered AST view, an absolute infant threshold,
+and dominance over the generic crying class. It accepted 40 of 40 ESC-50 baby-cry clips, rejected
+245 of 245 sampled ESC-50 environmental clips, accepted 14 of 18 checked-in infant clips, and
+rejected 10 of 10 checked-in adult imitations. Short-window maximum aggregation was rejected
+because it accepted 4 to 5 of 10 adult imitations.
+
+STATUS: spike complete, measured rule copied into O9 spec and plan
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 plan self-review passed
+
+The O9 plan now covers every approved spec section. Placeholder, type-name, forbidden-dash,
+public-metric-leakage, and cross-task interface scans passed. The measured AST rule replaced the
+earlier unvalidated threshold draft everywhere, including Claude's rendering contract.
+
+STATUS: implementation may begin task by task
+
+---
+
+## [2026-07-30] browser workstream to product workstream | Listen page static build complete
+
+Task 8 Step 1 is done ahead of the wiring: web/ on this branch is now the care client, built to
+the handoff and the O9 plan. 26 static contract tests in tests/test_web_client.py, all green,
+plus node --check. The old operator-console suite described files that no longer exist on this
+branch, so this file is its coordinated replacement per the plan's Task 8 file list. The .mjs
+behavior tests arrive with API wiring.
+
+What is real today: the capture engine. One MediaStream, finalized recorder rotation at
+CARE_SEGMENT_MS = 12000 with argument-free recorder.start() per segment, MAX_PENDING_SEGMENTS = 1
+queue discipline, wall clock elapsed time, wake lock, track mute/unmute/ended handling, playback
+blocking while live. What is deliberately not wired: every care-session route, behind a single
+ROUTES_GREEN = false constant at the top of app.js. Start listening stays gated on
+health.care.ready, which an unwired server never reports, so the untouched flow cannot pretend.
+
+Every server-fed state is reachable through two labelled harnesses that drive the production
+render paths with the spec example payload: ?preview=1 (step-through) and ?mock=STATE (direct,
+for screenshots and review). Both show a permanent simulation ribbon.
+
+Rendering notes the wiring should keep: the first grounded decision latches immutably until Stop
+(guarded in latchDecision), cry-presence strings are the exact handoff copy, guidance fields
+render verbatim via textContent, the tile label dedupes only an exact leading repeat of the
+headline inside the recommendation, and no dynamic string ever reaches innerHTML.
+
+The owner supplied two art systems that now live in the repo: a monoline icon sheet (embedded as
+data URIs in app.js) and 3D objects extracted to web/img/ (plus web/img/lib/ for the full set).
+Named slots resolve web/img/<slot>.png with automatic fallback to the monoline glyph, so art can
+be swapped with zero code changes.
+
+Request: when the routes go green per plan Step 9, say so here and I flip ROUTES_GREEN and wire
+chunks, sessions, complete, and discard against the shapes in the spec. The complete form already
+matches: action <= 500, settled true/false/null, notes <= 1000, up to 20 tags.
+
+STATUS: Listen static build DONE, History and Baby next, wiring blocked on routes green
+
+---
+
+## [2026-07-30] browser workstream to product workstream | The files ARE the implementation
+
+To be explicit about integration: web/index.html, web/app.css, web/app.js, web/manifest.webmanifest
+and web/img/ on this branch are the shipped client, not a reference to recreate. Wiring means
+editing THESE files: flip ROUTES_GREEN in app.js and fill the marked fetch bodies. Nothing about
+the visual layer needs rebuilding, and any parallel reimplementation would drift from what the
+owner has been approving screen by screen.
+
+Latest visual pass, all owner-directed: the header is the baby chip plus the docked timer on one
+line (the "Listening for" kicker is gone), portrait keeps Pause and Stop bottom center in every
+state, and short landscape with a latched decision is a scaled bento: guidance card left with
+display type and the large action object, basis and the collapsed incidents tab in the right rail,
+controls in the corner. The capture harness (web/capture.html, untracked) plus ?mock and &bare=1
+regenerate any Figma or screenshot artifact.
+
+STATUS: FYI, integrate by editing the shipped files, not by rebuilding from the spec
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 Task 2 care sessions
+
+Task 2 adds the approved additive care-session schema and persistent infant-only state machine.
+Implementation, TDD evidence, verification, self-review, and concerns are recorded in:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-2-report.md`
+
+STATUS: Task 2 verified, commit pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 Task 2 review fixes
+
+Task 2 round 1 now claims discard before cleanup, reports and recovers cleanup failures honestly,
+uses an explicit recursive decision schema, and makes concurrent Stop idempotent. Updated evidence
+and the multi-file partial-cleanup policy are recorded in:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-2-report.md`
+
+STATUS: Task 2 round 1 fixes verified, commit pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 Task 3 rolling chunks
+
+Task 3 adds ordered, idempotent rolling infant chunk analysis, cry-before-identity gating,
+selected-profile-only history, and the first-grounded-guidance latch. Implementation, TDD
+evidence, verification, self-review, and concerns are recorded in:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-3-report.md`
+
+STATUS: Task 3 verified, commit pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 Task 3 review round 1
+
+Task 3 now claims each database, session, and sequence before cry, identity, or history inference.
+Concurrent identical submissions replay the winner and conflicting submissions return
+`sequence_conflict` without duplicate identity audit. Updated RED and GREEN evidence is in:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-3-report.md`
+
+STATUS: Task 3 review round 1 verified, commit pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 Task 4 structured completion
+
+Task 4 adds deterministic structured caregiver outcomes, representative matched-chunk selection,
+the shared completion/discard mutation lock, persistent exactly-once recovery, and the restricted
+completion result. Implementation, TDD evidence, concurrency probes, full verification, and the
+single-process uniqueness boundary are recorded in:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-4-report.md`
+
+STATUS: Task 4 verified, commit pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 Task 4 review round 1
+
+Task 4 now removes an extracted exact duplicate of the structured caregiver action and always
+appends the literal typed action as the final intervention. Other extracted actions retain stable
+order. Updated RED and GREEN evidence is in:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-4-report.md`
+
+STATUS: Task 4 review round 1 verified, commit pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 minimum Listen routes green
+
+Task 6A adds only the phone-testable Listen HTTP surface and profile-scoped representative
+incident audio. The focused route class passed 10 of 10 tests. The final bounded HTTP, startup,
+end-to-end, and real-audio selection passed 12 tests with 1 fixed-rig fixture skip, and the
+existing recursive privacy regression passed 1 test. Python compilation, diff whitespace, changed
+scope, and forbidden dash checks passed.
+
+The owner approved accelerated test-build mode, so full unittest discovery is deferred to the
+background release review. History, incident detail JSON, Baby detail, and care-event routes
+remain pending Task 5 and the full Task 6.
+
+Implementation and verification details:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-6a-report.md`
+
+STATUS: O9 minimum Listen routes green; later history and detail routes remain pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 phone test client
+
+The first accelerated phone-testable Listen client now uses the live care-session routes, durable
+same-bytes and same-sequence retry, server-only cry states, latched verbatim guidance, structured
+Save and Discard, active infant selection, and responsive phone and desktop layouts. History and
+Baby remain explicitly limited until their routes exist.
+
+Implementation, focused tests, and exact remaining caveats:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-8-report.md`
+
+STATUS: experimental phone test client verified; physical iPhone run still required

@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import unittest
+import uuid
 import wave
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -30,7 +31,7 @@ def _wav_bytes(frequency=440.0, seconds=1.0):
 
 
 class ProductServer:
-    def __init__(self, encoder_status=None):
+    def __init__(self, encoder_status=None, cry_detector_status=None):
         from src import http_api
 
         self.temp = TemporaryDirectory()
@@ -55,6 +56,7 @@ class ProductServer:
             self.static_root,
             db_path=self.db_path,
             encoder_status=encoder_status,
+            cry_detector_status=cry_detector_status,
         )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -168,8 +170,13 @@ class HttpApiTests(unittest.TestCase):
 
         server = FakeServer()
         with (
-            patch.object(http_api, "build_http_server", return_value=server),
+            patch.object(
+                http_api,
+                "build_http_server",
+                return_value=server,
+            ) as build_server,
             patch.object(http_api.encoders, "warm", return_value={}),
+            patch.object(http_api.cry_gate, "warm", return_value=True) as warm_cry,
             redirect_stdout(io.StringIO()),
         ):
             try:
@@ -193,6 +200,11 @@ class HttpApiTests(unittest.TestCase):
 
         self.assertEqual(0, code)
         self.assertTrue(server.closed)
+        warm_cry.assert_called_once_with()
+        self.assertIs(
+            True,
+            build_server.call_args.kwargs["cry_detector_status"],
+        )
 
     def test_module_cli_rejects_plain_http_on_a_network_interface(self):
         from src import http_api
@@ -647,6 +659,638 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(safe_audio.read_bytes(), allowed["body"])
         self.assertEqual(404, denied["status"])
         self.assertEqual(404, traversal["status"])
+
+
+class CareSessionHttpApiTests(unittest.TestCase):
+    def setUp(self):
+        self.product = ProductServer(cry_detector_status=True)
+        self.addCleanup(self.product.close)
+
+    def _profile(self, name="Baby A", kind="infant"):
+        return self.product.json(
+            "POST",
+            "/api/profiles",
+            {"display_name": name, "kind": kind},
+        )["json"]["profile"]
+
+    def _care_session(self, profile_id=None, tags=None):
+        profile_id = profile_id or self._profile()["id"]
+        response = self.product.json(
+            "POST",
+            "/api/care-sessions",
+            {"profile_id": profile_id, "tags": tags or []},
+        )
+        self.assertEqual(201, response["status"], response)
+        return response["json"]["session"]
+
+    def _ingest_result(self, payload, status="ready", reason=None):
+        capture = self.product.data_root / "managed" / str(uuid.uuid4())
+        capture.mkdir(parents=True)
+        source = capture / "source.m4a"
+        source.write_bytes(payload)
+        result = {
+            "status": status,
+            "source_path": str(source),
+            "capture": {},
+        }
+        if status == "ready":
+            canonical = capture / "canonical.wav"
+            identity_path = capture / "identity.wav"
+            canonical.write_bytes(_wav_bytes())
+            identity_path.write_bytes(_wav_bytes())
+            result.update(
+                {
+                    "canonical_path": str(canonical),
+                    "identity_path": str(identity_path),
+                    "quality": {"duration_s": 1.0},
+                }
+            )
+        else:
+            result["reason"] = reason or "decode_failed"
+        return result
+
+    def test_health_uses_prewarmed_cry_status_without_warming_on_request(self):
+        from src import config, cry_gate, encoders, http_api, store
+
+        store.save_baseline(
+            config.POPULATION_KEY,
+            np.zeros(87),
+            np.ones(87),
+            421,
+            self.product.db_path,
+        )
+        with (
+            patch.object(http_api.encoders, "needs_baseline", return_value=True),
+            patch.object(
+                http_api.shutil,
+                "which",
+                side_effect=lambda name: "/usr/bin/ffmpeg" if name == "ffmpeg" else None,
+            ),
+            patch.object(cry_gate, "warm") as warm,
+        ):
+            ready_product = ProductServer(
+                encoder_status={
+                    encoders.MFCC87: True,
+                    encoders.ECAPA_CRY: True,
+                },
+                cry_detector_status=True,
+            )
+            self.addCleanup(ready_product.close)
+            store.save_baseline(
+                config.POPULATION_KEY,
+                np.zeros(87),
+                np.ones(87),
+                421,
+                ready_product.db_path,
+            )
+            ready = ready_product.request("GET", "/api/health")["json"]
+            unavailable_product = ProductServer(
+                encoder_status={
+                    encoders.MFCC87: True,
+                    encoders.ECAPA_CRY: True,
+                },
+                cry_detector_status=False,
+            )
+            self.addCleanup(unavailable_product.close)
+            store.save_baseline(
+                config.POPULATION_KEY,
+                np.zeros(87),
+                np.ones(87),
+                421,
+                unavailable_product.db_path,
+            )
+            unavailable = unavailable_product.request("GET", "/api/health")["json"]
+
+        self.assertIs(ready["care"]["ready"], True)
+        self.assertEqual(
+            {
+                "ready": True,
+                "model_version": config.CRY_GATE_MODEL_VERSION,
+            },
+            ready["care"]["cry_detector"],
+        )
+        self.assertIs(ready["whisper"], False)
+        self.assertIs(unavailable["care"]["ready"], False)
+        self.assertEqual(
+            {key: ready[key] for key in ready if key != "care"},
+            {key: unavailable[key] for key in unavailable if key != "care"},
+        )
+        warm.assert_not_called()
+
+    def test_care_readiness_requires_each_non_whisper_dependency(self):
+        from src import config, encoders, http_api, store
+
+        cases = (
+            ("ffmpeg", False, True, True, True, False),
+            ("database", True, False, True, True, False),
+            ("infant_encoder", True, True, False, True, False),
+            ("population_baseline", True, True, True, False, False),
+        )
+        for _, ffmpeg, database, infant, baseline, expected in cases:
+            with self.subTest(_):
+                product = ProductServer(
+                    encoder_status={
+                        encoders.MFCC87: infant,
+                        encoders.ECAPA_CRY: True,
+                    },
+                    cry_detector_status=True,
+                )
+                self.addCleanup(product.close)
+                if baseline:
+                    store.save_baseline(
+                        config.POPULATION_KEY,
+                        np.zeros(87),
+                        np.ones(87),
+                        421,
+                        product.db_path,
+                    )
+                if not database:
+                    Path(product.db_path).unlink()
+                with (
+                    patch.object(
+                        http_api.shutil,
+                        "which",
+                        side_effect=lambda name: (
+                            "/usr/bin/ffmpeg" if name == "ffmpeg" and ffmpeg else None
+                        ),
+                    ),
+                    patch.object(http_api.encoders, "needs_baseline", return_value=True),
+                    patch.object(http_api.store, "init_db") if not database else patch.object(
+                        http_api.store,
+                        "init_db",
+                        wraps=http_api.store.init_db,
+                    ),
+                ):
+                    payload = product.request("GET", "/api/health")["json"]
+                self.assertIs(payload["care"]["ready"], expected)
+
+    def test_create_read_and_transitions_are_profile_scoped_and_allowlisted(self):
+        from src import care_sessions, http_api
+
+        profile = self._profile()
+        imitation = self._profile("Adult", "human_imitation")
+        unavailable = ProductServer(cry_detector_status=False)
+        self.addCleanup(unavailable.close)
+        unavailable_profile = unavailable.json(
+            "POST",
+            "/api/profiles",
+            {"display_name": "Baby B", "kind": "infant"},
+        )["json"]["profile"]
+
+        blocked = unavailable.json(
+            "POST",
+            "/api/care-sessions",
+            {"profile_id": unavailable_profile["id"]},
+        )
+        wrong_kind = self.product.json(
+            "POST",
+            "/api/care-sessions",
+            {"profile_id": imitation["id"]},
+        )
+        malformed = self.product.request(
+            "POST",
+            "/api/care-sessions",
+            b"{",
+            {"Content-Type": "application/json", "Content-Length": "1"},
+        )
+        created = self.product.json(
+            "POST",
+            "/api/care-sessions",
+            {"profile_id": profile["id"], "tags": [" Evening ", "evening"]},
+        )
+
+        self.assertEqual(503, blocked["status"])
+        self.assertEqual("cry_detector_unavailable", blocked["json"]["reason"])
+        self.assertEqual(400, wrong_kind["status"])
+        self.assertEqual("invalid_care_session_profile", wrong_kind["json"]["reason"])
+        self.assertEqual(400, malformed["status"])
+        self.assertEqual(201, created["status"])
+        session = created["json"]["session"]
+        self.assertEqual(
+            {
+                "id",
+                "status",
+                "profile",
+                "started_at",
+                "paused_at",
+                "stopped_at",
+                "completed_at",
+                "last_sequence",
+                "tags",
+                "decision",
+            },
+            set(session),
+        )
+        self.assertEqual(["evening"], session["tags"])
+
+        read = self.product.request(
+            "GET",
+            f"/api/care-sessions/{session['id']}",
+        )
+        paused = self.product.json(
+            "POST",
+            f"/api/care-sessions/{session['id']}/pause",
+        )
+        conflict = self.product.json(
+            "POST",
+            f"/api/care-sessions/{session['id']}/pause",
+        )
+        resumed = self.product.json(
+            "POST",
+            f"/api/care-sessions/{session['id']}/resume",
+        )
+        stopped = self.product.json(
+            "POST",
+            f"/api/care-sessions/{session['id']}/stop",
+        )
+        stopped_again = self.product.json(
+            "POST",
+            f"/api/care-sessions/{session['id']}/stop",
+        )
+
+        self.assertEqual(200, read["status"])
+        self.assertEqual(200, paused["status"])
+        self.assertEqual(409, conflict["status"])
+        self.assertEqual("invalid_care_session_transition", conflict["json"]["reason"])
+        self.assertEqual(200, resumed["status"])
+        self.assertEqual(200, stopped["status"])
+        self.assertEqual(stopped["json"], stopped_again["json"])
+
+        internal = dict(care_sessions.get(session["id"], self.product.db_path))
+        internal["_score"] = 0.99
+        internal["embedding"] = [1.0]
+        internal["profile"] = {
+            **internal["profile"],
+            "source_path": "/secret",
+        }
+        with patch.object(http_api.care_sessions, "get", return_value=internal):
+            safe = self.product.request(
+                "GET",
+                f"/api/care-sessions/{session['id']}",
+            )["json"]
+        encoded = json.dumps(safe)
+        self.assertNotIn("_score", encoded)
+        self.assertNotIn("embedding", encoded)
+        self.assertNotIn("source_path", encoded)
+
+    def test_care_session_routes_require_exact_lengths_and_positive_ids(self):
+        paths = (
+            "/api/care-sessions/not-an-id",
+            "/api/care-sessions/0",
+            "/api/care-sessions/1/extra",
+            "/api/care-sessions/1/pause/extra",
+            "/api/profiles/1/incidents/2/audio/extra",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertEqual(404, self.product.request("GET", path)["status"])
+
+        for path in (
+            "/api/care-sessions/0/pause",
+            "/api/care-sessions/not-an-id/pause",
+            "/api/care-sessions/1/unknown",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(404, self.product.json("POST", path)["status"])
+
+    def test_chunk_accepts_raw_safari_mp4_and_returns_score_free_result(self):
+        from src import care_sessions, http_api
+
+        session = self._care_session()
+        raw = b"self-contained-safari-mp4"
+        ingested = self._ingest_result(raw)
+        with (
+            patch.object(
+                http_api.audio_ingest,
+                "ingest_audio",
+                return_value=ingested,
+            ) as ingest,
+            patch.object(
+                care_sessions.cry_gate,
+                "classify",
+                return_value={
+                    "status": "no_cry_detected",
+                    "label": None,
+                    "reason_codes": ["no_infant_cry_evidence"],
+                    "analyzed_duration_s": 1.0,
+                    "analysis_view_count": 1,
+                    "model_version": "ast-audioset-baby-cry-v1",
+                    "_infant_score": 0.01,
+                    "_generic_cry_score": 0.02,
+                },
+            ),
+        ):
+            response = self.product.request(
+                "POST",
+                f"/api/care-sessions/{session['id']}/chunks",
+                raw,
+                {
+                    "Content-Type": "audio/mp4; codecs=mp4a.40.2",
+                    "Content-Length": str(len(raw)),
+                    "X-Capture-Sequence": "1",
+                    "X-Capture-Source": "microphone",
+                    "X-Capture-Device": "iPhone Safari",
+                },
+            )
+
+        self.assertEqual(201, response["status"], response)
+        result = response["json"]
+        self.assertEqual(1, result["session"]["last_sequence"])
+        self.assertEqual("no_cry_detected", result["chunk"]["status"])
+        encoded = json.dumps(result)
+        for forbidden in (
+            "score",
+            "margin",
+            "digest",
+            "path",
+            "embedding",
+            "candidates",
+        ):
+            self.assertNotIn(forbidden, encoded)
+        ingest.assert_called_once_with(
+            raw,
+            "audio/mp4; codecs=mp4a.40.2",
+            capture_metadata={
+                "capture_device_name": "iPhone Safari",
+                "user_agent": "",
+            },
+            storage_root=self.product.data_root.resolve(),
+        )
+
+    def test_chunk_header_validation_happens_before_ingest(self):
+        from src import http_api
+
+        session = self._care_session()
+        cases = (None, "0", "-1", "1.5", "word")
+        with patch.object(http_api.audio_ingest, "ingest_audio") as ingest:
+            for value in cases:
+                headers = {
+                    "Content-Type": "audio/mp4",
+                    "Content-Length": "3",
+                }
+                if value is not None:
+                    headers["X-Capture-Sequence"] = value
+                with self.subTest(sequence=value):
+                    response = self.product.request(
+                        "POST",
+                        f"/api/care-sessions/{session['id']}/chunks",
+                        b"mp4",
+                        headers,
+                    )
+                    self.assertEqual(400, response["status"])
+                    self.assertEqual(
+                        "invalid_capture_sequence",
+                        response["json"]["reason"],
+                    )
+        ingest.assert_not_called()
+
+    def test_processed_invalid_chunk_advances_sequence_with_structured_422(self):
+        from src import http_api
+
+        session = self._care_session()
+        raw = b"undecodable-mp4"
+        ingested = self._ingest_result(raw, "invalid", "decode_failed")
+        with patch.object(
+            http_api.audio_ingest,
+            "ingest_audio",
+            return_value=ingested,
+        ):
+            response = self.product.request(
+                "POST",
+                f"/api/care-sessions/{session['id']}/chunks",
+                raw,
+                {
+                    "Content-Type": "audio/mp4",
+                    "Content-Length": str(len(raw)),
+                    "X-Capture-Sequence": "1",
+                },
+            )
+
+        self.assertEqual(422, response["status"], response)
+        self.assertEqual(1, response["json"]["session"]["last_sequence"])
+        self.assertEqual("invalid", response["json"]["chunk"]["status"])
+        self.assertEqual(
+            ["decode_failed"],
+            response["json"]["chunk"]["reason_codes"],
+        )
+        self.assertTrue(Path(ingested["source_path"]).is_file())
+
+    def test_duplicate_conflict_and_gap_do_not_orphan_managed_uploads(self):
+        from src import care_sessions, http_api
+
+        session = self._care_session()
+        accepted = self._ingest_result(b"same")
+        duplicate = self._ingest_result(b"same")
+        conflict = self._ingest_result(b"different")
+        gap = self._ingest_result(b"gap")
+        with (
+            patch.object(
+                http_api.audio_ingest,
+                "ingest_audio",
+                side_effect=(accepted, duplicate, conflict, gap),
+            ),
+            patch.object(
+                care_sessions.cry_gate,
+                "classify",
+                return_value={
+                    "status": "no_cry_detected",
+                    "reason_codes": ["no_infant_cry_evidence"],
+                    "model_version": "ast-audioset-baby-cry-v1",
+                },
+            ),
+        ):
+            first = self.product.request(
+                "POST",
+                f"/api/care-sessions/{session['id']}/chunks",
+                b"same",
+                {
+                    "Content-Type": "audio/mp4",
+                    "Content-Length": "4",
+                    "X-Capture-Sequence": "1",
+                },
+            )
+            replay = self.product.request(
+                "POST",
+                f"/api/care-sessions/{session['id']}/chunks",
+                b"same",
+                {
+                    "Content-Type": "audio/mp4",
+                    "Content-Length": "4",
+                    "X-Capture-Sequence": "1",
+                },
+            )
+            conflicting = self.product.request(
+                "POST",
+                f"/api/care-sessions/{session['id']}/chunks",
+                b"different",
+                {
+                    "Content-Type": "audio/mp4",
+                    "Content-Length": "9",
+                    "X-Capture-Sequence": "1",
+                },
+            )
+            out_of_order = self.product.request(
+                "POST",
+                f"/api/care-sessions/{session['id']}/chunks",
+                b"gap",
+                {
+                    "Content-Type": "audio/mp4",
+                    "Content-Length": "3",
+                    "X-Capture-Sequence": "3",
+                },
+            )
+
+        self.assertEqual(201, first["status"])
+        self.assertEqual(first["json"], replay["json"])
+        self.assertEqual(409, conflicting["status"])
+        self.assertEqual("sequence_conflict", conflicting["json"]["reason"])
+        self.assertEqual(409, out_of_order["status"])
+        self.assertEqual("out_of_order_chunk", out_of_order["json"]["reason"])
+        self.assertTrue(Path(accepted["source_path"]).parent.is_dir())
+        for redundant in (duplicate, conflict, gap):
+            self.assertFalse(Path(redundant["source_path"]).parent.exists())
+
+    def test_unexpected_chunk_failure_cleans_only_current_unsaved_ingest(self):
+        from src import http_api
+
+        session = self._care_session()
+        existing = self.product.data_root / "managed" / "existing"
+        existing.mkdir(parents=True)
+        existing_file = existing / "canonical.wav"
+        existing_file.write_bytes(_wav_bytes())
+        current = self._ingest_result(b"current")
+        with (
+            patch.object(
+                http_api.audio_ingest,
+                "ingest_audio",
+                return_value=current,
+            ),
+            patch.object(
+                http_api.care_sessions,
+                "submit_chunk",
+                return_value={
+                    "status": "error",
+                    "reason": "care_session_storage_error",
+                },
+            ),
+        ):
+            response = self.product.request(
+                "POST",
+                f"/api/care-sessions/{session['id']}/chunks",
+                b"current",
+                {
+                    "Content-Type": "audio/mp4",
+                    "Content-Length": "7",
+                    "X-Capture-Sequence": "1",
+                },
+            )
+
+        self.assertEqual(500, response["status"])
+        self.assertTrue(existing_file.is_file())
+        self.assertFalse(Path(current["source_path"]).parent.exists())
+
+    def test_complete_discard_and_profile_scoped_pcm_wav_audio(self):
+        from src import care_sessions, http_api, store
+
+        profile = self._profile()
+        session = self._care_session(profile["id"])
+        no_match = self.product.json(
+            "POST",
+            f"/api/care-sessions/{session['id']}/stop",
+        )
+        self.assertEqual(200, no_match["status"])
+        invalid = self.product.json(
+            "POST",
+            f"/api/care-sessions/{session['id']}/complete",
+            {"action": "", "settled": "yes"},
+        )
+        missing_match = self.product.json(
+            "POST",
+            f"/api/care-sessions/{session['id']}/complete",
+            {"action": "Held upright", "settled": True},
+        )
+        self.assertEqual(400, invalid["status"])
+        self.assertEqual("invalid_care_session_completion", invalid["json"]["reason"])
+        self.assertEqual(409, missing_match["status"])
+        self.assertEqual("no_matched_chunk", missing_match["json"]["reason"])
+
+        completed = {
+            "session": {
+                **care_sessions.get(session["id"], self.product.db_path),
+                "status": "complete",
+                "completed_at": "2026-07-30T12:00:00+00:00",
+                "_score": 0.9,
+            },
+            "incident": {
+                "id": 71,
+                "detail_url": f"/api/profiles/{profile['id']}/incidents/71",
+                "audio_path": "/secret",
+            },
+        }
+        with patch.object(
+            http_api.care_sessions,
+            "complete",
+            return_value=completed,
+        ):
+            saved = self.product.json(
+                "POST",
+                f"/api/care-sessions/{session['id']}/complete",
+                {
+                    "action": "Held upright",
+                    "settled": True,
+                    "notes": "Settled",
+                    "tags": ["evening"],
+                },
+            )
+        self.assertEqual(200, saved["status"])
+        self.assertEqual(
+            {"id", "detail_url"},
+            set(saved["json"]["incident"]),
+        )
+        self.assertNotIn("_score", json.dumps(saved["json"]))
+        self.assertNotIn("audio_path", json.dumps(saved["json"]))
+
+        discard_session = self._care_session(profile["id"])
+        discarded = self.product.request(
+            "DELETE",
+            f"/api/care-sessions/{discard_session['id']}",
+        )
+        discarded_again = self.product.request(
+            "DELETE",
+            f"/api/care-sessions/{discard_session['id']}",
+        )
+        self.assertEqual(200, discarded["status"])
+        self.assertEqual(discarded["json"], discarded_again["json"])
+
+        managed = self.product.data_root / "managed" / "incident"
+        managed.mkdir(parents=True)
+        arbitrary_name = managed / "representative-evidence.bin"
+        arbitrary_name.write_bytes(_wav_bytes())
+        incident_id = store.save_episode(
+            {
+                "subject_id": f"profile-{profile['id']}",
+                "audio_path": str(arbitrary_name),
+                "fingerprint": [0.0] * 87,
+            },
+            self.product.db_path,
+        )
+        correct = self.product.request(
+            "GET",
+            f"/api/profiles/{profile['id']}/incidents/{incident_id}/audio",
+        )
+        wrong_profile = self.product.request(
+            "GET",
+            f"/api/profiles/{profile['id'] + 1}/incidents/{incident_id}/audio",
+        )
+        missing = self.product.request(
+            "GET",
+            f"/api/profiles/{profile['id']}/incidents/{incident_id + 999}/audio",
+        )
+        self.assertEqual(200, correct["status"])
+        self.assertEqual("audio/wav", correct["headers"]["content-type"])
+        self.assertEqual(arbitrary_name.read_bytes(), correct["body"])
+        self.assertEqual(404, wrong_profile["status"])
+        self.assertEqual(wrong_profile["json"], missing["json"])
 
 
 if __name__ == "__main__":

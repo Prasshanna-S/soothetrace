@@ -23,7 +23,7 @@ class RealAudioProductApiTests(unittest.TestCase):
 
         baseline = store.get_baseline(config.POPULATION_KEY)
         self.assertIsNotNone(baseline, "population baseline must be built")
-        self.product = ProductServer()
+        self.product = ProductServer(cry_detector_status=True)
         self.addCleanup(self.product.close)
         store.save_baseline(
             config.POPULATION_KEY,
@@ -58,6 +58,47 @@ class RealAudioProductApiTests(unittest.TestCase):
 
     def _upload(self, method, path, fixture):
         return self._upload_path(method, path, FIXTURE_ROOT / fixture)
+
+    @unittest.skipUnless(FIXTURE_ROOT.is_dir(), "live fixed-rig fixtures are unavailable")
+    def test_real_phone_audio_reaches_the_ordered_care_chunk_route(self):
+        from src import care_sessions
+
+        profile = self._create_profile("Baby X")
+        session = self.product.json(
+            "POST",
+            "/api/care-sessions",
+            {"profile_id": profile["id"]},
+        )["json"]["session"]
+        fixture = FIXTURE_ROOT / "13-X7.wav"
+        audio = fixture.read_bytes()
+        with patch.object(
+            care_sessions.cry_gate,
+            "classify",
+            return_value={
+                "status": "no_cry_detected",
+                "label": None,
+                "reason_codes": ["no_infant_cry_evidence"],
+                "analyzed_duration_s": 8.0,
+                "analysis_view_count": 1,
+                "model_version": "ast-audioset-baby-cry-v1",
+            },
+        ):
+            response = self.product.request(
+                "POST",
+                f"/api/care-sessions/{session['id']}/chunks",
+                audio,
+                {
+                    "Content-Type": "audio/wav",
+                    "Content-Length": str(len(audio)),
+                    "X-Capture-Sequence": "1",
+                    "X-Capture-Source": "microphone",
+                    "X-Capture-Device": "iPhone Safari",
+                },
+            )
+
+        self.assertEqual(201, response["status"], response)
+        self.assertEqual(1, response["json"]["session"]["last_sequence"])
+        self.assertEqual("no_cry_detected", response["json"]["chunk"]["status"])
 
     @unittest.skipUnless(FIXTURE_ROOT.is_dir(), "live fixed-rig fixtures are unavailable")
     def test_real_fixed_rig_audio_survives_product_ingest_and_identifies_both_profiles(self):

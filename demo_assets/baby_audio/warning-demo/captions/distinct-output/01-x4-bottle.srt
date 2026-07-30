@@ -1,0 +1,18 @@
+1
+00:00:00,000 --> 00:00:05,000
+The infant-cry gate fired, and this X4 recording matched Demo Baby.
+
+2
+00:00:05,000 --> 00:00:11,000
+The app searched only this profile's history.
+Cry pattern and time of day were the active signals.
+
+3
+00:00:11,000 --> 00:00:18,000
+Two similar afternoon records say a bottle was offered,
+and the caregiver reported that the baby settled.
+
+4
+00:00:18,000 --> 00:00:24,000
+What helped before: offered bottle.
+This is a recorded-history suggestion, not a diagnosis.

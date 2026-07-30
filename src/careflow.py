@@ -84,43 +84,37 @@ def _release_completion(attempt_id: int) -> None:
         _COMPLETIONS_IN_PROGRESS.discard(attempt_id)
 
 
-def _incident_view(
-    attempt_id: int,
+def _profile_incident_view(
+    profile_id: int,
+    canonical_audio: str,
     explicit_tags: list[str] | None,
+    now: str | None,
     db_path: str | None,
+    required_kind: str | None = None,
 ) -> dict:
-    if (
-        not isinstance(attempt_id, int)
-        or isinstance(attempt_id, bool)
-        or attempt_id <= 0
-    ):
-        return _error("invalid_attempt")
-
-    attempt = _matched_attempt(attempt_id, db_path)
-    matched = _matched_subject(attempt)
-    if matched is None:
-        return _error("identity_not_matched", status="blocked")
-    profile_id, subject_id = matched
-
     profile = identity.get_profile(profile_id, db_path)
-    if not profile:
+    if (
+        not profile
+        or (required_kind is not None and profile.get("kind") != required_kind)
+    ):
         return _error("resolved_profile_unavailable")
-
-    canonical_audio = _latest_canonical_capture(attempt)
     if not canonical_audio or not os.path.isfile(canonical_audio):
         return _error("managed_capture_unavailable")
+
     acoustic = fingerprint.compute_windowed(canonical_audio)
     if not acoustic:
         return _error("capture_has_no_identity_signal")
 
     current_context = context.build_current_context(
         profile_id,
+        now=now,
         tags=explicit_tags,
         db_path=db_path,
     )
     if not current_context:
         return _error("context_unavailable")
 
+    subject_id = f"profile-{profile_id}"
     scenarios = retrieve.find_scenarios(
         subject_id,
         acoustic,
@@ -146,11 +140,62 @@ def _incident_view(
         },
         "scenarios": scenarios,
         "guidance": guidance_payload,
-        "_profile_id": profile_id,
-        "_subject_id": subject_id,
         "_canonical_audio": canonical_audio,
         "_current_context": current_context,
     }
+
+
+def preview_profile_incident(
+    profile_id: int,
+    canonical_audio: str,
+    explicit_tags: list[str] | None = None,
+    now: str | None = None,
+    db_path: str | None = None,
+) -> dict:
+    """Preview one infant profile's history without an identity-attempt row."""
+    try:
+        return _profile_incident_view(
+            profile_id,
+            canonical_audio,
+            explicit_tags,
+            now,
+            db_path,
+            required_kind=identity.KIND_INFANT,
+        )
+    except Exception:
+        return _error("incident_preview_failed")
+
+
+def _incident_view(
+    attempt_id: int,
+    explicit_tags: list[str] | None,
+    db_path: str | None,
+) -> dict:
+    if (
+        not isinstance(attempt_id, int)
+        or isinstance(attempt_id, bool)
+        or attempt_id <= 0
+    ):
+        return _error("invalid_attempt")
+
+    attempt = _matched_attempt(attempt_id, db_path)
+    matched = _matched_subject(attempt)
+    if matched is None:
+        return _error("identity_not_matched", status="blocked")
+    profile_id, subject_id = matched
+
+    canonical_audio = _latest_canonical_capture(attempt)
+    result = _profile_incident_view(
+        profile_id,
+        canonical_audio,
+        explicit_tags,
+        None,
+        db_path,
+    )
+    if result.get("status") == "preview":
+        result["_profile_id"] = profile_id
+        result["_subject_id"] = subject_id
+    return result
 
 
 def preview_incident(

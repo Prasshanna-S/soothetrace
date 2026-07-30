@@ -1,0 +1,18 @@
+1
+00:00:00,000 --> 00:00:05,000
+This held-out X8 recording produced a strong Demo Baby match.
+
+2
+00:00:05,000 --> 00:00:11,000
+The ranker used cry-pattern similarity and time of day
+within this profile's history.
+
+3
+00:00:11,000 --> 00:00:18,000
+Two similar afternoon records say white noise was used,
+and the caregiver reported that the baby settled.
+
+4
+00:00:18,000 --> 00:00:24,000
+What helped before: turned on white noise.
+The caregiver remains in control of what to try.

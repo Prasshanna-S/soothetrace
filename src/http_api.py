@@ -9,6 +9,7 @@ import shutil
 import sqlite3
 import ssl
 import threading
+import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -16,8 +17,11 @@ from urllib.parse import urlparse
 try:
     from . import (
         audio_ingest,
+        care_sessions,
         careflow,
         config,
+        cry_gate,
+        demo_diagnostics,
         encoders,
         identity,
         live_sessions,
@@ -25,8 +29,11 @@ try:
     )
 except ImportError:
     import audio_ingest
+    import care_sessions
     import careflow
     import config
+    import cry_gate
+    import demo_diagnostics
     import encoders
     import identity
     import live_sessions
@@ -360,6 +367,309 @@ def _safe_managed_file(path: str | None, data_root: Path) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def _public_care_profile(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    public = {}
+    for field in ("id", "enrollments"):
+        if type(value.get(field)) is int:
+            public[field] = value[field]
+    for field in ("display_name", "kind", "status"):
+        if isinstance(value.get(field), str):
+            public[field] = value[field]
+    return public
+
+
+def _public_care_guidance(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    public = {}
+    for field in (
+        "status",
+        "headline",
+        "interpretation",
+        "recommendation",
+        "evidence_summary",
+        "pattern",
+    ):
+        if isinstance(value.get(field), str):
+            public[field] = value[field]
+    if type(value.get("support_count")) is int:
+        public["support_count"] = value["support_count"]
+    if isinstance(value.get("incident_ids"), list):
+        public["incident_ids"] = [
+            item for item in value["incident_ids"] if type(item) is int
+        ]
+    return public
+
+
+def _public_care_intervention(value) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    if (
+        type(value.get("order")) is not int
+        or not isinstance(value.get("action"), str)
+        or not isinstance(value.get("evidence"), str)
+    ):
+        return None
+    return {
+        "order": value["order"],
+        "action": value["action"],
+        "evidence": value["evidence"],
+    }
+
+
+def _public_care_scenario(value, profile_id: int) -> dict | None:
+    if not isinstance(value, dict) or type(value.get("episode_id")) is not int:
+        return None
+    episode_id = value["episode_id"]
+    public = {"episode_id": episode_id}
+    if isinstance(value.get("started_at"), str):
+        public["started_at"] = value["started_at"]
+    if isinstance(value.get("interventions"), list):
+        public["interventions"] = [
+            rendered
+            for item in value["interventions"]
+            if (rendered := _public_care_intervention(item)) is not None
+        ]
+    for field in ("outcome", "outcome_src"):
+        item = value.get(field)
+        if field in value and (item is None or isinstance(item, str)):
+            public[field] = item
+    if value.get("worked") is None or type(value.get("worked")) is bool:
+        if "worked" in value:
+            public["worked"] = value["worked"]
+    if isinstance(value.get("contributions"), list):
+        public["contributions"] = [
+            item for item in value["contributions"] if isinstance(item, str)
+        ]
+    public["audio_url"] = (
+        f"/api/profiles/{profile_id}/incidents/{episode_id}/audio"
+    )
+    return public
+
+
+def _public_care_decision(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    public = {}
+    if type(value.get("id")) is int:
+        public["id"] = value["id"]
+    if isinstance(value.get("latched_at"), str):
+        public["latched_at"] = value["latched_at"]
+    profile = _public_care_profile(value.get("profile"))
+    if profile:
+        public["profile"] = {
+            key: profile[key] for key in ("id", "display_name") if key in profile
+        }
+    guidance = _public_care_guidance(value.get("guidance"))
+    if guidance:
+        public["guidance"] = guidance
+    if isinstance(value.get("basis"), list):
+        public["basis"] = [
+            item for item in value["basis"] if isinstance(item, str)
+        ]
+    profile_id = public.get("profile", {}).get("id")
+    if type(profile_id) is int and isinstance(value.get("scenarios"), list):
+        public["scenarios"] = [
+            rendered
+            for item in value["scenarios"]
+            if (rendered := _public_care_scenario(item, profile_id)) is not None
+        ]
+    return public
+
+
+def _public_care_session(value) -> dict:
+    if not isinstance(value, dict) or type(value.get("id")) is not int:
+        return {}
+    public = {"id": value["id"]}
+    if isinstance(value.get("status"), str):
+        public["status"] = value["status"]
+    profile = _public_care_profile(value.get("profile"))
+    if profile:
+        public["profile"] = profile
+    for field in ("started_at", "paused_at", "stopped_at", "completed_at"):
+        item = value.get(field)
+        if field in value and (item is None or isinstance(item, str)):
+            public[field] = item
+    if type(value.get("last_sequence")) is int:
+        public["last_sequence"] = value["last_sequence"]
+    if isinstance(value.get("tags"), list):
+        public["tags"] = [
+            item for item in value["tags"] if isinstance(item, str)
+        ]
+    if value.get("decision") is None:
+        public["decision"] = None
+    elif isinstance(value.get("decision"), dict):
+        public["decision"] = _public_care_decision(value["decision"])
+    return public
+
+
+def _public_care_result(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    session = _public_care_session(value.get("session"))
+    if not session:
+        return {}
+    public = {"session": session}
+    incident = value.get("incident")
+    if isinstance(incident, dict) and type(incident.get("id")) is int:
+        public_incident = {"id": incident["id"]}
+        if isinstance(incident.get("detail_url"), str):
+            public_incident["detail_url"] = incident["detail_url"]
+        public["incident"] = public_incident
+    return public
+
+
+def _public_cry_presence(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    public = {}
+    for field in ("status", "model_version"):
+        if isinstance(value.get(field), str):
+            public[field] = value[field]
+    label = value.get("label")
+    if "label" in value and (label is None or isinstance(label, str)):
+        public["label"] = label
+    if isinstance(value.get("reason_codes"), list):
+        public["reason_codes"] = [
+            item for item in value["reason_codes"] if isinstance(item, str)
+        ]
+    duration = value.get("analyzed_duration_s")
+    if isinstance(duration, (int, float)) and not isinstance(duration, bool):
+        public["analyzed_duration_s"] = duration
+    if type(value.get("analysis_view_count")) is int:
+        public["analysis_view_count"] = value["analysis_view_count"]
+    return public
+
+
+def _public_care_chunk(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    public = {}
+    for field in ("id", "sequence"):
+        if type(value.get(field)) is int:
+            public[field] = value[field]
+    for field in ("status", "created_at"):
+        if isinstance(value.get(field), str):
+            public[field] = value[field]
+    if isinstance(value.get("reason_codes"), list):
+        public["reason_codes"] = [
+            item for item in value["reason_codes"] if isinstance(item, str)
+        ]
+    cry_presence = _public_cry_presence(value.get("cry_presence"))
+    if cry_presence:
+        public["cry_presence"] = cry_presence
+    return public
+
+
+def _public_care_chunk_result(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    session = _public_care_session(value.get("session"))
+    chunk = _public_care_chunk(value.get("chunk"))
+    if not session or not chunk:
+        return {}
+    return {"session": session, "chunk": chunk}
+
+
+def _managed_capture_directory(ingested: dict, data_root: Path) -> Path | None:
+    if not isinstance(ingested, dict):
+        return None
+    managed_root = (data_root / "managed").resolve()
+    parents = set()
+    for field in ("source_path", "canonical_path", "identity_path"):
+        raw_path = ingested.get(field)
+        if not isinstance(raw_path, str):
+            continue
+        try:
+            path = Path(raw_path).resolve()
+        except (OSError, RuntimeError):
+            return None
+        if path.parent.parent != managed_root:
+            return None
+        parents.add(path.parent)
+    if len(parents) != 1:
+        return None
+    capture_dir = parents.pop()
+    return capture_dir if capture_dir.is_dir() else None
+
+
+def _cleanup_unsaved_ingest(ingested: dict, data_root: Path) -> None:
+    capture_dir = _managed_capture_directory(ingested, data_root)
+    if capture_dir is None:
+        return
+    try:
+        shutil.rmtree(capture_dir)
+    except OSError:
+        return
+
+
+def _care_chunk_owns_ingest(
+    session_id: int,
+    sequence: int,
+    source_path: str | None,
+    db_path: str | None,
+) -> bool:
+    if not isinstance(source_path, str):
+        return False
+    try:
+        connection = sqlite3.connect(db_path or config.DB_PATH)
+        row = connection.execute(
+            "SELECT source_audio_path FROM care_session_chunk "
+            "WHERE session_id=? AND sequence=?",
+            (session_id, sequence),
+        ).fetchone()
+    except sqlite3.Error:
+        return False
+    finally:
+        try:
+            connection.close()
+        except (UnboundLocalError, sqlite3.Error):
+            pass
+    if not row or not isinstance(row[0], str):
+        return False
+    try:
+        return Path(row[0]).resolve() == Path(source_path).resolve()
+    except (OSError, RuntimeError):
+        return False
+
+
+def _is_pcm_wav(path: Path) -> bool:
+    try:
+        with wave.open(str(path), "rb") as handle:
+            return (
+                handle.getnchannels() == 1
+                and handle.getsampwidth() == 2
+                and handle.getframerate() == 16000
+                and handle.getnframes() > 0
+                and handle.getcomptype() == "NONE"
+            )
+    except (OSError, EOFError, wave.Error):
+        return False
+
+
+def _care_error_status(reason: str) -> int:
+    if reason == "no_such_care_session":
+        return 404
+    if reason == "cry_detector_unavailable":
+        return 503
+    if reason in {
+        "invalid_care_session_transition",
+        "invalid_chunk_sequence",
+        "sequence_conflict",
+        "out_of_order_chunk",
+        "no_matched_chunk",
+    }:
+        return 409
+    if reason in {
+        "invalid_care_session_profile",
+        "invalid_care_session_completion",
+    }:
+        return 400
+    return 500
+
+
 def _enrollment_audio(enrollment_id: int, db_path: str | None) -> str | None:
     store.init_db(db_path)
     try:
@@ -383,6 +693,7 @@ def _handler_factory(
     static_root: Path,
     db_path: str | None,
     encoder_status: dict[str, bool] | None = None,
+    cry_detector_status: bool | None = None,
 ):
     class ProductHandler(BaseHTTPRequestHandler):
         server_version = "InteractionMemory/0.1"
@@ -439,6 +750,9 @@ def _handler_factory(
                 "/app.js": "app.js",
                 "/app.css": "app.css",
                 "/manifest.webmanifest": "manifest.webmanifest",
+                "/backend.html": "backend.html",
+                "/backend.js": "backend.js",
+                "/backend.css": "backend.css",
             }.get(path)
             if name is None:
                 return False
@@ -502,6 +816,27 @@ def _handler_factory(
             self.end_headers()
             self.wfile.write(body)
 
+        def _play_profile_incident_audio(self, profile_id: int, incident_id: int):
+            episode = store.get_episode(incident_id, db_path)
+            stored_path = (
+                episode.get("audio_path")
+                if episode
+                and episode.get("subject_id") == f"profile-{profile_id}"
+                else None
+            )
+            audio = _safe_managed_file(stored_path, data_root)
+            if audio is None or not _is_pcm_wav(audio):
+                self._error(404, "audio_unavailable")
+                return
+            body = audio.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/wav")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Accept-Ranges", "bytes")
+            self._headers()
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self):
             path = urlparse(self.path).path
             if path == "/api/health":
@@ -526,6 +861,12 @@ def _handler_factory(
                     not infant_requires_baseline or bool(baseline)
                 )
                 ready = ffmpeg and database and infant_ready and imitation
+                care_ready = (
+                    ffmpeg
+                    and database
+                    and infant_ready
+                    and cry_detector_status is True
+                )
                 self._json(
                     200,
                     {
@@ -539,12 +880,22 @@ def _handler_factory(
                             "infant": infant,
                             "human_imitation": imitation,
                         },
+                        "care": {
+                            "ready": care_ready,
+                            "cry_detector": {
+                                "ready": cry_detector_status is True,
+                                "model_version": config.CRY_GATE_MODEL_VERSION,
+                            },
+                        },
                         "capture": {
                             "https_required": True,
                             "max_upload_bytes": audio_ingest.MAX_UPLOAD_BYTES,
                         },
                     },
                 )
+                return
+            if path == "/api/demo-diagnostics":
+                self._json(200, demo_diagnostics.snapshot(db_path))
                 return
             if path == "/api/profiles":
                 self._json(
@@ -553,6 +904,44 @@ def _handler_factory(
                 )
                 return
             parts = path.strip("/").split("/")
+            if (
+                len(parts) == 3
+                and parts[:2] == ["api", "care-sessions"]
+            ):
+                try:
+                    session_id = int(parts[2])
+                except ValueError:
+                    self._error(404, "care_session_not_found")
+                    return
+                if session_id <= 0:
+                    self._error(404, "care_session_not_found")
+                    return
+                result = care_sessions.get(session_id, db_path)
+                if result.get("status") == "error":
+                    self._error(
+                        _care_error_status(result.get("reason", "")),
+                        result.get("reason", "care_session_storage_error"),
+                    )
+                    return
+                self._json(200, {"session": _public_care_session(result)})
+                return
+            if (
+                len(parts) == 6
+                and parts[:2] == ["api", "profiles"]
+                and parts[3] == "incidents"
+                and parts[5] == "audio"
+            ):
+                try:
+                    profile_id = int(parts[2])
+                    incident_id = int(parts[4])
+                except ValueError:
+                    self._error(404, "audio_unavailable")
+                    return
+                if profile_id <= 0 or incident_id <= 0:
+                    self._error(404, "audio_unavailable")
+                    return
+                self._play_profile_incident_audio(profile_id, incident_id)
+                return
             if len(parts) == 3 and parts[:2] == ["api", "live-sessions"]:
                 try:
                     session_id = int(parts[2])
@@ -609,6 +998,105 @@ def _handler_factory(
                 self._error(400, "invalid_live_session")
                 return
             self._json(201, {"session": _public_live_session(session)})
+
+        def _care_session_create(self):
+            if cry_detector_status is not True:
+                self._error(503, "cry_detector_unavailable")
+                return
+            payload = self._json_body()
+            profile_id = payload.get("profile_id")
+            tags = payload.get("tags")
+            if (
+                type(profile_id) is not int
+                or profile_id <= 0
+                or (
+                    tags is not None
+                    and (
+                        not isinstance(tags, list)
+                        or any(not isinstance(tag, str) for tag in tags)
+                    )
+                )
+            ):
+                self._error(400, "invalid_care_session_profile")
+                return
+            result = care_sessions.create(profile_id, tags, db_path)
+            if result.get("status") == "error":
+                reason = result.get("reason", "care_session_storage_error")
+                self._error(_care_error_status(reason), reason)
+                return
+            self._json(201, {"session": _public_care_session(result)})
+
+        def _care_transition(self, session_id: int, operation: str):
+            self._json_body()
+            function = {
+                "pause": care_sessions.pause,
+                "resume": care_sessions.resume,
+                "stop": care_sessions.stop,
+            }[operation]
+            result = function(session_id, db_path)
+            if result.get("status") == "error":
+                reason = result.get("reason", "care_session_storage_error")
+                self._error(_care_error_status(reason), reason)
+                return
+            self._json(200, {"session": _public_care_session(result)})
+
+        def _care_chunk(self, session_id: int):
+            raw_sequence = self.headers.get("X-Capture-Sequence")
+            try:
+                sequence = int(raw_sequence)
+            except (TypeError, ValueError):
+                self._error(400, "invalid_capture_sequence")
+                return
+            if sequence <= 0 or str(sequence) != raw_sequence.strip():
+                self._error(400, "invalid_capture_sequence")
+                return
+            ingested = self._ingest()
+            with _INFERENCE_LOCK:
+                result = care_sessions.submit_chunk(
+                    session_id,
+                    sequence,
+                    ingested,
+                    db_path,
+                )
+            owned = _care_chunk_owns_ingest(
+                session_id,
+                sequence,
+                ingested.get("source_path"),
+                db_path,
+            )
+            if not owned:
+                _cleanup_unsaved_ingest(ingested, data_root)
+            if result.get("status") == "error":
+                reason = result.get("reason", "care_session_storage_error")
+                self._error(_care_error_status(reason), reason)
+                return
+            public = _public_care_chunk_result(result)
+            if not public:
+                self._error(500, "care_session_storage_error")
+                return
+            status = 422 if public["chunk"].get("status") == "invalid" else 201
+            self._json(status, public)
+
+        def _care_complete(self, session_id: int):
+            payload = self._json_body()
+            with _INFERENCE_LOCK:
+                result = care_sessions.complete(
+                    session_id,
+                    payload.get("action"),
+                    payload.get("settled"),
+                    payload.get("notes"),
+                    payload.get("tags"),
+                    db_path,
+                )
+            if result.get("status") == "error":
+                reason = result.get("reason", "care_session_storage_error")
+                self._error(_care_error_status(reason), reason)
+                return
+            public = _public_care_result(result)
+            if not public:
+                self._error(500, "care_session_storage_error")
+                return
+            self._json(200, public)
 
         def _live_session_observe(self, session_id: int):
             session = live_sessions.get(session_id, db_path)
@@ -804,6 +1292,35 @@ def _handler_factory(
                 if path == "/api/live-sessions":
                     self._live_session_create()
                     return
+                if path == "/api/care-sessions":
+                    self._care_session_create()
+                    return
+                if (
+                    len(parts) == 4
+                    and parts[:2] == ["api", "care-sessions"]
+                    and parts[3] in {
+                        "chunks",
+                        "pause",
+                        "resume",
+                        "stop",
+                        "complete",
+                    }
+                ):
+                    try:
+                        session_id = int(parts[2])
+                    except ValueError:
+                        self._error(404, "care_session_not_found")
+                        return
+                    if session_id <= 0:
+                        self._error(404, "care_session_not_found")
+                        return
+                    if parts[3] == "chunks":
+                        self._care_chunk(session_id)
+                    elif parts[3] == "complete":
+                        self._care_complete(session_id)
+                    else:
+                        self._care_transition(session_id, parts[3])
+                    return
                 if (
                     len(parts) == 4
                     and parts[:2] == ["api", "live-sessions"]
@@ -858,6 +1375,22 @@ def _handler_factory(
         def do_DELETE(self):
             path = urlparse(self.path).path
             parts = path.strip("/").split("/")
+            if len(parts) == 3 and parts[:2] == ["api", "care-sessions"]:
+                try:
+                    session_id = int(parts[2])
+                except ValueError:
+                    self._error(404, "care_session_not_found")
+                    return
+                if session_id <= 0:
+                    self._error(404, "care_session_not_found")
+                    return
+                result = care_sessions.discard(session_id, data_root, db_path)
+                if result.get("status") == "error":
+                    reason = result.get("reason", "care_session_storage_error")
+                    self._error(_care_error_status(reason), reason)
+                    return
+                self._json(200, {"session": _public_care_session(result)})
+                return
             if len(parts) != 3 or parts[:2] != ["api", "profiles"]:
                 self._error(404, "not_found")
                 return
@@ -884,6 +1417,7 @@ def build_http_server(
     static_root,
     db_path: str | None = None,
     encoder_status: dict[str, bool] | None = None,
+    cry_detector_status: bool | None = None,
 ):
     """Build the local product server. TLS wrapping is performed by the launcher."""
     audio_root = Path(data_root).resolve()
@@ -892,13 +1426,19 @@ def build_http_server(
     store.init_db(db_path)
     return ThreadingHTTPServer(
         address,
-        _handler_factory(audio_root, web_root, db_path, encoder_status),
+        _handler_factory(
+            audio_root,
+            web_root,
+            db_path,
+            encoder_status,
+            cry_detector_status,
+        ),
     )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Serve the Cry Memory phone client over trusted local HTTPS."
+        description="Serve the SootheTrace phone client over trusted local HTTPS."
     )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8443)
@@ -920,12 +1460,14 @@ def main(argv: list[str] | None = None) -> int:
 
     required_encoders = sorted(set(identity.ENCODER_FOR_KIND.values()))
     warmed = encoders.warm(required_encoders)
+    cry_detector_ready = cry_gate.warm()
     server = build_http_server(
         (args.host, args.port),
         args.data_root,
         args.static_root,
         db_path=args.db,
         encoder_status=warmed,
+        cry_detector_status=cry_detector_ready,
     )
     if not args.http:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -934,7 +1476,7 @@ def main(argv: list[str] | None = None) -> int:
 
     scheme = "http" if args.http else "https"
     print(
-        f"Cry Memory ready at {scheme}://{args.host}:{args.port} "
+        f"SootheTrace ready at {scheme}://{args.host}:{args.port} "
         f"with encoders {warmed}",
         flush=True,
     )

@@ -1,0 +1,18 @@
+1
+00:00:00,000 --> 00:00:05,000
+This different X7 cry recording also matched Demo Baby.
+
+2
+00:00:05,000 --> 00:00:11,000
+The app compared the cry pattern and time of day
+inside the same baby's recorded history.
+
+3
+00:00:11,000 --> 00:00:18,000
+Two similar afternoon records say the baby was held upright,
+and the caregiver reported that the baby settled.
+
+4
+00:00:18,000 --> 00:00:24,000
+What helped before: held baby upright.
+The app does not claim why the baby is crying.

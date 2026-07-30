@@ -15,6 +15,9 @@ SCHEMA_SQL = _p("src", "schema.sql")
 SAMPLE_RATE = 16000
 
 # --- models (speech path, product workstream) ---
+MODEL_DIR = _p("models")
+CRY_GATE_MODEL_ID = "MIT/ast-finetuned-audioset-10-10-0.4593"
+CRY_GATE_MODEL_VERSION = "ast-audioset-baby-cry-v1"
 TRANSCRIBE_MODEL = "gpt-4o-transcribe"
 REASONING_MODEL  = "gpt-5.5"
 OPENAI_ENV_PATH  = os.path.expanduser("~/apphatchery-discovery/.env")
@@ -22,6 +25,17 @@ OPENAI_ENV_PATH  = os.path.expanduser("~/apphatchery-discovery/.env")
 # True -> use the local `whisper` CLI instead of the API.
 # The acoustic path is offline regardless; this only affects transcription.
 OFFLINE = os.environ.get("IM_OFFLINE", "").lower() in ("1", "true", "yes")
+
+# --- controlled care demo ---
+# The seeded presentation profile is recorded through a phone and speaker path that
+# narrows its runner-up margin. Keep the global identity calibration unchanged, but
+# allow this one named profile to use a measured demo floor after it is already the
+# strongest candidate and its absolute score clears the normal strong threshold.
+CARE_DEMO_PROFILE_NAME = os.environ.get(
+    "IM_CARE_DEMO_PROFILE_NAME",
+    "Demo Baby",
+).strip()
+CARE_DEMO_MARGIN_FLOOR = 0.045
 
 # --- retrieval ---
 # Below this many PRIOR episodes, find_similar() returns [] and the UI must render

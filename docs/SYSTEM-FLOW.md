@@ -1,4 +1,4 @@
-# Cry Memory System Map and Data Flow
+# SootheTrace System Map and Data Flow
 
 This document separates three claims that must not be mixed:
 
@@ -19,7 +19,7 @@ and diaper events are planned but are not wired into the current database or API
 
 ```mermaid
 mindmap
-  root((Cry Memory))
+  root((SootheTrace))
     Browser inputs
       One mixed audio recording
         Cry or imitation
