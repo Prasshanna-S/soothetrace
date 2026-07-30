@@ -4570,3 +4570,18 @@ Implementation and verification details:
 `.superpowers/sdd/2026-07-30-continuous-care-demo/task-6a-report.md`
 
 STATUS: O9 minimum Listen routes green; later history and detail routes remain pending
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 phone test client
+
+The first accelerated phone-testable Listen client now uses the live care-session routes, durable
+same-bytes and same-sequence retry, server-only cry states, latched verbatim guidance, structured
+Save and Discard, active infant selection, and responsive phone and desktop layouts. History and
+Baby remain explicitly limited until their routes exist.
+
+Implementation, focused tests, and exact remaining caveats:
+
+`.superpowers/sdd/2026-07-30-continuous-care-demo/task-8-report.md`
+
+STATUS: experimental phone test client verified; physical iPhone run still required
