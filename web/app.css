@@ -117,8 +117,8 @@ body {
    Sizes and tilts vary; a few drift very slowly. */
 #ambient .stk {
   position: absolute;
-  opacity: .07;
-  filter: saturate(.9);
+  opacity: .035;
+  filter: saturate(.55) blur(.4px);
   will-change: transform;
 }
 .stk-1  { width: 92px;  top: 7%;  left: 6%;   transform: rotate(-9deg); }
