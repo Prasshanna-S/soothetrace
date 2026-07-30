@@ -23,6 +23,9 @@ Date: 2026-07-30
 - Kept all gate, identity, fingerprint, retrieval, and guidance work outside SQLite write
   transactions. The final short `BEGIN IMMEDIATE` transaction rechecks state and sequence, inserts
   the chunk, advances the session with a compare-and-swap condition, and stores the replay result.
+- Added an in-process inference claim keyed by resolved database, session, and sequence. Only the
+  owner can run cry, identity, or history inference; concurrent losers wait and then resolve to
+  stored replay or `sequence_conflict`. Claims for unrelated sessions remain independent.
 - Advanced `latest_matched_chunk_id` for every selected-profile match. The first grounded result
   alone sets `selected_chunk_id` and `decision_json`; later grounded results cannot replace it.
 - Added recursive allowlists for chunk replay, cry presence, guidance, scenarios, interventions,
@@ -134,6 +137,8 @@ again in the two-module suite.
   recent selected-profile match, including later matches after latching.
 - Model inference never runs while a SQLite write transaction is held, preserving threaded HTTP
   behavior and avoiding identity-audit write contention.
+- Every inference claim is released in a `finally` block, including unexpected exceptions. A
+  failed owner leaves the sequence available for one later request to claim and process.
 - Existing Task 2 Stop and discard race, partial cleanup, immutable state, and recursive decision
   tests remain green.
 - Task 4 and later HTTP or browser work were not started.
@@ -144,10 +149,58 @@ again in the two-module suite.
   out-of-order, or non-listening upload is not inserted as a new chunk, so its newly ingested
   managed files are not discoverable through this session's cleanup rows. Task 5 should remove
   rejected upload artifacts or perform a read-only sequence preflight before ingest.
-- Two simultaneous submissions of the same new sequence can both perform inference before the
-  short final transaction. The loser returns the stored replay or conflict correctly, but duplicate
-  model work is possible.
+- Inference ownership is process-local. The current threaded single-process HTTP server is covered;
+  a future multi-process deployment would need a cross-process claim before inference.
 - Profile-scoped supporting audio URLs intentionally target the Task 5 route and are not served by
   Task 3 alone.
 - Real AST, fixed-rig, and native Windows smoke tests remain behind their documented environment
   flags and fixture availability. No threshold or portability behavior changed here.
+
+## Review Round 1
+
+### Important Finding
+
+The reviewer reproduced two concurrent requests for the same new sequence crossing read-only
+preflight and both calling `identity.identify(..., audit=True)` before either reached the final
+database compare-and-swap. Public replay was correct, but identity audit and history inference ran
+twice.
+
+### RED
+
+Two deterministic races synchronized both requests immediately after read-only preflight. One used
+identical source bytes and one used conflicting source bytes. Before the fix:
+
+```text
+AssertionError: 1 != 2
+```
+
+Both tests observed two cry-gate calls instead of one. Because each cry-positive path continued,
+identity audit and history preview also ran twice.
+
+A third cleanup regression forced an unexpected profile-read exception. Before the fix it escaped
+from `submit_chunk`, proving there was no claim cleanup or structured failure boundary.
+
+### GREEN
+
+The per-key inference claim made one request the owner before any cry, identity, or history work.
+Losers wait without inference, then repeat read-only sequence resolution:
+
+```text
+Ran 3 tests in 0.106s
+OK
+```
+
+- Identical digest: both callers received the exact stored public result.
+- Conflicting digest: the loser returned `sequence_conflict`.
+- Both races performed exactly one cry-gate call, one audited identity call, and one history
+  preview.
+- An unexpected owner exception returned `care_session_storage_error`, released the claim, and a
+  later retry processed successfully.
+
+### Review Verification
+
+- Focused care-session and careflow suite: 40 passed.
+- Full unittest discovery with local loopback permission: 392 passed, 8 documented skips.
+- Inference remains outside SQLite write transactions.
+- Claims are keyed by resolved database, session, and sequence, so unrelated sessions are not
+  serialized.

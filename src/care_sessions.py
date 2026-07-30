@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,6 +30,9 @@ _ALLOWED = {
     (LISTENING, "stop"): AWAITING_OUTCOME,
     (PAUSED, "stop"): AWAITING_OUTCOME,
 }
+
+_CHUNK_INFERENCE_CLAIMS_LOCK = threading.Lock()
+_CHUNK_INFERENCE_CLAIMS: dict[tuple[str, int, int], threading.Event] = {}
 
 
 def _now() -> str:
@@ -565,13 +569,48 @@ def _latched_decision(
     )
 
 
+def _chunk_claim_key(
+    db_path: str | None,
+    session_id: int,
+    sequence: int,
+) -> tuple[str, int, int]:
+    raw_path = db_path or config.DB_PATH
+    try:
+        database = str(Path(raw_path).resolve())
+    except (OSError, RuntimeError, TypeError, ValueError):
+        database = str(raw_path)
+    return database, session_id, sequence
+
+
+def _claim_chunk_inference(
+    key: tuple[str, int, int],
+) -> tuple[bool, threading.Event]:
+    with _CHUNK_INFERENCE_CLAIMS_LOCK:
+        existing = _CHUNK_INFERENCE_CLAIMS.get(key)
+        if existing is not None:
+            return False, existing
+        completed = threading.Event()
+        _CHUNK_INFERENCE_CLAIMS[key] = completed
+        return True, completed
+
+
+def _release_chunk_inference(
+    key: tuple[str, int, int],
+    completed: threading.Event,
+) -> None:
+    with _CHUNK_INFERENCE_CLAIMS_LOCK:
+        if _CHUNK_INFERENCE_CLAIMS.get(key) is completed:
+            _CHUNK_INFERENCE_CLAIMS.pop(key, None)
+    completed.set()
+
+
 def submit_chunk(
     session_id: int,
     sequence: int,
     ingested: dict,
     db_path: str | None = None,
 ) -> dict:
-    """Analyse one finalized rolling segment without enrollment or reinforcement."""
+    """Claim and analyse one sequence without duplicating inference side effects."""
     created_at = _now()
     if (
         not _is_integer(session_id)
@@ -582,6 +621,53 @@ def submit_chunk(
         return _error("invalid_chunk_sequence")
 
     ingest = ingested if isinstance(ingested, dict) else {}
+    source_path = ingest.get("source_path")
+    digest = _source_digest(source_path)
+
+    claim_key = _chunk_claim_key(db_path, session_id, sequence)
+    while True:
+        connection = _conn(db_path)
+        try:
+            row = _session_row(connection, session_id)
+            if not row:
+                return _error("no_such_care_session")
+            resolved = _sequence_resolution(connection, row, sequence, digest)
+            if resolved is not None:
+                return resolved
+            if row["status"] != LISTENING:
+                return _error("invalid_care_session_transition")
+        except sqlite3.Error:
+            return _error("care_session_storage_error")
+        finally:
+            connection.close()
+
+        owner, completed = _claim_chunk_inference(claim_key)
+        if owner:
+            break
+        completed.wait()
+
+    try:
+        return _submit_claimed_chunk(
+            session_id,
+            sequence,
+            ingest,
+            created_at,
+            db_path,
+        )
+    except Exception:
+        return _error("care_session_storage_error")
+    finally:
+        _release_chunk_inference(claim_key, completed)
+
+
+def _submit_claimed_chunk(
+    session_id: int,
+    sequence: int,
+    ingest: dict,
+    created_at: str,
+    db_path: str | None,
+) -> dict:
+    """Run inference for the one in-process owner of a session sequence."""
     source_path = ingest.get("source_path")
     canonical_path = ingest.get("canonical_path")
     identity_path = ingest.get("identity_path")

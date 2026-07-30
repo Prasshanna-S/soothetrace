@@ -725,6 +725,222 @@ class CareSessionTests(unittest.TestCase):
         self.assertEqual(1, cry_gate.classify.call_count)
         identify.assert_not_called()
 
+    def test_concurrent_identical_sequence_runs_inference_once_and_replays_winner(self):
+        profile = self._profile()
+        session = care_sessions.create(profile["id"], db_path=self.db)
+        first = self._ingested("concurrent-identical-a", b"same-segment")
+        second = self._ingested("concurrent-identical-b", b"same-segment")
+        preflight = threading.Barrier(2)
+        gate_started = threading.Event()
+        release_gate = threading.Event()
+        real_sequence_resolution = care_sessions._sequence_resolution
+        preflight_calls = 0
+        preflight_lock = threading.Lock()
+        results = []
+        errors = []
+
+        def synchronize_preflight(connection, row, sequence, digest):
+            nonlocal preflight_calls
+            resolved = real_sequence_resolution(
+                connection,
+                row,
+                sequence,
+                digest,
+            )
+            with preflight_lock:
+                preflight_calls += 1
+                call_number = preflight_calls
+            if (
+                resolved is None
+                and not connection.in_transaction
+                and call_number <= 2
+            ):
+                preflight.wait(timeout=3)
+            return resolved
+
+        def classify(_audio_path):
+            gate_started.set()
+            if not release_gate.wait(timeout=3):
+                raise TimeoutError("test did not release cry gate")
+            return self._cry_result("infant_cry_detected")
+
+        def submit(ingested):
+            try:
+                results.append(
+                    care_sessions.submit_chunk(
+                        session["id"],
+                        1,
+                        ingested,
+                        self.db,
+                    )
+                )
+            except BaseException as exc:
+                errors.append(exc)
+
+        with (
+            patch.object(
+                care_sessions,
+                "_sequence_resolution",
+                side_effect=synchronize_preflight,
+            ),
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions.identity, "identify") as identify,
+            patch.object(care_sessions, "careflow", create=True) as careflow,
+        ):
+            cry_gate.classify.side_effect = classify
+            identify.return_value = self._selected_identity(profile["id"])
+            careflow.preview_profile_incident.return_value = (
+                self._no_guidance_preview(profile)
+            )
+            threads = [
+                threading.Thread(target=submit, args=(ingested,))
+                for ingested in (first, second)
+            ]
+            for thread in threads:
+                thread.start()
+            self.assertTrue(gate_started.wait(timeout=3))
+            release_gate.set()
+            for thread in threads:
+                thread.join(timeout=5)
+
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual([], errors)
+        self.assertEqual(2, len(results))
+        self.assertEqual(results[0], results[1])
+        self.assertEqual(1, cry_gate.classify.call_count)
+        self.assertEqual(1, identify.call_count)
+        self.assertEqual(1, careflow.preview_profile_incident.call_count)
+
+    def test_concurrent_conflicting_sequence_runs_inference_once_then_conflicts_loser(self):
+        profile = self._profile()
+        session = care_sessions.create(profile["id"], db_path=self.db)
+        first = self._ingested("concurrent-conflict-a", b"segment-a")
+        second = self._ingested("concurrent-conflict-b", b"segment-b")
+        preflight = threading.Barrier(2)
+        gate_started = threading.Event()
+        release_gate = threading.Event()
+        real_sequence_resolution = care_sessions._sequence_resolution
+        preflight_calls = 0
+        preflight_lock = threading.Lock()
+        results = []
+        errors = []
+
+        def synchronize_preflight(connection, row, sequence, digest):
+            nonlocal preflight_calls
+            resolved = real_sequence_resolution(
+                connection,
+                row,
+                sequence,
+                digest,
+            )
+            with preflight_lock:
+                preflight_calls += 1
+                call_number = preflight_calls
+            if (
+                resolved is None
+                and not connection.in_transaction
+                and call_number <= 2
+            ):
+                preflight.wait(timeout=3)
+            return resolved
+
+        def classify(_audio_path):
+            gate_started.set()
+            if not release_gate.wait(timeout=3):
+                raise TimeoutError("test did not release cry gate")
+            return self._cry_result("infant_cry_detected")
+
+        def submit(ingested):
+            try:
+                results.append(
+                    care_sessions.submit_chunk(
+                        session["id"],
+                        1,
+                        ingested,
+                        self.db,
+                    )
+                )
+            except BaseException as exc:
+                errors.append(exc)
+
+        with (
+            patch.object(
+                care_sessions,
+                "_sequence_resolution",
+                side_effect=synchronize_preflight,
+            ),
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions.identity, "identify") as identify,
+            patch.object(care_sessions, "careflow", create=True) as careflow,
+        ):
+            cry_gate.classify.side_effect = classify
+            identify.return_value = self._selected_identity(profile["id"])
+            careflow.preview_profile_incident.return_value = (
+                self._no_guidance_preview(profile)
+            )
+            threads = [
+                threading.Thread(target=submit, args=(ingested,))
+                for ingested in (first, second)
+            ]
+            for thread in threads:
+                thread.start()
+            self.assertTrue(gate_started.wait(timeout=3))
+            release_gate.set()
+            for thread in threads:
+                thread.join(timeout=5)
+
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual([], errors)
+        self.assertEqual(2, len(results))
+        self.assertEqual(
+            ["error", "matched_no_guidance"],
+            sorted(
+                result.get("chunk", result).get("status")
+                for result in results
+            ),
+        )
+        conflict = next(result for result in results if "chunk" not in result)
+        self.assert_error(conflict, "sequence_conflict")
+        self.assertEqual(1, cry_gate.classify.call_count)
+        self.assertEqual(1, identify.call_count)
+        self.assertEqual(1, careflow.preview_profile_incident.call_count)
+
+    def test_chunk_inference_claim_is_released_after_unexpected_exception(self):
+        profile = self._profile()
+        session = care_sessions.create(profile["id"], db_path=self.db)
+        ingested = self._ingested("claim-exception", b"retry-after-error")
+        with (
+            patch.object(
+                care_sessions.identity,
+                "get_profile",
+                side_effect=[RuntimeError("unexpected profile read"), profile],
+            ),
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions.identity, "identify") as identify,
+            patch.object(care_sessions, "careflow", create=True) as careflow,
+        ):
+            cry_gate.classify.return_value = self._cry_result("infant_cry_detected")
+            identify.return_value = self._selected_identity(profile["id"])
+            careflow.preview_profile_incident.return_value = (
+                self._no_guidance_preview(profile)
+            )
+            first = care_sessions.submit_chunk(
+                session["id"],
+                1,
+                ingested,
+                self.db,
+            )
+            second = care_sessions.submit_chunk(
+                session["id"],
+                1,
+                ingested,
+                self.db,
+            )
+
+        self.assert_error(first, "care_session_storage_error")
+        self.assertEqual("matched_no_guidance", second["chunk"]["status"])
+        self.assertEqual({}, care_sessions._CHUNK_INFERENCE_CLAIMS)
+
     def test_chunks_are_rejected_outside_listening_state(self):
         profile = self._profile()
         sessions = {}
