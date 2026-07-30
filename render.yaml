@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: soothetrace
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /readyz
+    numInstances: 1
+    disk:
+      name: soothetrace-data
+      mountPath: /var/data
+      sizeGB: 5
+    envVars:
+      - key: IM_DATA_ROOT
+        value: /var/data
+      - key: IM_DB_PATH
+        value: /var/data/episodes.db
+      - key: IM_AUDIO_DIR
+        value: /var/data/audio
+      - key: IM_MODEL_DIR
+        value: /var/data/models
+      - key: OPENAI_API_KEY
+        sync: false
