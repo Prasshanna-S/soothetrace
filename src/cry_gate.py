@@ -28,8 +28,10 @@ _BORDERLINE_INFANT_SCORE = 0.025
 _GENERIC_DOMINANCE_RATIO = 1.20
 
 _LOAD_LOCK = threading.Lock()
+_WARM_LOCK = threading.Lock()
 _EXTRACTOR = None
 _MODEL = None
+_WARMED = False
 
 
 def _model_cache_dir() -> Path:
@@ -106,12 +108,21 @@ def _event_scores(samples: np.ndarray) -> tuple[float, float]:
 
 
 def warm() -> bool:
-    """Load the local cry gate and validate its required AudioSet labels."""
-    try:
-        _load_components()
+    """Load the cry gate and prove one extractor plus model forward pass works."""
+    global _WARMED
+    if _WARMED:
         return True
-    except Exception:
-        return False
+
+    with _WARM_LOCK:
+        if _WARMED:
+            return True
+        try:
+            _load_components()
+            _event_scores(np.zeros(_SAMPLE_RATE, dtype=np.float32))
+        except Exception:
+            return False
+        _WARMED = True
+        return True
 
 
 def readiness() -> dict[str, object]:

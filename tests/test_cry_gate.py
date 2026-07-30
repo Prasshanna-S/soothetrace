@@ -181,6 +181,42 @@ class CryGateInvalidAudioTests(unittest.TestCase):
 
 
 class CryGateReadinessTests(unittest.TestCase):
+    def test_warm_and_readiness_fail_closed_when_model_forward_fails(self):
+        components = (object(), object())
+        with (
+            patch.object(cry_gate, "_WARMED", False, create=True),
+            patch.object(
+                cry_gate,
+                "_load_components",
+                return_value=components,
+            ) as load,
+            patch.object(
+                cry_gate,
+                "_event_scores",
+                side_effect=RuntimeError("broken forward"),
+            ) as score,
+        ):
+            self.assertFalse(cry_gate.warm())
+            self.assertFalse(cry_gate.readiness()["ready"])
+
+        self.assertEqual(2, load.call_count)
+        self.assertEqual(2, score.call_count)
+
+    def test_successful_smoke_inference_is_cached_per_process(self):
+        with (
+            patch.object(cry_gate, "_WARMED", False, create=True),
+            patch.object(
+                cry_gate,
+                "_event_scores",
+                return_value=(0.0, 0.0),
+            ) as score,
+        ):
+            self.assertTrue(cry_gate.warm())
+            self.assertTrue(cry_gate.warm())
+            self.assertTrue(cry_gate.readiness()["ready"])
+
+        score.assert_called_once()
+
     def test_readiness_reports_score_free_ready_state(self):
         with patch.object(cry_gate, "warm", return_value=True):
             result = cry_gate.readiness()
