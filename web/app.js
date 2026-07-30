@@ -182,7 +182,7 @@ const ORB_STATES = {
   listening: { c: ["#DDE2FF", "#7C88E8", "#9FCDF0", "#C9AFF0"], warp: 2.7, speed: 0.62, sat: 1.20, breath: 3.2, scale: 1.03 },
   detected:  { c: ["#FFE9C4", "#F3C34E", "#F0A07E", "#FFD2B8"], warp: 3.1, speed: 0.95, sat: 1.22, breath: 2.3, scale: 1.06 },
   grounded:  { c: ["#D5F0E2", "#6FC6A8", "#9BD9E6", "#BCE9C9"], warp: 2.2, speed: 0.42, sat: 1.16, breath: 5.0, scale: 0.99 },
-  paused:    { c: ["#E9E7E1", "#BFBBB2", "#D2CEC5", "#EFEDE7"], warp: 1.5, speed: 0.06, sat: 0.30, breath: 0.0, scale: 0.94 },
+  paused:    { c: ["#E8EAF1", "#BFC2CE", "#D3D6E0", "#EEF0F6"], warp: 1.5, speed: 0.06, sat: 0.30, breath: 0.0, scale: 0.94 },
 };
 
 const ORB_VERT = "attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}";

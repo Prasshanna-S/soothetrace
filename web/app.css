@@ -27,8 +27,8 @@
 :root {
   color-scheme: light;
 
-  --bg:      #EFECE4;
-  --bg-2:    #E6E2D8;
+  --bg:      #F1F2F8;
+  --bg-2:    #E6E8F1;
   --surface: #FFFFFF;
   --ink:     #1A1A18;
   --ink-2:   #6E6B64;
@@ -73,7 +73,7 @@ body {
   min-height: 100vh;
   min-height: 100dvh;                      /* iOS 100vh bug */
   background:
-    radial-gradient(130% 50% at 50% -8%, #F8F5EE 0%, rgba(248, 245, 238, 0) 60%),
+    radial-gradient(130% 50% at 50% -8%, #FBFCFF 0%, rgba(251, 252, 255, 0) 60%),
     var(--bg);
   color: var(--ink);
   font-family: var(--ui);
@@ -90,14 +90,14 @@ body {
 
 /* ------------------------------------------------------------- ambient --- */
 
-#ambient { position: fixed; inset: 0; pointer-events: none; z-index: 0; color: #DBD5C7; }
+#ambient { position: fixed; inset: 0; pointer-events: none; z-index: 0; color: #D4D7E5; }
 #ambient::before {
   content: "";
   position: fixed; inset: -10%;
   background:
-    radial-gradient(42% 30% at 10% 6%, rgba(196, 198, 239, .22), transparent 70%),
-    radial-gradient(38% 28% at 90% 12%, rgba(241, 220, 212, .26), transparent 70%),
-    radial-gradient(46% 34% at 86% 92%, rgba(199, 224, 213, .24), transparent 70%),
+    radial-gradient(42% 30% at 10% 6%, rgba(196, 198, 239, .30), transparent 70%),
+    radial-gradient(38% 28% at 90% 12%, rgba(244, 214, 224, .34), transparent 70%),
+    radial-gradient(46% 34% at 86% 92%, rgba(199, 224, 213, .30), transparent 70%),
     radial-gradient(34% 26% at 8% 88%, rgba(243, 217, 107, .10), transparent 70%);
 }
 #ambient .am { position: fixed; }
@@ -581,7 +581,7 @@ body[data-mic="muted"] #rec-chip i { background: #D9A13C; animation: none; }
   align-items: center;
   padding: 10px 12px;
   border-radius: 16px;
-  background: #FAF9F5;
+  background: #F8F9FC;
   border: 1px solid var(--hair);
 }
 .incident.seeded { border-color: rgba(140, 42, 22, .3); }
@@ -757,7 +757,7 @@ body[data-decision="latched"] #ctl-capsule .cbtn { width: 40px; height: 40px; }
   padding: 12px 14px;
   border-radius: var(--r-ctl);
   border: 1px solid var(--hair-2);
-  background: #FAF9F5;
+  background: #F8F9FC;
   color: var(--ink);
   font-family: var(--ui);
   font-size: 16px;                       /* 16px floor stops iOS zoom on focus */
@@ -779,7 +779,7 @@ body[data-decision="latched"] #ctl-capsule .cbtn { width: 40px; height: 40px; }
   padding: 4px 13px 4px 5px;
   border-radius: 999px;
   border: 1px solid var(--hair-2);
-  background: #FAF9F5;
+  background: #F8F9FC;
   color: var(--ink-2);
   font-family: var(--ui);
   font-size: 13px;
@@ -945,6 +945,9 @@ body[data-session="saved"] #tabbar { display: none; }
   left: calc(var(--sal) + 14px);
   bottom: calc(var(--sab) + 208px);
   z-index: 60;
+}
+body[data-decision="latched"] #preview-bar {
+  bottom: calc(var(--sab) + 90px);
 }
 #preview-bar button {
   min-height: 42px;

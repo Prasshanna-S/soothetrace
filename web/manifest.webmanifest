@@ -4,11 +4,11 @@
   "description": "Listens with you, remembers what helped, and gives it back the next time a similar cry appears.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#EFECE4",
-  "theme_color": "#EFECE4",
+  "background_color": "#F1F2F8",
+  "theme_color": "#F1F2F8",
   "icons": [
     {
-      "src": "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20180%20180%22%3E%3Crect%20width%3D%22180%22%20height%3D%22180%22%20fill%3D%22%23EFECE4%22%2F%3E%3Ccircle%20cx%3D%2278%22%20cy%3D%2286%22%20r%3D%2246%22%20fill%3D%22%23B9C0F0%22%2F%3E%3Ccircle%20cx%3D%22104%22%20cy%3D%2298%22%20r%3D%2238%22%20fill%3D%22%23BFE2D2%22%20fill-opacity%3D%22.85%22%2F%3E%3Ccircle%20cx%3D%2296%22%20cy%3D%2272%22%20r%3D%2230%22%20fill%3D%22%23FBE7C8%22%20fill-opacity%3D%22.8%22%2F%3E%3C%2Fsvg%3E",
+      "src": "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20180%20180%22%3E%3Crect%20width%3D%22180%22%20height%3D%22180%22%20fill%3D%22%23F1F2F8%22%2F%3E%3Ccircle%20cx%3D%2278%22%20cy%3D%2286%22%20r%3D%2246%22%20fill%3D%22%23B9C0F0%22%2F%3E%3Ccircle%20cx%3D%22104%22%20cy%3D%2298%22%20r%3D%2238%22%20fill%3D%22%23BFE2D2%22%20fill-opacity%3D%22.85%22%2F%3E%3Ccircle%20cx%3D%2296%22%20cy%3D%2272%22%20r%3D%2230%22%20fill%3D%22%23FBE7C8%22%20fill-opacity%3D%22.8%22%2F%3E%3C%2Fsvg%3E",
       "sizes": "any",
       "type": "image/svg+xml"
     }
