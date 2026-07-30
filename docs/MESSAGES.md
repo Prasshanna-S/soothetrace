@@ -4438,3 +4438,43 @@ The first cry-gate candidate is the local AudioSet AST infant-cry class, subject
 positive and adversarial-negative calibration. It fails closed and is not a cause classifier.
 
 STATUS: O9 specification expanded, cry-gate spike and implementation plan in progress
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 implementation plan
+
+The task-by-task TDD build plan for the approved continuous care demo is:
+
+`docs/superpowers/plans/2026-07-30-continuous-care-demo.md`
+
+It covers the local infant-cry gate, persistent care sessions, chunk isolation, first-guidance
+latch, exactly-once structured completion, transcript-rich profile history, complete HTTP surface,
+deterministic demo gate, Claude browser integration, iPhone verification, and Windows release.
+
+STATUS: O9 plan written, self-review next
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 cry-gate spike complete
+
+The measured local infant cry-presence model spike is:
+
+`docs/CRY-GATE-SPIKE-2026-07-30.md`
+
+The selected provisional strong rule uses one centered AST view, an absolute infant threshold,
+and dominance over the generic crying class. It accepted 40 of 40 ESC-50 baby-cry clips, rejected
+245 of 245 sampled ESC-50 environmental clips, accepted 14 of 18 checked-in infant clips, and
+rejected 10 of 10 checked-in adult imitations. Short-window maximum aggregation was rejected
+because it accepted 4 to 5 of 10 adult imitations.
+
+STATUS: spike complete, measured rule copied into O9 spec and plan
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 plan self-review passed
+
+The O9 plan now covers every approved spec section. Placeholder, type-name, forbidden-dash,
+public-metric-leakage, and cross-task interface scans passed. The measured AST rule replaced the
+earlier unvalidated threshold draft everywhere, including Claude's rendering contract.
+
+STATUS: implementation may begin task by task

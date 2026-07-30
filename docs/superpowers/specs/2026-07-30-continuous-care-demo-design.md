@@ -227,10 +227,10 @@ Processing:
 2. Reject empty, unsupported, corrupt, near-silent, clipped, or unusable audio with the existing
    reason codes.
 3. Run the cry-presence gate on canonical raw audio.
-4. If the gate returns `not_detected` or `uncertain`, do not run identity, do not read history,
-   and do not select the chunk for incident completion.
+4. If the gate returns anything other than `infant_cry_detected`, do not run identity, do not
+   read history, and do not select the chunk for incident completion.
 5. Call the non-enrolling infant identity path against every active infant profile only after the
-   gate returns `detected`.
+   gate returns `infant_cry_detected`.
 6. If identity is uncertain, unresolved, or names another profile, do not read any history.
 7. If the selected profile matches, compute the separate canonical-audio care fingerprint.
 8. Build current context using server-local time, recent care events, and any session tags.
@@ -260,20 +260,42 @@ The adapter exposes only:
 
 ```json
 {
-  "status": "detected",
-  "label": "Infant cry detected",
-  "reason_codes": [],
-  "detected_window_count": 2,
+  "status": "infant_cry_detected",
+  "label": "Infant-cry-like sound detected",
+  "reason_codes": ["infant_cry_evidence_strong"],
   "analyzed_duration_s": 12.0,
+  "analysis_view_count": 1,
   "model_version": "ast-audioset-baby-cry-v1"
 }
 ```
 
-Allowed statuses are `detected`, `not_detected`, and `uncertain`. Raw logits, probabilities, top
-labels, and thresholds are diagnostic data and never enter the public response. The internal
-adapter evaluates the whole segment plus overlapping windows and requires repeat evidence rather
-than one isolated high-scoring frame. Exact thresholds and the repeat rule are frozen only after
-calibration on the checked-in infant clips and a held-out negative set.
+Allowed statuses are `infant_cry_detected`, `cry_uncertain`, `no_cry_detected`,
+`invalid_audio`, and `gate_unavailable`. Raw logits, probabilities, top labels, and thresholds are
+diagnostic data and never enter the public response.
+
+The provisional measured rule uses one centered view of at most 10 seconds from each 12-second
+segment:
+
+```text
+strong:
+  infant score >= 0.040
+  AND infant score >= 1.20 * generic crying score
+
+borderline:
+  not strong
+  AND infant score >= 0.025
+
+negative:
+  infant score < 0.025
+```
+
+The target is `Baby cry, infant cry`. The comparison class is `Crying, sobbing`. Only `strong`
+returns `infant_cry_detected`. Borderline and generic-cry-dominant results return `cry_uncertain`
+and never trigger identity or guidance.
+
+Do not aggregate the maximum over short windows. In the measured spike, 3-second max windows
+accepted 5 of 10 adult imitations and 5-second max windows accepted 4 of 10. One centered
+10-second view was both faster and safer for this proof of concept.
 
 The negative set must contain, at minimum:
 
@@ -301,6 +323,27 @@ The chosen rule must reject every required presentation negative and detect ever
 demo query in five consecutive rehearsals. The release report must also show a confusion matrix on
 all available labeled positive and negative fixtures. This is demo evidence, not a population
 accuracy claim.
+
+Measured local spike evidence for the provisional strong rule:
+
+| set | accepted | rejected |
+|---|---:|---:|
+| ESC-50 `crying_baby` | 40 of 40 | 0 |
+| ESC-50 sampled environmental negatives | 0 | 245 of 245 |
+| checked-in infant clips | 14 of 18 | 4 of 18 |
+| checked-in adult imitations | 0 | 10 of 10 |
+| synthetic silence, noise, tones, and chirp | 0 | 5 of 5 |
+
+The ESC-50 threshold selection used official folds 1 to 3 for calibration and folds 4 to 5 for
+evaluation. The checked-in infant files are direct 8 kHz corpus derivatives, not fixed-rig phone
+captures. Warm CPU inference averaged about 0.65 seconds after a 6.81-second fresh-process load and
+a 2.45-second first inference. The cached model uses about 330 MB and peak measured process memory
+after inference was about 433 MB.
+
+Before claiming anything beyond this hackathon set, collect at least 100 same-channel infant-cry
+segments and 300 same-channel non-cry segments across sessions. The non-cry set must include infant
+babble, laughter, squeals, caregiver speech, television, music, animals, alerts, appliances, and
+room tone. Report false alerts per hour, not just per-clip accuracy.
 
 ## 8. Server API
 
@@ -397,11 +440,11 @@ Response:
     "status": "matched_no_guidance",
     "reason_codes": ["insufficient_history"],
     "cry_presence": {
-      "status": "detected",
-      "label": "Infant cry detected",
-      "reason_codes": [],
-      "detected_window_count": 2,
+      "status": "infant_cry_detected",
+      "label": "Infant-cry-like sound detected",
+      "reason_codes": ["infant_cry_evidence_strong"],
       "analyzed_duration_s": 12.0,
+      "analysis_view_count": 1,
       "model_version": "ast-audioset-baby-cry-v1"
     }
   }
@@ -565,14 +608,21 @@ care_session_chunk
   canonical_audio_path
   identity_audio_path
   audio_sha256
+  capture_metadata_json
+  quality_json
   status
   cry_status
   cry_reason_codes
   cry_model_version
   matched_profile_id
   reason_codes
+  result_json
   UNIQUE(session_id, sequence)
 ```
+
+`result_json` stores the original score-free public chunk result so an identical repeated sequence
+returns the same response even after a later chunk latches guidance. It never stores raw cry
+probabilities, identity scores, paths, digests, embeddings, or hidden candidate profiles.
 
 Add structured care events:
 
@@ -928,9 +978,11 @@ It must not invent age, birthday, photo, gender, cry type, health state, or diag
 - Keep server-authored guidance verbatim.
 - Keep synthetic provenance impossible to miss.
 - Block every audio player while the microphone is live.
-- Show `No cry detected` as a brief neutral analysis state when the server returns
-  `no_cry_detected`; do not create a suggestion card, profile result, history item, or incident.
-- Show `Listening for a clearer cry` for `cry_uncertain`; do not imply that a cry was detected.
+- Show `No infant cry detected in this segment` as a brief neutral analysis state when the server
+  returns `no_cry_detected`; do not create a suggestion card, profile result, history item, or
+  incident.
+- Show `Cry-like sound, listening for a clearer segment` for `cry_uncertain`; do not imply that an
+  infant cry was confirmed.
 - Remove the manifest's portrait-only restriction.
 - Handle iOS track mute, unmute, ended, page hide, and wake-lock failure honestly.
 - Never say recording is active after the track ended.
@@ -1014,7 +1066,8 @@ lower thresholds during the presentation.
 ## 14. Error handling
 
 - Invalid audio: record the reason, show no suggestion, continue listening.
-- No cry detected: skip identity and history, show a brief neutral state, and continue listening.
+- No infant cry detected: skip identity and history, show a brief neutral state, and continue
+  listening.
 - Cry uncertain: skip identity and history, ask only for a clearer cry, and continue listening.
 - Cry detector unavailable: fail closed and block the infant care session.
 - Another profile matched: do not reveal that profile's history in the selected baby's session.

@@ -40,8 +40,8 @@ Required features:
 - elapsed wall-clock time;
 - persistent microphone-live indicator;
 - small neutral analysis status;
-- brief `No cry detected` and `Listening for a clearer cry` states that never create a result
-  card;
+- brief `No infant cry detected in this segment` and
+  `Cry-like sound, listening for a clearer segment` states that never create a result card;
 - Pause or Resume;
 - Stop;
 - no suggestion card when the backend has no grounded recommendation;
@@ -55,9 +55,12 @@ Required features:
 
 Cry-presence rendering:
 
-- `no_cry_detected` means keep listening, show a brief neutral message, and render no identity,
-  history, suggestion, or incident UI.
-- `cry_uncertain` means keep listening and ask for a clearer cry without saying a cry was detected.
+- `no_cry_detected` means keep listening, show `No infant cry detected in this segment`, and render
+  no identity, history, suggestion, or incident UI.
+- `cry_uncertain` means keep listening, show
+  `Cry-like sound, listening for a clearer segment`, and do not say an infant cry was confirmed.
+- `infant_cry_detected` may show `Infant-cry-like sound detected`. It is an event gate, not an
+  identity result.
 - The backend alone decides cry presence. Do not infer it from volume, animation, transcript, or
   browser-side audio features.
 - Do not show a probability, percentage, raw model label list, diagnosis, emotion, or cause.
