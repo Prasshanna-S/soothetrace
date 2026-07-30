@@ -665,11 +665,8 @@ _CHUNK_STATUSES = {
 }
 
 _DEMO_DECISION_REQUIRED_CRY_SEGMENTS = 4
-_DEMO_EVIDENCE_CHUNK_STATUSES = (
-    "matched_no_guidance",
-    "guidance_latched",
-    "matched_guidance_already_latched",
-)
+_DEMO_REQUIRED_ADDITIONAL_CONFIRMATIONS = 3
+_DEMO_CANDIDATE_STATE_KEY = "_demo_candidate_confirmation"
 
 _CRY_PUBLIC_KEYS = {
     "status",
@@ -726,7 +723,12 @@ def _public_decision_progress(value) -> dict:
     if not isinstance(value, dict):
         return {}
     public = {}
-    for field in ("accepted_cry_segments", "required_cry_segments"):
+    for field in (
+        "consistent_grounded_segments",
+        "required_consistent_grounded_segments",
+        "additional_confirmations",
+        "required_additional_confirmations",
+    ):
         if _is_integer(value.get(field)):
             public[field] = value[field]
     if isinstance(value.get("decision_eligible"), bool):
@@ -877,12 +879,61 @@ def _selected_demo_profile_match(profile: dict, result: dict) -> bool:
     )
 
 
-def _demo_decision_progress(
+def _latest_demo_candidate_state(
+    connection: sqlite3.Connection,
+    session_id: int,
+) -> dict:
+    rows = connection.execute(
+        "SELECT result_json FROM care_session_chunk "
+        "WHERE session_id=? ORDER BY sequence DESC",
+        (session_id,),
+    ).fetchall()
+    for row in rows:
+        try:
+            stored = json.loads(row["result_json"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        state = (
+            stored.get(_DEMO_CANDIDATE_STATE_KEY)
+            if isinstance(stored, dict)
+            else None
+        )
+        if (
+            isinstance(state, dict)
+            and isinstance(state.get("candidate_token"), str)
+            and _is_integer(state.get("additional_confirmations"))
+            and 0 <= state["additional_confirmations"]
+            <= _DEMO_REQUIRED_ADDITIONAL_CONFIRMATIONS
+        ):
+            return {
+                "candidate_token": state["candidate_token"],
+                "additional_confirmations": state["additional_confirmations"],
+            }
+    return {}
+
+
+def _grounded_candidate_token(profile: dict, analysis: dict) -> str | None:
+    if not analysis.get("grounded"):
+        return None
+    guidance = analysis.get("preview", {}).get("guidance")
+    recommendation = (
+        guidance.get("recommendation")
+        if isinstance(guidance, dict)
+        else None
+    )
+    if not isinstance(recommendation, str) or not recommendation.strip():
+        return None
+    normalized = " ".join(recommendation.split()).casefold()
+    raw = f"{profile['id']}\0{normalized}".encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _demo_decision_evidence(
     connection: sqlite3.Connection,
     session_id: int,
     profile: dict,
     analysis: dict,
-) -> dict:
+) -> tuple[dict, dict]:
     if (
         not config.CARE_DEMO_PROFILE_NAME
         or profile.get("display_name") != config.CARE_DEMO_PROFILE_NAME
@@ -890,40 +941,54 @@ def _demo_decision_progress(
         or not analysis.get("selected_match")
         or analysis.get("cry_presence", {}).get("status") != "infant_cry_detected"
     ):
-        return {}
-    placeholders = ",".join("?" for _ in _DEMO_EVIDENCE_CHUNK_STATUSES)
-    previous = connection.execute(
-        "SELECT COUNT(*) FROM care_session_chunk "
-        "WHERE session_id=? AND matched_profile_id=? "
-        "AND cry_status='infant_cry_detected' "
-        f"AND status IN ({placeholders})",
-        (
-            session_id,
-            profile["id"],
-            *_DEMO_EVIDENCE_CHUNK_STATUSES,
-        ),
-    ).fetchone()[0]
-    accepted = min(
-        int(previous) + 1,
-        _DEMO_DECISION_REQUIRED_CRY_SEGMENTS,
+        return {}, {}
+    previous = _latest_demo_candidate_state(connection, session_id)
+    candidate_token = _grounded_candidate_token(profile, analysis)
+    if candidate_token is None:
+        state = previous
+    elif candidate_token == previous.get("candidate_token"):
+        state = {
+            "candidate_token": candidate_token,
+            "additional_confirmations": min(
+                previous["additional_confirmations"] + 1,
+                _DEMO_REQUIRED_ADDITIONAL_CONFIRMATIONS,
+            ),
+        }
+    else:
+        state = {
+            "candidate_token": candidate_token,
+            "additional_confirmations": 0,
+        }
+
+    confirmations = state.get("additional_confirmations", 0)
+    consistent_segments = 1 + confirmations if state else 0
+    eligible = (
+        candidate_token is not None
+        and candidate_token == state.get("candidate_token")
+        and confirmations >= _DEMO_REQUIRED_ADDITIONAL_CONFIRMATIONS
     )
-    eligible = int(previous) + 1 >= _DEMO_DECISION_REQUIRED_CRY_SEGMENTS
     if eligible:
+        label = "Infant cry detected. Match confirmed 3 of 3"
+    elif state:
         label = (
-            "Infant cry detected. Evidence ready "
-            f"{accepted} of {_DEMO_DECISION_REQUIRED_CRY_SEGMENTS}"
+            "Infant cry detected. Match held. Confirming "
+            f"{confirmations} of {_DEMO_REQUIRED_ADDITIONAL_CONFIRMATIONS}"
         )
     else:
-        label = (
-            "Infant cry detected. Building evidence "
-            f"{accepted} of {_DEMO_DECISION_REQUIRED_CRY_SEGMENTS}"
-        )
-    return {
-        "accepted_cry_segments": accepted,
-        "required_cry_segments": _DEMO_DECISION_REQUIRED_CRY_SEGMENTS,
+        label = "Infant cry detected. Waiting for a grounded history match"
+    progress = {
+        "consistent_grounded_segments": consistent_segments,
+        "required_consistent_grounded_segments": (
+            _DEMO_DECISION_REQUIRED_CRY_SEGMENTS
+        ),
+        "additional_confirmations": confirmations,
+        "required_additional_confirmations": (
+            _DEMO_REQUIRED_ADDITIONAL_CONFIRMATIONS
+        ),
         "decision_eligible": eligible,
         "label": label,
     }
+    return progress, state
 
 
 def _latched_decision(
@@ -1230,7 +1295,7 @@ def _submit_claimed_chunk(
             return _error("invalid_care_session_transition")
 
         final_status = analysis["status"]
-        decision_progress = _demo_decision_progress(
+        decision_progress, demo_candidate_state = _demo_decision_evidence(
             connection,
             session_id,
             profile,
@@ -1321,9 +1386,12 @@ def _submit_claimed_chunk(
                 "chunk": chunk,
             }
         )
+        stored_result = dict(result)
+        if demo_candidate_state:
+            stored_result[_DEMO_CANDIDATE_STATE_KEY] = demo_candidate_state
         connection.execute(
             "UPDATE care_session_chunk SET result_json=? WHERE id=?",
-            (json.dumps(result), chunk_id),
+            (json.dumps(stored_result), chunk_id),
         )
         connection.commit()
         return result

@@ -1199,7 +1199,7 @@ class CareSessionTests(unittest.TestCase):
         enroll.assert_not_called()
         create_profile.assert_not_called()
 
-    def test_demo_baby_waits_for_four_cry_evidence_segments_before_guidance(self):
+    def test_demo_baby_holds_first_grounded_match_for_three_more_confirmations(self):
         selected = self._profile("Demo Baby")
         other = self._profile("Learning Baby")
         care_session = care_sessions.create(selected["id"], db_path=self.db)
@@ -1258,28 +1258,36 @@ class CareSessionTests(unittest.TestCase):
         self.assertEqual(
             [
                 {
-                    "accepted_cry_segments": 1,
-                    "required_cry_segments": 4,
+                    "consistent_grounded_segments": 1,
+                    "required_consistent_grounded_segments": 4,
+                    "additional_confirmations": 0,
+                    "required_additional_confirmations": 3,
                     "decision_eligible": False,
-                    "label": "Infant cry detected. Building evidence 1 of 4",
+                    "label": "Infant cry detected. Match held. Confirming 0 of 3",
                 },
                 {
-                    "accepted_cry_segments": 2,
-                    "required_cry_segments": 4,
+                    "consistent_grounded_segments": 2,
+                    "required_consistent_grounded_segments": 4,
+                    "additional_confirmations": 1,
+                    "required_additional_confirmations": 3,
                     "decision_eligible": False,
-                    "label": "Infant cry detected. Building evidence 2 of 4",
+                    "label": "Infant cry detected. Match held. Confirming 1 of 3",
                 },
                 {
-                    "accepted_cry_segments": 3,
-                    "required_cry_segments": 4,
+                    "consistent_grounded_segments": 3,
+                    "required_consistent_grounded_segments": 4,
+                    "additional_confirmations": 2,
+                    "required_additional_confirmations": 3,
                     "decision_eligible": False,
-                    "label": "Infant cry detected. Building evidence 3 of 4",
+                    "label": "Infant cry detected. Match held. Confirming 2 of 3",
                 },
                 {
-                    "accepted_cry_segments": 4,
-                    "required_cry_segments": 4,
+                    "consistent_grounded_segments": 4,
+                    "required_consistent_grounded_segments": 4,
+                    "additional_confirmations": 3,
+                    "required_additional_confirmations": 3,
                     "decision_eligible": True,
-                    "label": "Infant cry detected. Evidence ready 4 of 4",
+                    "label": "Infant cry detected. Match confirmed 3 of 3",
                 },
             ],
             [result["chunk"]["decision_progress"] for result in results],
@@ -1288,6 +1296,8 @@ class CareSessionTests(unittest.TestCase):
             "What helped before: turned on white noise.",
             results[3]["session"]["decision"]["guidance"]["recommendation"],
         )
+        for result in results:
+            self.assert_public_result_has_no_sensitive_analysis(result)
         with sqlite3.connect(self.db) as connection:
             stored = connection.execute(
                 "SELECT sequence, matched_profile_id, status "
@@ -1303,6 +1313,84 @@ class CareSessionTests(unittest.TestCase):
             ],
             stored,
         )
+
+    def test_demo_baby_restarts_confirmation_when_grounded_action_changes(self):
+        selected = self._profile("Demo Baby")
+        other = self._profile("Learning Baby")
+        care_session = care_sessions.create(selected["id"], db_path=self.db)
+        uncertain = {
+            "status": "uncertain",
+            "profile_id": None,
+            "score": 0.91,
+            "margin": 0.05,
+            "candidates": [
+                {"profile_id": selected["id"], "score": 0.91},
+                {"profile_id": other["id"], "score": 0.86},
+            ],
+            "reasons": ["close_top_profiles"],
+        }
+
+        def grounded(recommendation):
+            preview = self._no_guidance_preview(selected)
+            preview["guidance"] = {
+                "status": "grounded",
+                "headline": "What helped before",
+                "interpretation": "This resembles an earlier incident.",
+                "recommendation": recommendation,
+                "evidence_summary": "Supported by a similar recorded incident.",
+                "support_count": 1,
+                "incident_ids": [101],
+            }
+            return preview
+
+        white_noise = grounded("What helped before: turned on white noise.")
+        held_upright = grounded("What helped before: held the baby upright.")
+        with (
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions.identity, "identify") as identify,
+            patch.object(care_sessions, "careflow", create=True) as careflow,
+        ):
+            cry_gate.classify.return_value = self._cry_result("infant_cry_detected")
+            identify.return_value = uncertain
+            careflow.preview_profile_incident.side_effect = [
+                white_noise,
+                white_noise,
+                held_upright,
+                held_upright,
+                held_upright,
+                held_upright,
+            ]
+            results = [
+                care_sessions.submit_chunk(
+                    care_session["id"],
+                    sequence,
+                    self._ingested(f"demo-action-change-{sequence}"),
+                    self.db,
+                )
+                for sequence in range(1, 7)
+            ]
+
+        self.assertEqual(
+            [0, 1, 0, 1, 2, 3],
+            [
+                result["chunk"]["decision_progress"]["additional_confirmations"]
+                for result in results
+            ],
+        )
+        self.assertEqual(
+            [None, None, None, None, None],
+            [result["session"]["decision"] for result in results[:5]],
+        )
+        self.assertEqual(
+            "guidance_latched",
+            results[5]["chunk"]["status"],
+        )
+        self.assertEqual(
+            "What helped before: held the baby upright.",
+            results[5]["session"]["decision"]["guidance"]["recommendation"],
+        )
+        for result in results:
+            self.assert_public_result_has_no_sensitive_analysis(result)
 
     def test_demo_margin_does_not_change_other_profiles_or_weak_margins(self):
         demo = self._profile("Demo Baby")

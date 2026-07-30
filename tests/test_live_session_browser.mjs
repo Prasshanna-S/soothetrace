@@ -477,10 +477,12 @@ async function runLivePath(browser) {
           sequence,
           status: "matched_no_guidance",
           decision_progress: {
-            accepted_cry_segments: sequence,
-            required_cry_segments: 4,
+            consistent_grounded_segments: sequence,
+            required_consistent_grounded_segments: 4,
+            additional_confirmations: sequence - 1,
+            required_additional_confirmations: 3,
             decision_eligible: false,
-            label: `Infant cry detected. Building evidence ${sequence} of 4`,
+            label: `Infant cry detected. Match held. Confirming ${sequence - 1} of 3`,
           },
         },
       });
@@ -534,10 +536,12 @@ async function runLivePath(browser) {
       status: "guidance_latched",
       reason_codes: [],
       decision_progress: {
-        accepted_cry_segments: 4,
-        required_cry_segments: 4,
+        consistent_grounded_segments: 4,
+        required_consistent_grounded_segments: 4,
+        additional_confirmations: 3,
+        required_additional_confirmations: 3,
         decision_eligible: true,
-        label: "Infant cry detected. Evidence ready 4 of 4",
+        label: "Infant cry detected. Match confirmed 3 of 3",
       },
       cry_presence: {
         status: "infant_cry_detected",
@@ -552,7 +556,8 @@ async function runLivePath(browser) {
   assert(
     revealOrder.progress.length === 3 &&
       revealOrder.progress.every((step, index) =>
-        step.status === `Infant cry detected. Building evidence ${index + 1} of 4` &&
+        step.status ===
+          `Infant cry detected. Match held. Confirming ${index} of 3` &&
         step.orb === "detected" &&
         step.suggestionHidden &&
         step.decision === "none" &&
@@ -561,7 +566,7 @@ async function runLivePath(browser) {
     `early evidence produced guidance or lost progress: ${JSON.stringify(revealOrder)}`
   );
   assert(
-    revealOrder.immediate.status === "Infant cry detected. Evidence ready 4 of 4" &&
+    revealOrder.immediate.status === "Infant cry detected. Match confirmed 3 of 3" &&
       revealOrder.immediate.orb === "detected" &&
       revealOrder.immediate.suggestionHidden &&
       revealOrder.immediate.decision === "none",
