@@ -5,11 +5,11 @@
 
 ## Inspiration
 
-Anyone who knows Prasanna knows how much he loves his nephew. His nephew is even the wallpaper on
+Anyone who knows Prasshanna knows how much he loves his nephew. His nephew is even the wallpaper on
 his phone. Watching him grow toward his second birthday has brought the whole family a lot of joy,
 but the road there has not always been easy.
 
-There were endless nights of crying. Prasanna would see his sister exhausted after trying one
+There were endless nights of crying. Prasshanna would see his sister exhausted after trying one
 thing after another to settle the baby. Sometimes she was too tired even to answer a call. The
 family slowly learned what might help, but those small lessons were easy to forget during the next
 stressful night.
