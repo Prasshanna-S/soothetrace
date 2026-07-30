@@ -23,8 +23,9 @@ import os
 import numpy as np
 
 try:
-    from . import fingerprint
+    from . import config, fingerprint
 except ImportError:
+    import config
     import fingerprint
 
 MFCC87 = "mfcc87-v1"
@@ -43,8 +44,7 @@ LICENCES = {
     ECAPA_ADULT: "Apache-2.0",
 }
 
-MODEL_CACHE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                           "models")
+MODEL_CACHE = config.MODEL_DIR
 
 _loaded: dict[str, object] = {}
 

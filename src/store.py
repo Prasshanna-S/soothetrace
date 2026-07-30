@@ -19,9 +19,10 @@ from datetime import datetime, timezone
 import numpy as np
 
 try:
-    from . import config
+    from . import config, database
 except ImportError:
     import config
+    import database
 
 _FIELDS = ("subject_id", "started_at", "duration_s", "audio_path", "fingerprint",
            "transcript", "interventions", "outcome", "outcome_src", "worked", "context")
@@ -54,9 +55,7 @@ def _connect(path: str | None = None) -> sqlite3.Connection:
     parent = os.path.dirname(path)
     if parent:                      # bare filenames have no dirname; makedirs("") raises
         os.makedirs(parent, exist_ok=True)
-    con = sqlite3.connect(path)
-    con.row_factory = sqlite3.Row
-    return con
+    return database.connect(path)
 
 
 def _row_to_episode(row: sqlite3.Row) -> dict:

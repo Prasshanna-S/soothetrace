@@ -1,4 +1,4 @@
-"""Shared configuration. Owned by acoustics workstream - see docs/CONTRACTS.md."""
+"""Shared local and hosted runtime configuration."""
 import os
 
 _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -7,20 +7,46 @@ def _p(*parts):
     return os.path.join(_HERE, *parts)
 
 # --- storage ---
-DB_PATH    = _p("data", "episodes.db")
-AUDIO_DIR  = _p("data", "audio")
+DATA_ROOT = os.path.abspath(
+    os.path.expanduser(os.environ.get("IM_DATA_ROOT") or _p("data"))
+)
+DB_PATH = os.path.abspath(
+    os.path.expanduser(
+        os.environ.get("IM_DB_PATH") or os.path.join(DATA_ROOT, "episodes.db")
+    )
+)
+AUDIO_DIR = os.path.abspath(
+    os.path.expanduser(
+        os.environ.get("IM_AUDIO_DIR") or os.path.join(DATA_ROOT, "audio")
+    )
+)
+VISITOR_ROOT = os.path.abspath(
+    os.path.expanduser(
+        os.environ.get("IM_VISITOR_ROOT") or os.path.join(DATA_ROOT, "visitors")
+    )
+)
+VISITOR_REGISTRY_PATH = os.path.abspath(
+    os.path.expanduser(
+        os.environ.get("IM_VISITOR_REGISTRY_PATH")
+        or os.path.join(DATA_ROOT, "visitor-sessions.db")
+    )
+)
 SCHEMA_SQL = _p("src", "schema.sql")
 
 # --- audio ---
 SAMPLE_RATE = 16000
 
 # --- models (speech path, product workstream) ---
-MODEL_DIR = _p("models")
+MODEL_DIR = os.path.abspath(
+    os.path.expanduser(os.environ.get("IM_MODEL_DIR") or _p("models"))
+)
 CRY_GATE_MODEL_ID = "MIT/ast-finetuned-audioset-10-10-0.4593"
 CRY_GATE_MODEL_VERSION = "ast-audioset-baby-cry-v1"
 TRANSCRIBE_MODEL = "gpt-4o-transcribe"
 REASONING_MODEL  = "gpt-5.5"
-OPENAI_ENV_PATH  = os.path.expanduser("~/apphatchery-discovery/.env")
+OPENAI_ENV_PATH = os.path.abspath(
+    os.path.expanduser(os.environ["IM_OPENAI_ENV_PATH"])
+) if os.environ.get("IM_OPENAI_ENV_PATH") else ""
 
 # True -> use the local `whisper` CLI instead of the API.
 # The acoustic path is offline regardless; this only affects transcription.
