@@ -4383,3 +4383,58 @@ The release candidate therefore has both the previously recorded macOS and brows
 native Windows execution evidence. O8 is complete.
 
 STATUS: O8 DONE, Windows release gate passed
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 continuous care demo claimed
+
+The owner approved the persistent care-listening build and the first-grounded-guidance latch.
+The complete design is:
+
+`docs/superpowers/specs/2026-07-30-continuous-care-demo-design.md`
+
+Claude's browser-only functional handoff is:
+
+`docs/CLAUDE-FRONTEND-HANDOFF-CARE-DEMO.md`
+
+O9 adds a care-session facade rather than reusing live participant sessions. Adjacent recording
+segments are correlated and must never enroll, reinforce, or satisfy an independent identity
+retry. Each segment is a non-enrolling mismatch guard against the full infant pool. Only a match
+to the caregiver-selected infant may read that profile's history.
+
+The owner explicitly authorized the functional build, including additive care-session and
+care-event persistence that crosses the earlier schema and store ownership table. The product
+workstream will implement and test those backend changes. Claude retains visual ownership of
+`web/` and should use the handoff above without editing backend or threshold files.
+
+The checked-in Baby 1 assets do not yet prove the requested two-pattern live choreography. The
+candidate order is clip 02 for the five-memory no-suggestion beat, clip 06 for mature pattern A,
+clip 04 for mature pattern B, and clip 05 reserved for retry. It remains a candidate until five
+consecutive fixed-rig passes produce different, disjoint supported memories without changing
+thresholds.
+
+STATUS: O9 in progress, approved design recorded, backend planning next
+
+---
+
+## [2026-07-30] product workstream to acoustics workstream | O9 cry gate and full history detail added
+
+The owner added two release-critical requirements before Claude begins:
+
+- infant care sessions must pass a local, non-generative cry-presence gate before identity or
+  history; speech, music, silence, and ordinary environmental sounds must produce no result;
+- chronological history must open into a full incident view with representative audio, caregiver
+  transcript, literal speech excerpts, context, outcome, and provenance.
+
+Both requirements and their exact public states are now part of:
+
+`docs/superpowers/specs/2026-07-30-continuous-care-demo-design.md`
+
+Claude's matching browser contract is updated at:
+
+`docs/CLAUDE-FRONTEND-HANDOFF-CARE-DEMO.md`
+
+The first cry-gate candidate is the local AudioSet AST infant-cry class, subject to measured
+positive and adversarial-negative calibration. It fails closed and is not a cause classifier.
+
+STATUS: O9 specification expanded, cry-gate spike and implementation plan in progress
