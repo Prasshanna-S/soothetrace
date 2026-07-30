@@ -222,30 +222,31 @@ const ORB_FRAG = [
   " float r=length(uv);float R=0.335;float t=uTime;",
   " float k=clamp(r/R,0.0,1.0);float z=sqrt(max(1.0-k*k,0.0));",
   " vec3 N=normalize(vec3(uv/R,z+0.0001));",
-  " vec2 sp=uv/R;float bend=0.34*pow(1.0-z,1.7);vec2 rp=sp+N.xy*bend;",
+  " vec2 sp=uv/R;float bend=0.15*pow(1.0-z,1.5);vec2 rp=sp+N.xy*bend;",
   " vec2 q=vec2(fbm(rp*1.8+0.055*t),fbm(rp*1.8+vec2(5.2,1.3)-0.045*t));",
   " vec2 s2=vec2(fbm(rp*1.8+uWarp*q+vec2(1.7,9.2)+0.040*t),",
   "  fbm(rp*1.8+uWarp*q+vec2(8.3,2.8)-0.034*t));",
   " float f=fbm(rp*1.8+(uWarp+0.4)*s2);",
   " vec3 col=mixOk(s2l(uC1),s2l(uC2),0.5+0.85*f);",
+  " col*=0.94+0.10*z;",
   " col=mixOk(col,s2l(uC3),clamp(0.5+0.9*q.x,0.0,1.0)*0.80);",
   " col=mixOk(col,s2l(uC4),clamp(0.5+0.9*s2.y,0.0,1.0)*0.62);",
-  " col*=0.97+0.05*z;",
+  "",
   " col+=s2l(uC4)*pow(max(-N.y,0.0),2.2)*(1.0-z)*0.16;",
   " vec3 L=normalize(vec3(-0.46,0.60,0.66));",
-  " float fres=pow(1.0-z,3.2);",
-  " col=mixOk(col,vec3(1.0),fres*0.02);",
+  "",
+  "",
   " float d=max(dot(N,L),0.0);",
   " col+=vec3(1.0)*pow(d,3.0)*0.065;",
   " col+=vec3(1.0)*pow(d,52.0)*0.65;",
   " float lum=dot(col,vec3(0.2126,0.7152,0.0722));",
   " col=max(mix(vec3(lum),col,uSat),0.0);",
   " vec3 outc=l2s(col);",
-  " float body=smoothstep(R,R-0.014,r);",
-  " float halo=exp(-max(r-R,0.0)*18.0)*0.10;",
-  " vec3 haloCol=l2s(mixOk(mixOk(s2l(uC2),s2l(uC3),0.5),vec3(1.0),0.34));",
-  " vec3 rgb=mix(haloCol,outc,body);",
-  " float a=max(body,halo*(1.0-body));",
+  " float body=smoothstep(R,R-0.025,r);",
+  "",
+  "",
+  " vec3 rgb=outc;",
+  " float a=body;",
   " float dth=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453);",
   " rgb+=(dth-0.5)/255.0;",
   " gl_FragColor=vec4(rgb,a);}",
@@ -273,8 +274,6 @@ function createOrb(canvas) {
   const loc = gl.getAttribLocation(prog, "p");
   gl.enableVertexAttribArray(loc);
   gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-  gl.enable(gl.BLEND);
-  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   const U = {};
   for (const n of ["uRes", "uTime", "uWarp", "uSat", "uC1", "uC2", "uC3", "uC4"]) {
     U[n] = gl.getUniformLocation(prog, n);
@@ -1045,7 +1044,7 @@ function blockIncidentPlayback(blocked) {
 const PREVIEW_DECISION = {
   id: 88,
   latched_at: "2026-07-30T20:15:15-04:00",
-  profile: { id: 12, display_name: "Baby 1" },
+  profile: { id: 12, display_name: "Amara" },
   guidance: {
     status: "grounded",
     headline: "What helped before",
