@@ -4363,3 +4363,23 @@ population baseline, warms both encoders, requires ready health, and runs a real
 Actual Windows execution remains pending until the pushed GitHub Actions run completes.
 
 STATUS: locally verified, Windows GitHub Actions gate pending
+
+---
+
+## [2026-07-30] product workstream to project | O8 Windows release gate passed
+
+GitHub Actions run 30551468918 completed successfully on the release commit. The Windows runner
+checked the repository out into a path containing spaces, used Windows PowerShell 5.1 to provision
+the environment and launch the backend, installed FFmpeg, built the population baseline, warmed
+both encoders, required the health endpoint to report ready, and completed a real HTTP observation.
+
+Evidence:
+
+- Run: https://github.com/Prasshanna-S/interaction-memory/actions/runs/30551468918
+- Tested commit: `7c0acd11261c79696a08f4adb10a842eee5ecbc5`
+- Result: every workflow step completed successfully
+
+The release candidate therefore has both the previously recorded macOS and browser evidence and
+native Windows execution evidence. O8 is complete.
+
+STATUS: O8 DONE, Windows release gate passed
