@@ -43,21 +43,21 @@ const incidents = [
     id: 301,
     started_at: "2026-07-30T20:16:00-04:00",
     duration_s: 12,
-    actions: [{ action: "Offered bottle" }],
-    outcome: "The baby settled.",
+    actions: [{ action: "Held baby upright after the evening feeding" }],
+    outcome: "The baby settled after a few calm minutes.",
     outcome_source: "caregiver",
     worked: true,
-    context: { tags: ["evening"] },
+    context: { tags: ["evening", "at home", "after feeding"] },
   },
   {
     id: 302,
     started_at: "2026-07-29T03:04:00-04:00",
     duration_s: 9,
-    actions: [{ action: "Held baby upright" }],
+    actions: [{ action: "White noise near the bedside" }],
     outcome: "Whether the baby settled was not recorded.",
     outcome_source: "seed",
     worked: null,
-    context: { tags: ["overnight"] },
+    context: { tags: ["overnight", "white-noise trial"] },
   },
 ];
 
@@ -176,7 +176,23 @@ try {
             memory_count: 2,
             available_context: ["acoustic_pattern", "time_of_day"],
           },
-          training_clips: [],
+          training_clips: [
+            {
+              captured_at: "2026-07-30T20:06:00-04:00",
+              duration_s: 15,
+              playback_url: "/audio/training-1.wav",
+            },
+            {
+              captured_at: "2026-07-30T20:05:00-04:00",
+              duration_s: 15,
+              playback_url: "/audio/training-2.wav",
+            },
+            {
+              captured_at: "2026-07-30T20:04:00-04:00",
+              duration_s: 15,
+              playback_url: "/audio/training-3.wav",
+            },
+          ],
         }),
       });
       return;
@@ -222,6 +238,7 @@ try {
       header: rect("#page-listen > .page-head"),
       profile: rect("#profile-control"),
       health: rect("#health-pill"),
+      lineArtCount: document.querySelectorAll("#ambient .am").length,
       stickerStyles,
     };
   });
@@ -235,12 +252,13 @@ try {
     `Ready is not below the profile: ${JSON.stringify(portrait)}`
   );
   assert(
-    portrait.stickerStyles.length === 4 &&
+    portrait.lineArtCount === 0 &&
+      portrait.stickerStyles.length === 4 &&
       portrait.stickerStyles.every((item) =>
-        item.opacity <= 0.1 && item.animationName !== "none"
+        item.opacity <= 0.04 && item.animationName !== "none"
       ) &&
       new Set(portrait.stickerStyles.map((item) => item.animationDuration)).size > 1,
-    `ambient stickers are not quiet and independently moving: ${JSON.stringify(portrait)}`
+    `idle background still has line art or strong stickers: ${JSON.stringify(portrait)}`
   );
 
   await page.evaluate(() => {
@@ -281,6 +299,174 @@ try {
   assert(
     await page.locator("#tab-listen").getAttribute("aria-current") === "page",
     "right swipe did not return to Listen"
+  );
+
+  await page.evaluate(() => { location.hash = "history"; });
+  await page.waitForFunction(() =>
+    document.querySelectorAll("#history-list .record-card").length === 2
+  );
+  const portraitHistory = await page.evaluate(() => {
+    const list = document.querySelector("#history-list").getBoundingClientRect();
+    const cards = Array.from(document.querySelectorAll("#history-list .record-card"));
+    const clipped = Array.from(document.querySelectorAll(
+      "#history-list .record-copy, #history-list .record-meta, " +
+      "#history-list .record-action, #history-list .record-outcome, " +
+      "#history-list .badge, #history-list .record-tags"
+    )).filter((node) => node.scrollWidth > node.clientWidth + 1)
+      .map((node) => ({
+        className: node.className,
+        text: node.textContent,
+        clientWidth: node.clientWidth,
+        scrollWidth: node.scrollWidth,
+      }));
+    return {
+      list: { left: list.left, right: list.right, width: list.width },
+      cards: cards.map((node) => {
+        const rect = node.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, width: rect.width };
+      }),
+      containment: cards.map((card) => {
+        const cardRect = card.getBoundingClientRect();
+        const children = Array.from(card.querySelectorAll(
+          ".record-open, .record-copy, .record-action, .record-meta, " +
+          ".record-outcome, .record-tags"
+        )).map((node) => {
+          const rect = node.getBoundingClientRect();
+          return {
+            className: node.className,
+            left: rect.left,
+            right: rect.right,
+          };
+        });
+        return {
+          clientWidth: card.clientWidth,
+          scrollWidth: card.scrollWidth,
+          left: cardRect.left,
+          right: cardRect.right,
+          children,
+        };
+      }),
+      clipped,
+      bodyWidth: document.body.scrollWidth,
+      pageWidth: document.querySelector("#page-history").scrollWidth,
+      listWidth: document.querySelector("#history-list").scrollWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: innerWidth,
+    };
+  });
+  assert(
+    portraitHistory.cards.every((card) =>
+      Math.abs(card.left - portraitHistory.list.left) <= 1 &&
+      Math.abs(card.right - portraitHistory.list.right) <= 1
+    ) &&
+      portraitHistory.clipped.length === 0 &&
+      portraitHistory.containment.every((card) =>
+        card.scrollWidth <= card.clientWidth + 1 &&
+        card.children.every((child) =>
+          child.left >= card.left - 1 && child.right <= card.right + 1
+        )
+      ) &&
+      portraitHistory.bodyWidth <= portraitHistory.viewportWidth &&
+      portraitHistory.pageWidth <= portraitHistory.viewportWidth &&
+      portraitHistory.listWidth <= portraitHistory.viewportWidth &&
+      portraitHistory.documentWidth <= portraitHistory.viewportWidth,
+    `portrait History clips or wraps outside its cards: ${JSON.stringify(portraitHistory)}`
+  );
+
+  await page.evaluate(() => { location.hash = "baby"; });
+  await page.waitForFunction(() =>
+    document.querySelectorAll("#baby-training .training-row").length === 3
+  );
+  const portraitBaby = await page.evaluate(() => {
+    const summary = document.querySelector("#baby-summary").getBoundingClientRect();
+    const content = document.querySelector("#baby-content").getBoundingClientRect();
+    const training = document.querySelector(
+      "#baby-content > .training-card:not(.baby-context-card)"
+    ).getBoundingClientRect();
+    const tabbarNode = document.querySelector("#tabbar");
+    const tabbar = tabbarNode.getBoundingClientRect();
+    const rows = Array.from(document.querySelectorAll("#baby-training .training-row"))
+      .map((node) => {
+        const row = node.getBoundingClientRect();
+        const copy = node.querySelector(".record-copy").getBoundingClientRect();
+        const audio = node.querySelector("audio").getBoundingClientRect();
+        return {
+          row: { left: row.left, right: row.right },
+          copy: {
+            left: copy.left,
+            right: copy.right,
+            clipped: node.querySelector(".record-copy").scrollWidth >
+              node.querySelector(".record-copy").clientWidth + 1,
+          },
+          audio: { left: audio.left, right: audio.right },
+        };
+      });
+    return {
+      summary: { left: summary.left, right: summary.right },
+      content: { left: content.left, right: content.right },
+      training: { left: training.left, right: training.right },
+      tabbar: {
+        top: tabbar.top,
+        bottom: tabbar.bottom,
+        position: getComputedStyle(tabbarNode).position,
+        visibility: getComputedStyle(tabbarNode).visibility,
+      },
+      rows,
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: innerWidth,
+      viewportHeight: innerHeight,
+    };
+  });
+  assert(
+    Math.abs(portraitBaby.summary.left - portraitBaby.content.left) <= 1 &&
+      Math.abs(portraitBaby.summary.right - portraitBaby.content.right) <= 1 &&
+      Math.abs(portraitBaby.training.left - portraitBaby.content.left) <= 1 &&
+      Math.abs(portraitBaby.training.right - portraitBaby.content.right) <= 1 &&
+      portraitBaby.rows.every(({ row, copy, audio }) =>
+        !copy.clipped &&
+        copy.left >= row.left &&
+        copy.right <= row.right &&
+        audio.left >= row.left &&
+        audio.right <= row.right
+      ) &&
+      portraitBaby.tabbar.position === "fixed" &&
+      portraitBaby.tabbar.visibility === "visible" &&
+      portraitBaby.tabbar.top >= 0 &&
+      portraitBaby.tabbar.bottom <= portraitBaby.viewportHeight &&
+      portraitBaby.documentWidth <= portraitBaby.viewportWidth,
+    `portrait Baby content clips or wraps outside its cards: ${JSON.stringify(portraitBaby)}`
+  );
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.evaluate(() => { location.hash = "history"; });
+  await page.waitForFunction(() =>
+    document.querySelectorAll("#history-list .record-card").length === 2
+  );
+  const desktopHistory = await page.evaluate(() => {
+    const list = document.querySelector("#history-list").getBoundingClientRect();
+    const headings = Array.from(document.querySelectorAll("#history-list .hist-day"))
+      .map((node) => {
+        const rect = node.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, width: rect.width };
+      });
+    const firstCard = document.querySelector("#history-list .record-card")
+      .getBoundingClientRect();
+    return {
+      list: { left: list.left, right: list.right, width: list.width },
+      headings,
+      firstCard: { left: firstCard.left, top: firstCard.top },
+      firstHeadingBottom: document.querySelector("#history-list .hist-day")
+        .getBoundingClientRect().bottom,
+    };
+  });
+  assert(
+    desktopHistory.headings.every((heading) =>
+      Math.abs(heading.left - desktopHistory.list.left) <= 1 &&
+      Math.abs(heading.right - desktopHistory.list.right) <= 1
+    ) &&
+      Math.abs(desktopHistory.firstCard.left - desktopHistory.list.left) <= 1 &&
+      desktopHistory.firstCard.top >= desktopHistory.firstHeadingBottom,
+    `desktop History day groups break the card grid: ${JSON.stringify(desktopHistory)}`
   );
 
   await page.setViewportSize({ width: 844, height: 390 });
@@ -340,6 +526,62 @@ try {
   assert(
     await page.evaluate(() => location.hash) === "#history",
     "swiping the History tabs incorrectly changed the app section"
+  );
+
+  await page.evaluate(() => { location.hash = "baby"; });
+  await page.waitForFunction(() =>
+    document.querySelectorAll("#baby-training .training-row").length === 3
+  );
+  const landscapeBaby = await page.evaluate(() => {
+    const summaryNode = document.querySelector("#baby-summary");
+    const summary = summaryNode.getBoundingClientRect();
+    const copy = summaryNode.querySelector(".memory-copy").getBoundingClientRect();
+    const art = summaryNode.querySelector("img").getBoundingClientRect();
+    const contextNode = document.querySelector(".baby-context-card");
+    const context = contextNode.getBoundingClientRect();
+    const trainingNode = document.querySelector(
+      "#baby-content > .training-card:not(.baby-context-card)"
+    );
+    const training = trainingNode.getBoundingClientRect();
+    const rows = Array.from(document.querySelectorAll("#baby-training .training-row"))
+      .map((node) => {
+        const rect = node.getBoundingClientRect();
+        return { top: rect.top, bottom: rect.bottom };
+      });
+    return {
+      summary: {
+        top: summary.top,
+        bottom: summary.bottom,
+        clientHeight: summaryNode.clientHeight,
+        scrollHeight: summaryNode.scrollHeight,
+      },
+      copy: { top: copy.top, bottom: copy.bottom },
+      art: { top: art.top, bottom: art.bottom },
+      context: {
+        top: context.top,
+        bottom: context.bottom,
+        clientHeight: contextNode.clientHeight,
+        scrollHeight: contextNode.scrollHeight,
+      },
+      training: { top: training.top, bottom: training.bottom },
+      rows,
+      documentHeight: document.documentElement.scrollHeight,
+      viewportHeight: innerHeight,
+    };
+  });
+  assert(
+    landscapeBaby.summary.scrollHeight <= landscapeBaby.summary.clientHeight + 1 &&
+      landscapeBaby.copy.top >= landscapeBaby.summary.top - 1 &&
+      landscapeBaby.copy.bottom <= landscapeBaby.summary.bottom + 1 &&
+      landscapeBaby.art.top >= landscapeBaby.summary.top - 1 &&
+      landscapeBaby.art.bottom <= landscapeBaby.summary.bottom + 1 &&
+      landscapeBaby.context.scrollHeight <= landscapeBaby.context.clientHeight + 1 &&
+      landscapeBaby.rows.slice(0, 2).every((row) =>
+        row.top >= landscapeBaby.training.top &&
+        row.bottom <= landscapeBaby.training.bottom
+      ) &&
+      landscapeBaby.documentHeight <= landscapeBaby.viewportHeight,
+    `short-landscape Baby clips its summary or training rows: ${JSON.stringify(landscapeBaby)}`
   );
 
   assert(pageErrors.length === 0, `page errors: ${pageErrors.join(" | ")}`);

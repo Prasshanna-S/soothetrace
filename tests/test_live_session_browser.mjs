@@ -37,10 +37,7 @@ async function ambientMetrics(page) {
     return {
       opacity: style.opacity,
       visibility: style.visibility,
-      animationNames: Array.from(document.querySelectorAll("#ambient .am"))
-        .map((node) => getComputedStyle(node).animationName),
-      animationPlayStates: Array.from(document.querySelectorAll("#ambient .am"))
-        .map((node) => getComputedStyle(node).animationPlayState),
+      lineArtCount: document.querySelectorAll("#ambient .am").length,
       stickers: Array.from(document.querySelectorAll("#ambient .ambient-sticker"))
         .map((node) => {
           const stickerStyle = getComputedStyle(node);
@@ -464,7 +461,7 @@ async function runLivePath(browser) {
   assert(
     idleAmbient.opacity === "1" &&
       idleAmbient.visibility === "visible" &&
-      idleAmbient.animationNames.every((name) => name === "none") &&
+      idleAmbient.lineArtCount === 0 &&
       idleAmbient.stickers.length === 4 &&
       idleAmbient.stickers.every((sticker) =>
         sticker.source.includes("/img/action-") &&
@@ -870,9 +867,7 @@ async function runAmbientMotionPreference(browser) {
   assert(
     ambient.opacity === "1" &&
       ambient.visibility === "visible" &&
-      ambient.animationNames.length === 5 &&
-      ambient.animationNames.every((name) => name !== "none") &&
-      ambient.animationPlayStates.every((state) => state === "running") &&
+      ambient.lineArtCount === 0 &&
       ambient.stickers.length === 4 &&
       ambient.stickers.every((sticker) =>
         sticker.source.includes("/img/action-") &&
@@ -892,7 +887,6 @@ async function runAmbientMotionPreference(browser) {
   assert(
     Number(active.opacity) <= 0.01 &&
       active.visibility === "hidden" &&
-      active.animationPlayStates.every((state) => state === "paused") &&
       active.stickers.every((sticker) => sticker.animationPlayState === "paused"),
     `active recording did not hide and pause ambient motion: ${JSON.stringify(active)}`
   );

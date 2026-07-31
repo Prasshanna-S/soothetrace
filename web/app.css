@@ -228,21 +228,17 @@ body[data-session="paused"] #ambient {
   content: "";
   position: fixed; inset: -10%;
   background:
-    radial-gradient(42% 30% at 10% 6%, rgba(196, 198, 239, .30), transparent 70%),
-    radial-gradient(38% 28% at 90% 12%, rgba(244, 214, 224, .34), transparent 70%),
-    radial-gradient(46% 34% at 86% 92%, rgba(199, 224, 213, .30), transparent 70%),
-    radial-gradient(34% 26% at 8% 88%, rgba(243, 217, 107, .10), transparent 70%);
-}
-#ambient .am {
-  position: fixed;
-  transform-origin: center;
+    radial-gradient(42% 30% at 10% 6%, rgba(196, 198, 239, .14), transparent 72%),
+    radial-gradient(38% 28% at 90% 12%, rgba(244, 214, 224, .15), transparent 72%),
+    radial-gradient(46% 34% at 86% 92%, rgba(199, 224, 213, .14), transparent 72%),
+    radial-gradient(34% 26% at 8% 88%, rgba(243, 217, 107, .06), transparent 72%);
 }
 
 #ambient .ambient-sticker {
   position: fixed;
   object-fit: contain;
-  opacity: .072;
-  filter: saturate(.55) blur(.2px) drop-shadow(0 5px 10px rgba(45, 47, 68, .06));
+  opacity: .035;
+  filter: saturate(.42) blur(.35px) drop-shadow(0 4px 8px rgba(45, 47, 68, .035));
   transform-origin: center;
   will-change: transform;
 }
@@ -291,47 +287,10 @@ body[data-session="paused"] #ambient {
   --sticker-delay: -31s;
 }
 
-body[data-session="requesting"] #ambient .am,
-body[data-session="listening"] #ambient .am,
-body[data-session="paused"] #ambient .am,
 body[data-session="requesting"] #ambient .ambient-sticker,
 body[data-session="listening"] #ambient .ambient-sticker,
 body[data-session="paused"] #ambient .ambient-sticker {
   animation-play-state: paused;
-}
-.am-1 {
-  width: 80px; top: calc(var(--sat) + 88px); left: -16px; opacity: .5;
-  --float-x: 5px; --float-y: -7px; --float-turn: 1deg;
-  --float-duration: 14s; --float-delay: -3s;
-}
-.am-2 {
-  width: 24px; top: calc(var(--sat) + 58px); right: 40px; opacity: .75;
-  --float-x: -3px; --float-y: 6px; --float-turn: -2deg;
-  --float-duration: 11s; --float-delay: -7s;
-}
-.am-3 {
-  width: 32px; top: 44%; left: 18px; opacity: .45;
-  --float-x: 4px; --float-y: -5px; --float-turn: 1.5deg;
-  --float-duration: 16s; --float-delay: -9s;
-}
-.am-4 {
-  width: 18px; top: 56%; right: 26px; opacity: .65;
-  --float-x: -4px; --float-y: -7px; --float-turn: -2deg;
-  --float-duration: 12s; --float-delay: -5s;
-}
-.am-5 {
-  width: 104px; bottom: 132px; right: -28px; opacity: .4;
-  --float-x: -6px; --float-y: 8px; --float-turn: -1deg;
-  --float-duration: 18s; --float-delay: -11s;
-}
-
-@keyframes ambient-float {
-  0%, 100% { transform: translate3d(0, 0, 0) rotate(0); }
-  50% {
-    transform:
-      translate3d(var(--float-x), var(--float-y), 0)
-      rotate(var(--float-turn));
-  }
 }
 
 @keyframes ambient-sticker-drift {
@@ -426,11 +385,6 @@ body[data-session="paused"] #ambient .ambient-sticker {
       ambient-sticker-drift var(--sticker-duration) ease-in-out
       var(--sticker-delay) infinite;
   }
-  #ambient .am {
-    animation:
-      ambient-float var(--float-duration) ease-in-out
-      var(--float-delay) infinite;
-  }
   body[data-launched="true"] #app-shell {
     animation: app-reveal .58s cubic-bezier(.2, .7, .3, 1) both;
   }
@@ -488,7 +442,6 @@ body[data-session="paused"] #ambient .ambient-sticker {
   body[data-session="paused"] #ambient {
     transition: none;
   }
-  #ambient .am,
   #ambient .ambient-sticker,
   .launch-mark,
   .launch-mark span {
@@ -1390,8 +1343,6 @@ body[data-decision="latched"] #preview-bar {
   #app-shell { max-width: none;
     padding: calc(var(--sat) + 14px) calc(var(--sar) + 18px)
              calc(var(--sab) + 12px) calc(var(--sal) + 18px); }
-  .am-3, .am-5 { display: none; }
-
   /* nav: hidden until tapped for */
   #tabbar { display: none; }
   body[data-navpeek="true"] #tabbar {
@@ -1775,9 +1726,6 @@ body[data-decision="latched"] #preview-bar {
     width: min(100%, 780px);
     margin: 70px auto 0;
   }
-  .am-1 { width: 128px; left: 6vw; }
-  .am-5 { width: 168px; right: 4vw; }
-  .am-3 { left: 8vw; }
 }
 
 /* After Stop, keep the grounded result as one horizontal summary across the
@@ -3266,6 +3214,12 @@ body[data-decision="latched"] #preview-bar {
     align-content: start;
   }
 
+  #page-history #history-list > .hist-day {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin-inline: 0;
+  }
+
   #page-history:has(#history-detail:not([hidden])) > #history-list,
   #page-history[data-state="detail"] > #history-list {
     grid-column: 1;
@@ -3332,8 +3286,10 @@ body[data-decision="latched"] #preview-bar {
 /* ---------------------------------------- Claude C15 layout reconciliation */
 
 /* Keep each recorded moment as one readable row. */
-.record-card.incident {
+#page-history #history-list > .record-card.incident {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
   gap: 4px;
 }
 
@@ -3341,6 +3297,8 @@ body[data-decision="latched"] #preview-bar {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
   width: 100%;
 }
 
@@ -3349,6 +3307,13 @@ body[data-decision="latched"] #preview-bar {
   color: var(--ink);
   font-size: 15px;
   line-height: 1.3;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+#page-history #history-list .incident .act,
+#page-history #history-list .incident .quote {
+  overflow: visible;
   text-overflow: clip;
   white-space: normal;
 }
@@ -3407,7 +3372,9 @@ body[data-decision="latched"] #preview-bar {
 #page-history #history-list li .record-tags {
   position: static;
   float: none;
-  max-width: none;
+  width: auto;
+  min-width: 0;
+  max-width: calc(100% - 58px);
   margin: 2px 0 0 58px;
   overflow: visible;
   text-align: left;
@@ -3693,10 +3660,114 @@ body[data-decision="latched"] #preview-bar {
   }
 
   #page-baby #baby-content {
-    gap: 12px 18px;
+    grid-template-rows: minmax(132px, 1fr) auto;
+    gap: 8px 16px;
   }
 
   #page-baby .training-card {
-    padding: 16px;
+    padding: 10px 11px;
+  }
+
+  #page-baby #baby-summary {
+    min-height: 132px;
+    padding: 12px 14px;
+  }
+
+  #page-baby #baby-memory-count b {
+    font-size: 38px;
+  }
+
+  #page-baby #baby-memory-state {
+    margin-top: 4px;
+    font-size: 11.5px;
+    line-height: 1.3;
+  }
+
+  #page-baby #baby-memory-beads {
+    gap: 5px;
+    margin-top: 6px;
+  }
+
+  #page-baby #baby-memory-beads > * {
+    width: 8px;
+    height: 8px;
+  }
+
+  #page-baby #baby-summary > img {
+    width: 68px;
+    height: 68px;
+    margin-right: 2px;
+  }
+
+  #page-baby #baby-content > .baby-context-card {
+    max-height: 86px;
+    padding: 9px 11px;
+  }
+
+  #page-baby .baby-context-card .card-kicker {
+    display: none;
+  }
+
+  #page-baby .baby-context-card h2 {
+    margin: 0 0 6px;
+    font-size: 13.5px;
+    line-height: 1.2;
+  }
+
+  #page-baby .baby-context-card .tag-row {
+    gap: 4px;
+  }
+
+  #page-baby .baby-context-card .tag-row span {
+    padding: 3px 8px;
+    font-size: 10.5px;
+  }
+
+  #page-baby #baby-content > .training-card:not(.baby-context-card) {
+    padding: 10px 11px;
+    scrollbar-width: thin;
+  }
+
+  #page-baby #baby-content > .training-card:not(.baby-context-card) .card-kicker {
+    font-size: 9px;
+  }
+
+  #page-baby #baby-content > .training-card:not(.baby-context-card) h2 {
+    margin-bottom: 6px;
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  #page-baby #baby-training {
+    gap: 6px;
+  }
+
+  #page-baby #baby-training > .record-card {
+    padding: 6px 8px;
+  }
+
+  #page-baby #baby-training li.training-row .training-ordinal {
+    width: 32px;
+    height: 32px;
+    font-size: 12px;
+  }
+
+  #page-baby #baby-training .record-copy strong {
+    font-size: 13px;
+    line-height: 1.2;
+  }
+
+  #page-baby #baby-training .record-copy span {
+    font-size: 11px;
+    line-height: 1.2;
+  }
+
+  #page-baby #baby-training audio {
+    height: 30px;
+    margin-top: 3px;
+  }
+
+  #page-baby #btn-delete-visitor-data {
+    display: none;
   }
 }
