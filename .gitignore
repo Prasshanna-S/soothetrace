@@ -2,6 +2,7 @@
 node_modules/
 __pycache__/
 *.pyc
+.DS_Store
 
 # Never commit the public corpus clone, generated captures, or ad hoc audio.
 experiments/donateacry-corpus/
