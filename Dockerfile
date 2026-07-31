@@ -34,11 +34,12 @@ COPY --from=builder /opt/venv /opt/venv
 COPY src ./src
 COPY web ./web
 COPY data/calibration.json ./data/calibration.json
+COPY deploy/population-baseline.json ./deploy/population-baseline.json
 COPY demo_assets/baby_audio/warning-demo ./demo_assets/baby_audio/warning-demo
-COPY scripts/prepare_care_demo.py scripts/hosted_bootstrap.py ./scripts/
+COPY scripts/prepare_care_demo.py scripts/hosted_bootstrap.py scripts/hosted_entrypoint.py ./scripts/
 
 USER soothetrace
 
 EXPOSE 10000
 
-CMD ["sh", "-c", "exec python -m src.http_api --behind-tls-proxy --host 0.0.0.0 --port \"${PORT:-10000}\" --data-root \"$IM_AUDIO_DIR\" --db \"$IM_DB_PATH\" --static-root /app/web"]
+CMD ["python", "scripts/hosted_entrypoint.py"]

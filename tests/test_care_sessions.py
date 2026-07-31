@@ -123,7 +123,9 @@ class CareSessionTests(unittest.TestCase):
             "canonical_path": ingested["canonical_path"],
         }
 
-    def _ingested(self, name, payload=b"source-audio"):
+    def _ingested(self, name, payload=None):
+        if payload is None:
+            payload = f"source-audio-{name}".encode()
         capture_dir = self.root / "managed" / name
         capture_dir.mkdir(parents=True, exist_ok=True)
         source = capture_dir / "source.webm"
@@ -551,6 +553,12 @@ class CareSessionTests(unittest.TestCase):
                         "occurred at a similar time of day",
                         {"cosine": 0.88},
                     ],
+                    "caregiver_evidence": {
+                        "text": "I held the baby upright.",
+                        "source": "captured_transcript",
+                        "full_transcript": "private",
+                        "score": 0.99,
+                    },
                     "audio_url": "/api/audio/episodes/101",
                     "artifact": "/private/episode.wav",
                     "audio_path": "/private/episode.wav",
@@ -608,6 +616,10 @@ class CareSessionTests(unittest.TestCase):
                         "outcome_src": "caregiver",
                         "worked": True,
                         "contributions": ["occurred at a similar time of day"],
+                        "caregiver_evidence": {
+                            "text": "I held the baby upright.",
+                            "source": "captured_transcript",
+                        },
                         "audio_url": (
                             f"/api/profiles/{profile['id']}/incidents/101/audio"
                         ),
@@ -1092,7 +1104,13 @@ class CareSessionTests(unittest.TestCase):
         self.assertNotEqual(ingested["sha256"], row["audio_sha256"])
         self.assertEqual(ingested["capture"], json.loads(row["capture_metadata_json"]))
         self.assertEqual(ingested["quality"], json.loads(row["quality_json"]))
-        self.assertEqual(result, json.loads(row["result_json"]))
+        stored_result = json.loads(row["result_json"])
+        self.assertEqual(
+            hashlib.sha256(b"authoritative-source-bytes").hexdigest(),
+            stored_result.pop("_demo_source_digest"),
+        )
+        self.assertNotIn("_demo_duplicate_signature", stored_result)
+        self.assertEqual(result, stored_result)
         identify.assert_not_called()
 
     def test_nonpositive_cry_gate_results_never_run_identity_or_history(self):
@@ -1199,7 +1217,7 @@ class CareSessionTests(unittest.TestCase):
         enroll.assert_not_called()
         create_profile.assert_not_called()
 
-    def test_demo_baby_holds_first_grounded_match_for_three_more_confirmations(self):
+    def test_demo_baby_holds_suggestion_for_confirmations_and_listening_window(self):
         selected = self._profile("Demo Baby")
         other = self._profile("Learning Baby")
         care_session = care_sessions.create(selected["id"], db_path=self.db)
@@ -1239,62 +1257,51 @@ class CareSessionTests(unittest.TestCase):
                     self._ingested(f"demo-strong-close-top-{sequence}"),
                     self.db,
                 )
-                for sequence in range(1, 5)
+                for sequence in range(1, 8)
             ]
 
         self.assertEqual(
-            [
-                "matched_no_guidance",
-                "matched_no_guidance",
-                "matched_no_guidance",
-                "guidance_latched",
-            ],
+            ["matched_no_guidance"] * 6 + ["guidance_latched"],
             [result["chunk"]["status"] for result in results],
         )
         self.assertEqual(
-            [None, None, None],
-            [result["session"]["decision"] for result in results[:3]],
+            [None] * 6,
+            [result["session"]["decision"] for result in results[:6]],
         )
         self.assertEqual(
+            [0, 1, 2, 3, 4, 5, 5],
             [
-                {
-                    "consistent_grounded_segments": 1,
-                    "required_consistent_grounded_segments": 4,
-                    "additional_confirmations": 0,
-                    "required_additional_confirmations": 3,
-                    "decision_eligible": False,
-                    "label": "Infant cry detected. Match held. Confirming 0 of 3",
-                },
-                {
-                    "consistent_grounded_segments": 2,
-                    "required_consistent_grounded_segments": 4,
-                    "additional_confirmations": 1,
-                    "required_additional_confirmations": 3,
-                    "decision_eligible": False,
-                    "label": "Infant cry detected. Match held. Confirming 1 of 3",
-                },
-                {
-                    "consistent_grounded_segments": 3,
-                    "required_consistent_grounded_segments": 4,
-                    "additional_confirmations": 2,
-                    "required_additional_confirmations": 3,
-                    "decision_eligible": False,
-                    "label": "Infant cry detected. Match held. Confirming 2 of 3",
-                },
-                {
-                    "consistent_grounded_segments": 4,
-                    "required_consistent_grounded_segments": 4,
-                    "additional_confirmations": 3,
-                    "required_additional_confirmations": 3,
-                    "decision_eligible": True,
-                    "label": "Infant cry detected. Match confirmed 3 of 3",
-                },
+                result["chunk"]["decision_progress"]["additional_confirmations"]
+                for result in results
             ],
-            [result["chunk"]["decision_progress"] for result in results],
+        )
+        self.assertTrue(
+            all(
+                result["chunk"]["decision_progress"][
+                    "required_consistent_grounded_segments"
+                ] == 6
+                for result in results
+            )
+        )
+        self.assertTrue(
+            all(
+                result["chunk"]["decision_progress"][
+                    "required_additional_confirmations"
+                ] == 5
+                for result in results
+            )
+        )
+        self.assertTrue(
+            all(
+                result["chunk"]["decision_progress"][
+                    "minimum_segments_before_decision"
+                ] == 7
+                for result in results
+            )
         )
         self.assertEqual(
             "What helped before: turned on white noise.",
-            results[3]["session"]["decision"]["guidance"]["recommendation"],
+            results[6]["session"]["decision"]["guidance"]["recommendation"],
         )
         for result in results:
             self.assert_public_result_has_no_sensitive_analysis(result)
@@ -1306,12 +1313,155 @@ class CareSessionTests(unittest.TestCase):
             ).fetchall()
         self.assertEqual(
             [
-                (1, selected["id"], "matched_no_guidance"),
-                (2, selected["id"], "matched_no_guidance"),
-                (3, selected["id"], "matched_no_guidance"),
-                (4, selected["id"], "guidance_latched"),
+                (sequence, selected["id"], status)
+                for sequence, status in [
+                    (1, "matched_no_guidance"),
+                    (2, "matched_no_guidance"),
+                    (3, "matched_no_guidance"),
+                    (4, "matched_no_guidance"),
+                    (5, "matched_no_guidance"),
+                    (6, "matched_no_guidance"),
+                    (7, "guidance_latched"),
+                ]
             ],
             stored,
+        )
+
+    def test_demo_baby_does_not_count_one_replayed_source_four_times(self):
+        selected = self._profile("Demo Baby")
+        other = self._profile("Learning Baby")
+        care_session = care_sessions.create(selected["id"], db_path=self.db)
+        preview = self._no_guidance_preview(selected)
+        preview["guidance"] = {
+            "status": "grounded",
+            "headline": "What helped before",
+            "interpretation": "This resembles an earlier incident.",
+            "recommendation": "What helped before: turned on white noise.",
+            "evidence_summary": "Supported by 1 similar recorded incident.",
+            "support_count": 1,
+            "incident_ids": [101],
+        }
+        uncertain = {
+            "status": "uncertain",
+            "profile_id": None,
+            "score": 0.91,
+            "margin": 0.05,
+            "candidates": [
+                {"profile_id": selected["id"], "score": 0.91},
+                {"profile_id": other["id"], "score": 0.86},
+            ],
+            "reasons": ["close_top_profiles"],
+        }
+        with (
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions.identity, "identify") as identify,
+            patch.object(care_sessions, "careflow", create=True) as careflow,
+        ):
+            cry_gate.classify.return_value = self._cry_result("infant_cry_detected")
+            identify.return_value = uncertain
+            careflow.preview_profile_incident.return_value = preview
+            results = [
+                care_sessions.submit_chunk(
+                    care_session["id"],
+                    sequence,
+                    self._ingested(
+                        f"replayed-source-{sequence}",
+                        b"the-same-source-every-time",
+                    ),
+                    self.db,
+                )
+                for sequence in range(1, 5)
+            ]
+
+        self.assertEqual(
+            [
+                "matched_no_guidance",
+                "repeated_source_not_confirmation",
+                "repeated_source_not_confirmation",
+                "repeated_source_not_confirmation",
+            ],
+            [result["chunk"]["status"] for result in results],
+        )
+        self.assertEqual(
+            [0, 0, 0, 0],
+            [
+                result["chunk"]["decision_progress"]["additional_confirmations"]
+                for result in results
+            ],
+        )
+        self.assertEqual(
+            [False, True, True, True],
+            [
+                result["chunk"]["decision_progress"].get(
+                    "repeated_source",
+                    False,
+                )
+                for result in results
+            ],
+        )
+        self.assertTrue(
+            all(result["session"]["decision"] is None for result in results)
+        )
+
+    def test_demo_baby_never_uses_segment_count_as_twenty_seconds(self):
+        selected = self._profile("Demo Baby")
+        other = self._profile("Learning Baby")
+        care_session = care_sessions.create(selected["id"], db_path=self.db)
+        preview = self._no_guidance_preview(selected)
+        preview["guidance"] = {
+            "status": "grounded",
+            "headline": "What helped before",
+            "interpretation": "This resembles an earlier incident.",
+            "recommendation": "What helped before: offered bottle.",
+            "evidence_summary": "Supported by a similar recorded incident.",
+            "support_count": 1,
+            "incident_ids": [101],
+        }
+        uncertain = {
+            "status": "uncertain",
+            "profile_id": None,
+            "score": 0.91,
+            "margin": 0.05,
+            "candidates": [
+                {"profile_id": selected["id"], "score": 0.91},
+                {"profile_id": other["id"], "score": 0.86},
+            ],
+            "reasons": ["close_top_profiles"],
+        }
+        short_cry = self._cry_result("infant_cry_detected")
+        short_cry["analyzed_duration_s"] = 1.0
+        with (
+            patch.object(care_sessions, "cry_gate", create=True) as cry_gate,
+            patch.object(care_sessions.identity, "identify") as identify,
+            patch.object(care_sessions, "careflow", create=True) as careflow,
+        ):
+            cry_gate.classify.return_value = short_cry
+            identify.return_value = uncertain
+            careflow.preview_profile_incident.return_value = preview
+            results = [
+                care_sessions.submit_chunk(
+                    care_session["id"],
+                    sequence,
+                    self._ingested(f"short-demo-segment-{sequence}"),
+                    self.db,
+                )
+                for sequence in range(1, 8)
+            ]
+
+        self.assertTrue(
+            all(result["session"]["decision"] is None for result in results)
+        )
+        self.assertEqual(
+            7.0,
+            results[-1]["chunk"]["decision_progress"][
+                "analyzed_audio_seconds"
+            ],
+        )
+        self.assertEqual(
+            20.0,
+            results[-1]["chunk"]["decision_progress"][
+                "minimum_analyzed_audio_seconds"
+            ],
         )
 
     def test_demo_baby_restarts_confirmation_when_grounded_action_changes(self):
@@ -1355,10 +1505,7 @@ class CareSessionTests(unittest.TestCase):
             careflow.preview_profile_incident.side_effect = [
                 white_noise,
                 white_noise,
-                held_upright,
-                held_upright,
-                held_upright,
-                held_upright,
+                *([held_upright] * 7),
             ]
             results = [
                 care_sessions.submit_chunk(
@@ -1367,27 +1514,27 @@ class CareSessionTests(unittest.TestCase):
                     self._ingested(f"demo-action-change-{sequence}"),
                     self.db,
                 )
-                for sequence in range(1, 7)
+                for sequence in range(1, 10)
             ]
 
         self.assertEqual(
-            [0, 1, 0, 1, 2, 3],
+            [0, 1, 0, 1, 2, 3, 4, 5, 5],
             [
                 result["chunk"]["decision_progress"]["additional_confirmations"]
                 for result in results
             ],
         )
         self.assertEqual(
-            [None, None, None, None, None],
-            [result["session"]["decision"] for result in results[:5]],
+            [None] * 7,
+            [result["session"]["decision"] for result in results[:7]],
         )
         self.assertEqual(
             "guidance_latched",
-            results[5]["chunk"]["status"],
+            results[7]["chunk"]["status"],
         )
         self.assertEqual(
             "What helped before: held the baby upright.",
-            results[5]["session"]["decision"]["guidance"]["recommendation"],
+            results[7]["session"]["decision"]["guidance"]["recommendation"],
         )
         for result in results:
             self.assert_public_result_has_no_sensitive_analysis(result)

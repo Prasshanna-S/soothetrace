@@ -1,20 +1,33 @@
 1
-00:00:00,000 --> 00:00:05,000
-This is another held-out Baby X recording, without caregiver speech.
+00:00:00,000 --> 00:00:03,000
+Listening begins in complete 3-second recordings.
 
 2
-00:00:05,000 --> 00:00:10,000
-The cry gate fired, and the profile matcher produced a strong Demo Baby match.
+00:00:03,000 --> 00:00:09,000
+The first recording contains an infant-cry-like sound.
+The profile evidence points to Demo Baby.
 
 3
-00:00:10,000 --> 00:00:15,000
-The ranker combines the cry pattern with time of day inside this profile's history.
+00:00:09,000 --> 00:00:15,000
+The ranker searches only this profile's history.
+Cry pattern and time of day are the active factors.
 
 4
-00:00:15,000 --> 00:00:22,000
-The selected 6:45 PM incident records swaddling, white noise, and a settled outcome.
+00:00:15,000 --> 00:00:21,000
+The app waits for five additional grounded confirmations,
+seven recordings, and at least 20 analyzed seconds.
 
 5
-00:00:22,000 --> 00:00:28,000
-What helped before: white noise.
+00:00:21,000 --> 00:00:29,000
+Observed latch at 21 seconds.
+What helped before: turned on white noise.
+
+6
+00:00:29,000 --> 00:00:38,000
+Two synthetic history incidents support the suggestion,
+and both record a settled outcome.
+
+7
+00:00:38,000 --> 00:00:45,000
 The caregiver remains in control of what to try.
+The app does not diagnose a cause.

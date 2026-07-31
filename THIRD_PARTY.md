@@ -18,7 +18,7 @@ The configured checkpoint identifier is `MIT/ast-finetuned-audioset-10-10-0.4593
 
 ## CryCeleb ECAPA checkpoint
 
-The optional `human_imitation` path is configured to download `Ubenwa/ecapa-voxceleb-ft2-cryceleb` through SpeechBrain. The source code records an expected model licence of CC-BY-SA-4.0 and a CryCeleb dataset licence of CC-BY-NC-4.0, but this must be verified against the current model card and all upstream terms before release. Do not assume the model is cleared for commercial or hosted biometric use.
+Human Baby is configured to download `Ubenwa/ecapa-voxceleb-ft2-cryceleb` through SpeechBrain. Its checkpoint and dataset terms have not been independently cleared by this project. Verify the current model card and every upstream term before release. Do not assume the model is cleared for commercial or hosted biometric use.
 
 ## Optional transcription and reasoning APIs
 
@@ -30,7 +30,7 @@ Some baby rehearsal fixtures identify their source as the Donate-a-Cry corpus at
 
 ## Human audio and controlled baby demo audio
 
-Human voice recordings, evaluation exports, and controlled baby demonstration media require separate provenance and consent review. They are not covered by this document or by the project MIT licence. Do not distribute them by default until a written release process, revocation process, and appropriate licence have been established.
+The fixture manifests and adjacent README files record the current provenance and participant-distribution statements for the checked-in human and controlled baby demonstration media. The files are not covered by the project MIT licence. Reuse still requires review of those notices, source terms, consent scope, and any revocation process.
 
 ## Visual assets
 

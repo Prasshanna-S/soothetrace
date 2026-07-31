@@ -6,9 +6,9 @@
    the same bytes and sequence until the server accepts or rejects that file.
 
    HONESTY RULES BAKED IN
-   - The browser never decides a cry happened. The orb reacts to microphone level
-     only in its breathing depth, never in colour. Colour states change only on
-     server words.
+   - The browser never decides a cry happened. Sustained microphone activity may
+     enter a neutral checking state. Only server words can enter the confirmed
+     infant-cry state.
    - Guidance is rendered verbatim with textContent. Nothing here composes care
      advice, a cause, or a percentage.
    - The live chip is driven by actual track state and is removed the moment the
@@ -36,10 +36,15 @@ const ICONS = {
 
 /* ------------------------------------------------------------- constants --- */
 
-const CARE_SEGMENT_MS = 6000;       // conservative validated prototype window
+const CARE_SEGMENT_MS = 3000;       // quicker server feedback, with a longer latch gate
 const MAX_PENDING_SEGMENTS = 1;     // one completed blob may wait, no more
 const HEALTH_POLL_MS = 4000;
 const UPLOAD_RETRY_MS = 850;
+const HUMAN_PROFILE_VALUE = "human-baby";
+const ACTIVITY_CHECK_LEVEL = 0.45;
+const ACTIVITY_RELEASE_LEVEL = 0.22;
+const ACTIVITY_CHECK_FRAMES = 3;
+const ACTIVITY_RELEASE_FRAMES = 5;
 
 const RECORDER_MIME_CANDIDATES = [
   "audio/mp4;codecs=mp4a.40.2",
@@ -51,6 +56,7 @@ const RECORDER_MIME_CANDIDATES = [
 /* Exact analysis strings from the handoff. The backend alone decides presence. */
 const CRY_STATUS_COPY = {
   listening: "Listening",
+  checking_activity: "Checking for infant cry",
   no_cry_detected: "No infant cry detected in this segment",
   cry_uncertain: "Cry-like sound, listening for a clearer segment",
   infant_cry_detected: "Infant-cry-like sound detected",
@@ -133,14 +139,22 @@ const ui = {
   orb: $("orb"),
   orbWrap: $("orb-wrap"),
   analysis: $("analysis-status"),
+  reopenSuggestion: $("btn-reopen-suggestion"),
   suggestion: $("suggestion-block"),
+  suggestionToolbar: $("suggestion-toolbar"),
+  dismissSuggestion: $("btn-dismiss-suggestion"),
+  suggestionRail: $("suggestion-rail"),
+  railDots: $("rail-dots"),
   gArt: $("suggestion-art"),
   gHeadline: $("g-headline"),
   gRecommendation: $("g-recommendation"),
   gEvidence: $("g-evidence-summary"),
   gInterpretation: $("g-interpretation"),
+  interpretationCard: $("interpretation-card"),
   basisList: $("basis-list"),
+  incidentsFold: $("incidents-fold"),
   incidentList: $("incident-list"),
+  suggestionReminder: $("suggestion-reminder"),
   idleStack: $("idle-stack"),
   start: $("btn-start"),
   startBlocked: $("start-blocked-reason"),
@@ -168,12 +182,38 @@ const ui = {
   historyProfileName: $("history-profile-name"),
   babyTitle: $("baby-title"),
   historyStatus: $("history-status"),
+  historyLoading: $("history-loading"),
+  historyError: $("history-error"),
+  historyRetry: $("history-retry"),
+  historyEmpty: $("history-empty"),
   historyList: $("history-list"),
   historyMore: $("btn-history-more"),
   historyDetail: $("history-detail"),
+  historyDetailClose: $("history-detail-close"),
+  historyDetailWhen: $("history-detail-when"),
+  historyDetailTitle: $("history-detail-title"),
+  historyDetailDuration: $("history-detail-duration"),
+  historyDetailTabs: $("history-detail-tabs"),
+  historyDetailPanes: {
+    overview: $("history-detail-overview"),
+    said: $("history-detail-said"),
+    context: $("history-detail-context"),
+    evidence: $("history-detail-evidence"),
+  },
   babyStatus: $("baby-status"),
+  babyLoading: $("baby-loading"),
+  babyError: $("baby-error"),
+  babyRetry: $("baby-retry"),
+  babyContent: $("baby-content"),
+  babyProfileStatus: $("baby-profile-status"),
   babySummary: $("baby-summary"),
+  babyMemoryCount: $("baby-memory-count"),
+  babyMemoryNumber: $("baby-memory-number"),
+  babyMemoryState: $("baby-memory-state"),
+  babyMemoryBeads: $("baby-memory-beads"),
+  babyTrainingKicker: $("baby-training-kicker"),
   babyTraining: $("baby-training"),
+  babyContextList: $("baby-context-list"),
   deleteVisitorData: $("btn-delete-visitor-data"),
   humanConsent: $("human-consent"),
   humanConsentButton: $("btn-human-consent"),
@@ -193,12 +233,13 @@ const show = (node, on) => { if (node) node.hidden = !on; };
 
 /* ====================================================================== orb
    A domain warped noise field on a lit glass sphere, mixed in OKLab so the
-   pastels stay clean where hues meet. Colour states change only on server
-   words; microphone level may deepen the breath, never shift the hue. */
+   pastels stay clean where hues meet. Microphone activity may enter the neutral
+   checking palette. Detected and grounded palettes remain server-owned. */
 
 const ORB_STATES = {
   idle:      { c: ["#E4ECFF", "#9DB4F0", "#A9DCC6", "#E3D3F4"], warp: 2.0, speed: 0.30, sat: 1.04, breath: 6.0, scale: 1.00, turn: 0 },
   listening: { c: ["#DDE2FF", "#7C88E8", "#9FCDF0", "#C9AFF0"], warp: 2.7, speed: 0.62, sat: 1.20, breath: 3.2, scale: 1.03, turn: 0.42 },
+  checking:  { c: ["#E8E0FF", "#8D8FE8", "#8BCBEA", "#C5B6F4"], warp: 3.2, speed: 0.88, sat: 1.24, breath: 2.5, scale: 1.06, turn: 0.58 },
   detected:  { c: ["#FFE9C4", "#F3C34E", "#F0A07E", "#FFD2B8"], warp: 3.1, speed: 0.95, sat: 1.22, breath: 2.3, scale: 1.06, turn: 0.52 },
   grounded:  { c: ["#D5F0E2", "#6FC6A8", "#9BD9E6", "#BCE9C9"], warp: 2.2, speed: 0.42, sat: 1.16, breath: 5.0, scale: 0.99, turn: 0 },
   paused:    { c: ["#E8EAF1", "#BFC2CE", "#D3D6E0", "#EEF0F6"], warp: 1.5, speed: 0.06, sat: 0.30, breath: 0.0, scale: 0.94, turn: 0 },
@@ -244,8 +285,14 @@ const ORB_FRAG = [
   " float k=clamp(r/R,0.0,1.0);float z=sqrt(max(1.0-k*k,0.0));",
   " vec3 N=normalize(vec3(uv/R,z+0.0001));",
   " vec2 sp=uv/R;float bend=0.24*pow(1.0-z,1.6);",
-  " vec2 rp=rot2(uTime*uTurn)*(sp+N.xy*bend);",
-  " vec2 q=vec2(fbm(rp*1.8+0.055*t),fbm(rp*1.8+vec2(5.2,1.3)-0.045*t));",
+  " vec2 sphere=sp+N.xy*bend;float phase=t*uTurn;",
+  " vec2 flowA=rot2(phase*0.74)*sphere;",
+  " vec2 flowB=rot2(-phase*0.31)*sphere;",
+  " vec2 tangent=vec2(-sphere.y,sphere.x);",
+  " vec2 rp=mix(flowA,flowB,0.18+0.12*(1.0-z))",
+  "  +tangent*0.075*sin(phase*0.56+length(sphere)*4.6);",
+  " vec2 q=vec2(fbm(rp*1.8+flowB*0.16+vec2(0.055*t,-0.018*t)),",
+  "  fbm(rp*1.8+flowA*0.12+vec2(5.2,1.3)+vec2(-0.020*t,0.045*t)));",
   " vec2 s2=vec2(fbm(rp*1.8+uWarp*q+vec2(1.7,9.2)+0.040*t),",
   "  fbm(rp*1.8+uWarp*q+vec2(8.3,2.8)-0.034*t));",
   " float f=fbm(rp*1.8+(uWarp+0.4)*s2);",
@@ -390,11 +437,21 @@ const state = {
   visitor: null,
   historyCursor: null,
   historyLoading: false,
+  historyRevision: 0,
+  historyRequestId: 0,
+  historyDetailRequestId: 0,
+  historyPageState: "idle",
+  babyLoading: false,
+  babyRevision: 0,
+  babyRequestId: 0,
   humanSession: null,
   humanBusy: false,
   humanRecorder: null,
   humanStream: null,
   decision: null,           // latched once, immutable until stop
+  suggestionVisible: false, // presentation choice, independent of the decision
+  railIndex: 0,
+  railRaf: null,
   micLive: false,
   healthReady: false,
   healthReachable: null,
@@ -408,6 +465,10 @@ const state = {
   audioSource: null,
   analyser: null,
   levelTimer: null,
+  activityFrames: 0,
+  quietFrames: 0,
+  activityChecking: false,
+  serverCryLatched: false,
   rotateTimer: null,
   rotationPromise: null,
   clockTimer: null,
@@ -423,6 +484,7 @@ const state = {
   stopRequested: false,
   segmentsCaptured: 0,
   statusTimer: null,
+  statusRevision: 0,
   wakeLock: null,
 };
 
@@ -474,7 +536,7 @@ function navigate(view) {
     if (name === view) ui.tabs[name].setAttribute("aria-current", "page");
     else ui.tabs[name].removeAttribute("aria-current");
   }
-  if (view === "history") void loadHistory(false);
+  if (view === "history") void loadHistory(true);
   if (view === "baby") void loadBaby();
   if (view === "human") renderHumanWorkspace();
 }
@@ -530,6 +592,12 @@ function syncStartGate() {
 }
 
 function applySelectedProfile(profile) {
+  const previousId = state.selectedProfile && state.selectedProfile.id;
+  const nextId = profile && profile.id;
+  if (previousId !== nextId) {
+    invalidateHistory();
+    invalidateBaby();
+  }
   state.selectedProfile = profile || null;
   const name = profile && profile.display_name ? profile.display_name : "No baby selected";
   setText(ui.listenName, name);
@@ -558,6 +626,10 @@ async function loadProfiles() {
         (profile.status ? " (" + profile.status + ")" : "");
       ui.profilePicker.appendChild(option);
     }
+    const humanOption = document.createElement("option");
+    humanOption.value = HUMAN_PROFILE_VALUE;
+    humanOption.textContent = "Human Baby";
+    ui.profilePicker.appendChild(humanOption);
     const selected = state.profiles.find((profile) => profile.id === previousId) ||
       state.profiles.find((profile) => profile.display_name === "Demo Baby") ||
       state.profiles.find((profile) => profile.status === "ready") ||
@@ -589,6 +661,55 @@ function emptyNode(node) {
   if (node) node.textContent = "";
 }
 
+function setHistoryPageState(name) {
+  state.historyPageState = name;
+  if (ui.pages.history) ui.pages.history.dataset.state = name;
+  show(ui.historyLoading, name === "loading");
+  show(ui.historyError, name === "error");
+  show(ui.historyEmpty, name === "empty");
+  show(ui.historyList, name === "ready" || name === "detail");
+  show(ui.historyDetail, name === "detail");
+  show(
+    ui.historyMore,
+    (name === "ready" || name === "detail") && Boolean(state.historyCursor)
+  );
+}
+
+function setBabyPageState(name) {
+  if (ui.pages.baby) ui.pages.baby.dataset.state = name;
+  show(ui.babyLoading, name === "loading");
+  show(ui.babyError, name === "error");
+  show(ui.babyContent, name === "ready");
+}
+
+function resetHistoryDetail() {
+  setText(ui.historyDetailWhen, "");
+  setText(ui.historyDetailTitle, "Recorded moment");
+  setText(ui.historyDetailDuration, "");
+  for (const pane of Object.values(ui.historyDetailPanes)) emptyNode(pane);
+}
+
+function invalidateHistory() {
+  state.historyRevision += 1;
+  state.historyDetailRequestId += 1;
+  state.historyCursor = null;
+  state.historyLoading = false;
+  emptyNode(ui.historyList);
+  resetHistoryDetail();
+  setHistoryPageState("idle");
+}
+
+function invalidateBaby() {
+  state.babyRevision += 1;
+  state.babyLoading = false;
+  emptyNode(ui.babyTraining);
+  emptyNode(ui.babyContextList);
+  setText(ui.babyMemoryNumber, "0");
+  setText(ui.babyMemoryState, "");
+  emptyNode(ui.babyMemoryBeads);
+  setBabyPageState("idle");
+}
+
 function formatRecordedTime(value) {
   if (!value) return "Time unavailable";
   const date = new Date(value);
@@ -618,18 +739,89 @@ function incidentOutcome(incident) {
     (outcome.settled === false ? "Not settled" : "No outcome recorded"));
 }
 
+function incidentProvenance(incident) {
+  const source = incident && incident.outcome_source;
+  if (source === "seed") return {
+    label: "Synthetic demo memory",
+    className: "bd-seed",
+    synthetic: true,
+  };
+  if (source === "inferred") return {
+    label: "Model inferred outcome",
+    className: "bd-inf",
+    synthetic: false,
+  };
+  if (source === "caregiver") return {
+    label: "Caregiver recorded outcome",
+    className: "bd-care",
+    synthetic: false,
+  };
+  return {
+    label: "Source not recorded",
+    className: "bd-neutral",
+    synthetic: false,
+  };
+}
+
+function settledState(incident) {
+  if (incident && incident.worked === true) return { key: "true", label: "Helped" };
+  if (incident && incident.worked === false) return { key: "false", label: "Not yet" };
+  return { key: "null", label: "Outcome not recorded" };
+}
+
+function durationText(value) {
+  return Number.isFinite(value) ? Number(value).toFixed(1) + " seconds" : "";
+}
+
+function historyIcon(action, className) {
+  const box = document.createElement("span");
+  box.className = className || "glyphbox";
+  const iconKey = actionIconFor(action);
+  if (iconKey) {
+    const img = document.createElement("img");
+    img.alt = "";
+    slotImage(img, "action-" + iconKey, iconKey);
+    box.appendChild(img);
+  }
+  return box;
+}
+
 function renderHistoryIncident(incident) {
   const row = document.createElement("li");
-  row.className = "record-card";
+  const provenance = incidentProvenance(incident);
+  row.className = "record-card incident hist-item" +
+    (provenance.synthetic ? " seeded" : "");
+  if (incident && incident.id != null) row.dataset.incidentId = String(incident.id);
   const open = document.createElement("button");
   open.type = "button";
   open.className = "record-open";
+  const action = incidentAction(incident);
+  const body = document.createElement("span");
+  body.className = "body record-copy";
   const title = document.createElement("strong");
-  title.textContent = incidentAction(incident);
+  title.className = "act record-action";
+  title.textContent = action;
   const meta = document.createElement("span");
-  meta.textContent = formatRecordedTime(incident && incident.started_at) + " · " +
-    incidentOutcome(incident);
-  open.append(title, meta);
+  meta.className = "meta record-meta";
+  const settled = settledState(incident);
+  const dot = document.createElement("i");
+  dot.className = "settle-dot";
+  dot.dataset.settled = settled.key;
+  meta.appendChild(dot);
+  meta.append(document.createTextNode(formatRecordedTime(incident && incident.started_at)));
+  const badge = document.createElement("span");
+  badge.className = "badge " + provenance.className;
+  badge.textContent = provenance.label;
+  meta.appendChild(badge);
+  const outcome = document.createElement("span");
+  outcome.className = "quote record-outcome";
+  outcome.textContent = incidentOutcome(incident);
+  body.append(title, meta, outcome);
+  const chevron = document.createElement("span");
+  chevron.className = "chev record-chevron";
+  chevron.setAttribute("aria-hidden", "true");
+  chevron.textContent = "›";
+  open.append(historyIcon(action), body, chevron);
   open.addEventListener("click", () => { void loadHistoryDetail(incident && incident.id); });
   row.appendChild(open);
   const tags = incident && incident.context && Array.isArray(incident.context.tags)
@@ -640,55 +832,97 @@ function renderHistoryIncident(incident) {
     tagLine.textContent = tags.join(", ");
     row.appendChild(tagLine);
   }
-  appendAudio(row, incident && incident.audio);
   return row;
 }
 
 async function loadHistory(reset) {
   const profile = state.selectedProfile;
   if (!profile) {
-    emptyNode(ui.historyList);
-    show(ui.historyMore, false);
-    show(ui.historyDetail, false);
+    invalidateHistory();
     setText(ui.historyStatus, "Choose a baby to see their recorded moments.");
     return;
   }
-  if (state.historyLoading) return;
-  if (reset) {
-    state.historyCursor = null;
-    emptyNode(ui.historyList);
-    emptyNode(ui.historyDetail);
-    show(ui.historyDetail, false);
-  }
+  if (reset) invalidateHistory();
+  else if (state.historyLoading) return;
+  const profileId = profile.id;
+  const revision = state.historyRevision;
+  const requestId = ++state.historyRequestId;
+  const cursor = state.historyCursor;
   state.historyLoading = true;
   setText(ui.historyStatus, "Loading recorded moments.");
+  if (reset) setHistoryPageState("loading");
   try {
-    const suffix = state.historyCursor ? "?cursor=" + encodeURIComponent(state.historyCursor) : "";
-    const result = await apiJson("/api/profiles/" + profile.id + "/incidents" + suffix);
+    const suffix = cursor ? "?cursor=" + encodeURIComponent(cursor) : "";
+    const result = await apiJson("/api/profiles/" + profileId + "/incidents" + suffix);
+    if (
+      state.historyRevision !== revision ||
+      state.historyRequestId !== requestId ||
+      !state.selectedProfile ||
+      state.selectedProfile.id !== profileId ||
+      state.view !== "history"
+    ) return;
     if (!result.ok || !result.data || !Array.isArray(result.data.incidents)) {
       throw new Error("history_unavailable");
     }
     const incidents = result.data.incidents;
-    if (!incidents.length && !ui.historyList.children.length) {
-      const empty = document.createElement("li");
-      empty.className = "record-empty";
-      empty.textContent = "No recorded moments yet.";
-      ui.historyList.appendChild(empty);
+    const renderedIds = new Set(
+      Array.from(ui.historyList.querySelectorAll(".record-card[data-incident-id]"))
+        .map((row) => row.dataset.incidentId)
+    );
+    for (const incident of incidents) {
+      const incidentId = incident && incident.id != null ? String(incident.id) : "";
+      if (incidentId && renderedIds.has(incidentId)) continue;
+      ui.historyList.appendChild(renderHistoryIncident(incident));
+      if (incidentId) renderedIds.add(incidentId);
     }
-    for (const incident of incidents) ui.historyList.appendChild(renderHistoryIncident(incident));
     state.historyCursor = result.data.next_cursor || null;
-    show(ui.historyMore, Boolean(state.historyCursor));
-    setText(ui.historyStatus, "Showing " + ui.historyList.children.length + " recorded moments.");
+    const shown = ui.historyList.querySelectorAll(".record-card").length;
+    if (!shown) {
+      setHistoryPageState("empty");
+      setText(ui.historyStatus, "No recorded moments yet.");
+    } else {
+      setHistoryPageState("ready");
+      setText(ui.historyStatus, "Showing " + shown + " recorded moments.");
+    }
   } catch (error) {
-    show(ui.historyMore, false);
-    setText(ui.historyStatus, "Recorded moments are unavailable right now.");
+    if (
+      state.historyRevision !== revision ||
+      state.historyRequestId !== requestId ||
+      !state.selectedProfile ||
+      state.selectedProfile.id !== profileId ||
+      state.view !== "history"
+    ) return;
+    if (ui.historyList.querySelector(".record-card")) {
+      setHistoryPageState("ready");
+      setText(ui.historyStatus, "Earlier moments are unavailable right now.");
+    } else {
+      setHistoryPageState("error");
+      setText(ui.historyStatus, "Recorded moments are unavailable right now.");
+    }
   } finally {
-    state.historyLoading = false;
+    if (
+      state.historyRevision === revision &&
+      state.historyRequestId === requestId &&
+      state.selectedProfile &&
+      state.selectedProfile.id === profileId
+    ) state.historyLoading = false;
   }
 }
 
+function detailFact(label, value) {
+  const line = document.createElement("article");
+  line.className = "detail-fact";
+  const title = document.createElement("p");
+  title.className = "card-kicker";
+  title.textContent = label;
+  const copy = document.createElement("p");
+  copy.textContent = value;
+  line.append(title, copy);
+  return line;
+}
+
 function detailLine(parent, label, value) {
-  if (!value) return;
+  if (!parent || !value) return;
   const line = document.createElement("p");
   const title = document.createElement("strong");
   title.textContent = label + ": ";
@@ -696,74 +930,280 @@ function detailLine(parent, label, value) {
   parent.appendChild(line);
 }
 
+function historySpeechSegments(incident) {
+  const speech = incident && incident.speech;
+  const segments = speech && Array.isArray(speech.segments) ? speech.segments : [];
+  if (segments.length) return segments;
+  return incident && incident.transcript ? [{ text: incident.transcript }] : [];
+}
+
+function speechLabel(segment) {
+  const source = segment && segment.source;
+  if (source === "captured_transcript") return "Captured transcript";
+  if (source === "typed_follow_up") return "Caregiver typed";
+  if (source === "synthetic_demo") return "Synthetic demo transcript";
+  if (source === "caregiver_record") return "Caregiver record";
+  return "Stored transcript";
+}
+
+function selectHistoryDetailTab(name) {
+  if (!ui.historyDetailPanes[name]) name = "overview";
+  for (const button of ui.historyDetailTabs.querySelectorAll("button[data-tab]")) {
+    button.setAttribute("aria-selected", String(button.dataset.tab === name));
+  }
+  for (const [key, pane] of Object.entries(ui.historyDetailPanes)) {
+    show(pane, key === name);
+  }
+}
+
+function closeHistoryDetail() {
+  const hasRows = Boolean(ui.historyList.querySelector(".record-card"));
+  setHistoryPageState(hasRows ? "ready" : "empty");
+  setText(
+    ui.historyStatus,
+    hasRows
+      ? "Showing " + ui.historyList.querySelectorAll(".record-card").length + " recorded moments."
+      : "No recorded moments yet."
+  );
+}
+
+function renderHistoryDetail(incident) {
+  resetHistoryDetail();
+  const action = incidentAction(incident);
+  const provenance = incidentProvenance(incident);
+  const settled = settledState(incident);
+  const segments = historySpeechSegments(incident);
+
+  setText(ui.historyDetailWhen, formatRecordedTime(incident.started_at));
+  setText(ui.historyDetailTitle, action);
+  setText(ui.historyDetailDuration, durationText(incident.duration_s));
+
+  const hero = document.createElement("article");
+  hero.className = "inc-hero detail-hero" + (provenance.synthetic ? " seeded" : "");
+  const heroCopy = document.createElement("div");
+  heroCopy.className = "inc-hero-copy detail-hero-copy";
+  const kicker = document.createElement("p");
+  kicker.className = "card-kicker";
+  kicker.textContent = "What happened";
+  const actionText = document.createElement("h3");
+  actionText.className = "inc-action";
+  actionText.textContent = action;
+  const outcome = document.createElement("p");
+  outcome.className = "inc-outcome detail-outcome";
+  outcome.textContent = incidentOutcome(incident);
+  const badges = document.createElement("div");
+  badges.className = "inc-meta-line detail-badges";
+  const settledBadge = document.createElement("span");
+  settledBadge.className = "badge";
+  settledBadge.dataset.settled = settled.key;
+  settledBadge.textContent = settled.label;
+  const sourceBadge = document.createElement("span");
+  sourceBadge.className = "badge " + provenance.className;
+  sourceBadge.textContent = provenance.label;
+  badges.append(settledBadge, sourceBadge);
+  heroCopy.append(kicker, actionText, outcome, badges);
+  hero.append(historyIcon(action, "inc-art detail-glyph"), heroCopy);
+  ui.historyDetailPanes.overview.appendChild(hero);
+
+  if (incident.audio && incident.audio.url) {
+    const audioCard = detailFact("Recorded audio", "Audio saved with this moment");
+    audioCard.classList.add("detail-audio");
+    appendAudio(audioCard, incident.audio);
+    ui.historyDetailPanes.overview.appendChild(audioCard);
+  } else {
+    ui.historyDetailPanes.overview.appendChild(
+      detailFact("Recorded audio", "No audio is available for this moment.")
+    );
+  }
+
+  if (segments.length) {
+    const notice = document.createElement("p");
+    notice.className = "banner-said detail-notice";
+    notice.textContent = "Automatic transcripts may contain errors.";
+    ui.historyDetailPanes.said.appendChild(notice);
+    for (const segment of segments) {
+      const text = segment && (segment.text || segment.excerpt);
+      if (!text) continue;
+      const card = document.createElement("article");
+      card.className = "said-seg";
+      const label = document.createElement("p");
+      label.className = "card-kicker";
+      label.textContent = speechLabel(segment);
+      const copy = document.createElement("p");
+      copy.textContent = text;
+      card.append(label, copy);
+      ui.historyDetailPanes.said.appendChild(card);
+    }
+  }
+  if (!ui.historyDetailPanes.said.querySelector(".said-seg")) {
+    ui.historyDetailPanes.said.appendChild(
+      detailFact("Conversation", "No caregiver speech recorded.")
+    );
+  }
+
+  ui.historyDetailPanes.context.appendChild(
+    detailFact("When", formatRecordedTime(incident.started_at))
+  );
+  const hour = incident.context && incident.context.hour_local;
+  if (Number.isInteger(hour)) {
+    ui.historyDetailPanes.context.appendChild(
+      detailFact("Time of day", String(hour).padStart(2, "0") + ":00 local time")
+    );
+  }
+  const tags = incident.context && Array.isArray(incident.context.tags)
+    ? incident.context.tags : [];
+  if (tags.length) {
+    const tagCard = detailFact("Caregiver tags", "");
+    const tagRow = document.createElement("div");
+    tagRow.className = "tag-row";
+    for (const tag of tags) {
+      const chip = document.createElement("span");
+      chip.textContent = tag;
+      tagRow.appendChild(chip);
+    }
+    tagCard.appendChild(tagRow);
+    ui.historyDetailPanes.context.appendChild(tagCard);
+  }
+  if (incident.caregiver_notes) {
+    ui.historyDetailPanes.context.appendChild(
+      detailFact("Caregiver note", incident.caregiver_notes)
+    );
+  }
+
+  const interventions = Array.isArray(incident.interventions)
+    ? incident.interventions : [];
+  for (const intervention of interventions) {
+    if (!intervention || !intervention.evidence) continue;
+    ui.historyDetailPanes.evidence.appendChild(
+      detailFact(
+        provenance.synthetic ? "Synthetic demo evidence" : "Caregiver record",
+        intervention.evidence
+      )
+    );
+  }
+  if (!ui.historyDetailPanes.evidence.children.length) {
+    ui.historyDetailPanes.evidence.appendChild(
+      detailFact("Evidence", "No text evidence was saved for this moment.")
+    );
+  }
+
+  selectHistoryDetailTab("overview");
+  setHistoryPageState("detail");
+}
+
 async function loadHistoryDetail(incidentId) {
   if (!state.selectedProfile || !incidentId) return;
+  const profileId = state.selectedProfile.id;
+  const revision = state.historyRevision;
+  const detailRequestId = ++state.historyDetailRequestId;
   setText(ui.historyStatus, "Loading that recorded moment.");
   try {
-    const result = await apiJson("/api/profiles/" + state.selectedProfile.id +
+    const result = await apiJson("/api/profiles/" + profileId +
       "/incidents/" + encodeURIComponent(incidentId));
+    if (
+      state.historyRevision !== revision ||
+      state.historyDetailRequestId !== detailRequestId ||
+      !state.selectedProfile ||
+      state.selectedProfile.id !== profileId ||
+      state.view !== "history"
+    ) return;
     const incident = result.data && (result.data.incident || result.data);
     if (!result.ok || !incident || typeof incident !== "object") throw new Error("detail_unavailable");
-    emptyNode(ui.historyDetail);
-    const heading = document.createElement("h2");
-    heading.textContent = incidentAction(incident);
-    ui.historyDetail.appendChild(heading);
-    detailLine(ui.historyDetail, "When", formatRecordedTime(incident.started_at));
-    detailLine(ui.historyDetail, "Outcome", incidentOutcome(incident));
-    const speech = incident.speech && Array.isArray(incident.speech.segments)
-      ? incident.speech.segments : [];
-    if (speech.length) {
-      const transcript = document.createElement("p");
-      transcript.textContent = speech.map((segment) => segment.text || segment.excerpt || "").filter(Boolean).join(" ");
-      if (transcript.textContent) ui.historyDetail.appendChild(transcript);
-    }
-    appendAudio(ui.historyDetail, incident.audio);
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "linkbtn";
-    close.textContent = "Close details";
-    close.addEventListener("click", () => { show(ui.historyDetail, false); });
-    ui.historyDetail.appendChild(close);
-    show(ui.historyDetail, true);
+    renderHistoryDetail(incident);
     setText(ui.historyStatus, "Recorded moment loaded.");
   } catch (error) {
+    if (
+      state.historyRevision !== revision ||
+      state.historyDetailRequestId !== detailRequestId ||
+      !state.selectedProfile ||
+      state.selectedProfile.id !== profileId ||
+      state.view !== "history"
+    ) return;
     setText(ui.historyStatus, "That recorded moment is unavailable right now.");
   }
 }
 
 function renderTrainingClip(clip, index) {
   const item = document.createElement("li");
-  item.className = "record-card";
+  item.className = "record-card clip-row training-row";
+  const ordinal = document.createElement("span");
+  ordinal.className = "clip-ordinal training-ordinal";
+  ordinal.textContent = String(index + 1);
+  const body = document.createElement("div");
+  body.className = "body record-copy";
   const name = document.createElement("strong");
   name.textContent = "Training recording " + (index + 1);
   const time = document.createElement("span");
-  const length = Number.isFinite(clip && clip.duration_s) ? " · " + clip.duration_s + " seconds" : "";
+  const length = Number.isFinite(clip && clip.duration_s)
+    ? " · " + Number(clip.duration_s).toFixed(1) + " seconds" : "";
   time.textContent = formatRecordedTime(clip && clip.captured_at) + length;
-  item.append(name, time);
+  body.append(name, time);
+  item.append(ordinal, body);
   appendAudio(item, clip && { url: clip.playback_url });
   return item;
 }
 
+const CONTEXT_LABELS = {
+  acoustic_pattern: "Cry acoustics",
+  time_of_day: "Time of day",
+  caregiver_tags: "Caregiver tags",
+  caregiver_speech: "Stored transcript",
+  stored_transcript: "Stored transcript",
+  previous_outcomes: "Previous outcomes",
+};
+
 async function loadBaby() {
   const profile = state.selectedProfile;
   if (!profile) {
-    emptyNode(ui.babySummary);
-    emptyNode(ui.babyTraining);
+    invalidateBaby();
     setText(ui.babyStatus, "Choose a baby to see their memory.");
     return;
   }
+  const profileId = profile.id;
+  const revision = state.babyRevision;
+  const requestId = ++state.babyRequestId;
+  state.babyLoading = true;
+  setBabyPageState("loading");
   setText(ui.babyStatus, "Loading this baby's memory.");
   try {
-    const result = await apiJson("/api/profiles/" + profile.id);
+    const result = await apiJson("/api/profiles/" + profileId);
+    if (
+      state.babyRevision !== revision ||
+      state.babyRequestId !== requestId ||
+      !state.selectedProfile ||
+      state.selectedProfile.id !== profileId ||
+      state.view !== "baby"
+    ) return;
     const record = result.data && (result.data.profile || result.data);
     if (!result.ok || !record || typeof record !== "object") throw new Error("profile_unavailable");
     setText(ui.babyTitle, record.display_name || profile.display_name || "Baby");
-    emptyNode(ui.babySummary);
-    detailLine(ui.babySummary, "Memories", Number.isFinite(record.memory_count) ? record.memory_count : 0);
-    detailLine(ui.babySummary, "Status", record.status || "Unknown");
-    const enrollments = Array.isArray(record.enrollments) ? record.enrollments.length : 0;
-    detailLine(ui.babySummary, "Training entries", enrollments);
+    const status = record.status || "Unknown";
+    const memories = Number.isFinite(record.memory_count) ? record.memory_count : 0;
+    setText(ui.babyProfileStatus, status);
+    setText(ui.babyMemoryNumber, memories);
+    ui.babySummary.dataset.ready = String(status === "ready");
+    setText(
+      ui.babyMemoryState,
+      status === "ready"
+        ? "Profile comparison is ready. This profile has " + memories + " saved care " +
+          (memories === 1 ? "memory." : "memories.")
+        : "Profile comparison is still learning. This profile has " + memories +
+          " saved care " + (memories === 1 ? "memory." : "memories.")
+    );
+    emptyNode(ui.babyMemoryBeads);
+    const beadCount = Math.max(1, Math.min(memories, 8));
+    for (let index = 0; index < beadCount; index += 1) {
+      const bead = document.createElement("i");
+      if (index < memories) bead.className = "on";
+      ui.babyMemoryBeads.appendChild(bead);
+    }
+    if (memories > 8) {
+      const more = document.createElement("span");
+      more.textContent = "+" + (memories - 8);
+      ui.babyMemoryBeads.appendChild(more);
+    }
     const clips = Array.isArray(result.data.training_clips) ? result.data.training_clips : [];
+    setText(ui.babyTrainingKicker, "Training clips, " + clips.length + " saved");
     emptyNode(ui.babyTraining);
     if (clips.length) clips.forEach((clip, index) => ui.babyTraining.appendChild(renderTrainingClip(clip, index)));
     else {
@@ -772,9 +1212,39 @@ async function loadBaby() {
       empty.textContent = "No training clips yet.";
       ui.babyTraining.appendChild(empty);
     }
+    emptyNode(ui.babyContextList);
+    const available = Array.isArray(record.available_context) ? record.available_context : [];
+    if (available.length) {
+      for (const key of available) {
+        const chip = document.createElement("span");
+        chip.textContent = CONTEXT_LABELS[key] ||
+          String(key).replaceAll("_", " ").replace(/^\w/, (letter) => letter.toUpperCase());
+        ui.babyContextList.appendChild(chip);
+      }
+    } else {
+      const empty = document.createElement("span");
+      empty.textContent = "No additional memory signals yet";
+      ui.babyContextList.appendChild(empty);
+    }
+    setBabyPageState("ready");
     setText(ui.babyStatus, "Memory loaded.");
   } catch (error) {
+    if (
+      state.babyRevision !== revision ||
+      state.babyRequestId !== requestId ||
+      !state.selectedProfile ||
+      state.selectedProfile.id !== profileId ||
+      state.view !== "baby"
+    ) return;
+    setBabyPageState("error");
     setText(ui.babyStatus, "Baby details are unavailable right now.");
+  } finally {
+    if (
+      state.babyRevision === revision &&
+      state.babyRequestId === requestId &&
+      state.selectedProfile &&
+      state.selectedProfile.id === profileId
+    ) state.babyLoading = false;
   }
 }
 
@@ -868,11 +1338,15 @@ function renderHumanResult(data) {
   const status = result.status || result.kind || "Clip received";
   heading.textContent = String(status).replace(/_/g, " ");
   ui.humanResult.appendChild(heading);
-  if (result.participant && result.participant.label) {
-    detailLine(ui.humanResult, "Participant", result.participant.label);
+  if (result.participant) {
+    detailLine(ui.humanResult, "Participant", humanParticipantName(result.participant));
   }
   if (result.message) detailLine(ui.humanResult, "Result", result.message);
   show(ui.humanResult, true);
+}
+
+function humanParticipantName(participant) {
+  return (participant && (participant.display_name || participant.label)) || "Participant";
 }
 
 function renderHumanSession(data) {
@@ -889,7 +1363,7 @@ function renderHumanSession(data) {
     for (const participant of participants) {
       const bubble = document.createElement("li");
       bubble.className = "participant-bubble";
-      bubble.textContent = (participant.label || "Participant") + " · " +
+      bubble.textContent = humanParticipantName(participant) + " · " +
         (participant.support_count || 0) + " clips";
       ui.humanParticipants.appendChild(bubble);
     }
@@ -899,7 +1373,12 @@ function renderHumanSession(data) {
   for (const observation of observations) {
     const item = document.createElement("li");
     item.className = "record-card";
-    item.textContent = (observation.source_type || "Clip") + " · " +
+    const assignment = observation.participant
+      ? humanParticipantName(observation.participant)
+      : observation.closest_participant
+        ? "Closest existing pattern: " + humanParticipantName(observation.closest_participant)
+        : String(observation.status || "Not assigned").replace(/_/g, " ");
+    item.textContent = assignment + " · " + (observation.source_type || "Clip") + " · " +
       formatRecordedTime(observation.created_at || observation.captured_at);
     appendAudio(item, observation.playback_url ? { url: observation.playback_url } : null);
     ui.humanTimeline.appendChild(item);
@@ -1092,6 +1571,7 @@ function startLevelMeter(stream) {
         energy += (0 - energy) * 0.14;
         ui.orb.dataset.energy = energy.toFixed(3);
         if (orb) orb.setLevel(energy);
+        updateActivityFeedback(energy);
         return;
       }
       if (useFloat) state.analyser.getFloatTimeDomainData(data);
@@ -1109,13 +1589,60 @@ function startLevelMeter(stream) {
       energy += (target - energy) * response;
       ui.orb.dataset.energy = energy.toFixed(3);
       if (orb) orb.setLevel(energy);
+      updateActivityFeedback(energy);
     }, 90);
   } catch (error) { /* the level meter is decoration, never required */ }
+}
+
+function updateActivityFeedback(energy) {
+  if (
+    state.session !== "listening" ||
+    (state.decision && state.suggestionVisible) ||
+    state.transitionBusy ||
+    state.stopRequested ||
+    !ui.connectionBanner.hidden
+  ) return;
+  if (energy >= ACTIVITY_CHECK_LEVEL) {
+    state.activityFrames += 1;
+    state.quietFrames = 0;
+  } else if (energy <= ACTIVITY_RELEASE_LEVEL) {
+    state.quietFrames += 1;
+    state.activityFrames = 0;
+  } else {
+    state.quietFrames = 0;
+    if (!state.activityChecking) state.activityFrames = 0;
+  }
+
+  const serverOwnsStatus = state.serverCryLatched;
+  if (state.activityFrames >= ACTIVITY_CHECK_FRAMES) {
+    state.activityChecking = true;
+    if (!serverOwnsStatus) {
+      if (ui.orb.dataset.visualState !== "checking") orbState("checking");
+      if (ui.analysis.textContent !== CRY_STATUS_COPY.checking_activity) {
+        setAnalysis(CRY_STATUS_COPY.checking_activity, 0);
+      }
+    }
+    return;
+  }
+
+  if (state.quietFrames >= ACTIVITY_RELEASE_FRAMES) {
+    state.activityChecking = false;
+    if (!serverOwnsStatus) {
+      if (ui.orb.dataset.visualState !== "listening") orbState("listening");
+      if (ui.analysis.textContent !== CRY_STATUS_COPY.listening) {
+        setAnalysis(CRY_STATUS_COPY.listening, 0);
+      }
+    }
+  }
 }
 
 function stopLevelMeter() {
   clearInterval(state.levelTimer);
   state.levelTimer = null;
+  state.activityFrames = 0;
+  state.quietFrames = 0;
+  state.activityChecking = false;
+  state.serverCryLatched = false;
   if (state.audioSource) {
     try { state.audioSource.disconnect(); } catch (e) {}
     state.audioSource = null;
@@ -1178,7 +1705,7 @@ async function finalizeCurrentSegment() {
   enqueueSegment(blob);
 }
 
-function applyServerSession(session) {
+function applyServerSession(session, includeDecision = true) {
   if (!session || typeof session !== "object") return;
   state.serverSession = session;
   if (Number.isInteger(session.last_sequence) &&
@@ -1189,10 +1716,10 @@ function applyServerSession(session) {
     const local = state.profiles.find((profile) => profile.id === session.profile.id);
     applySelectedProfile(local || session.profile);
   }
-  if (session.decision) latchDecision(session.decision);
+  if (includeDecision && session.decision) latchDecision(session.decision);
 }
 
-function renderChunkResult(payload) {
+function renderChunkResult(payload, pendingDecision) {
   const chunk = payload && payload.chunk;
   if (!chunk || typeof chunk !== "object") return;
   if (chunk.status === "invalid") {
@@ -1204,16 +1731,35 @@ function renderChunkResult(payload) {
     return;
   }
   const cry = chunk.cry_presence;
+  const cryDetected = Boolean(
+    cry && cry.status === "infant_cry_detected"
+  );
   if (cry && typeof cry.status === "string") renderCryStatus(cry.status);
   else if (typeof chunk.status === "string") renderCryStatus(chunk.status);
   const progress = chunk.decision_progress;
-  if (
+  const progressLabel = (
     progress &&
     typeof progress === "object" &&
     typeof progress.label === "string" &&
     progress.label
-  ) {
-    setAnalysis(progress.label, CRY_STATUS_TTL_MS);
+  ) ? progress.label : "";
+  if (cryDetected && (progressLabel || pendingDecision)) {
+    clearTimeout(state.statusTimer);
+    state.statusTimer = null;
+    const statusRevision = ++state.statusRevision;
+    state.statusTimer = setTimeout(() => {
+      if (statusRevision !== state.statusRevision) return;
+      state.statusTimer = null;
+      if (pendingDecision) latchDecision(pendingDecision);
+      else if (progressLabel && state.serverCryLatched) {
+        setAnalysis(progressLabel, 0);
+      }
+    }, 900);
+  } else {
+    if (progressLabel) {
+      setAnalysis(progressLabel, state.serverCryLatched ? 0 : CRY_STATUS_TTL_MS);
+    }
+    if (pendingDecision) latchDecision(pendingDecision);
   }
 }
 
@@ -1256,11 +1802,17 @@ function promoteWaitingSegment() {
 }
 
 function acceptUploadedSegment(entry, payload) {
-  applyServerSession(payload && payload.session);
+  const serverSession = payload && payload.session;
+  const pendingDecision = (
+    serverSession &&
+    serverSession.decision &&
+    !state.decision
+  ) ? serverSession.decision : null;
+  applyServerSession(serverSession, !pendingDecision);
   if (state.acceptedSequence < entry.sequence) {
     state.acceptedSequence = entry.sequence;
   }
-  renderChunkResult(payload);
+  renderChunkResult(payload, pendingDecision);
   state.activeUpload = null;
   hideConnectionLoss();
   promoteWaitingSegment();
@@ -1408,7 +1960,37 @@ function setMicLive(live, label) {
   blockIncidentPlayback(state.micLive);
 }
 
+function suggestionCanToggle(name = state.session) {
+  return name === "listening" || name === "paused";
+}
+
+function syncSuggestionPresentation() {
+  const canToggle = suggestionCanToggle();
+  const canPresent = canToggle || state.session === "awaiting_outcome";
+  const visible = Boolean(
+    state.decision &&
+    canPresent &&
+    (state.suggestionVisible || state.session === "awaiting_outcome")
+  );
+  const decisionState = visible ? "latched"
+    : (state.decision && canToggle ? "dismissed" : "none");
+  show(ui.suggestion, visible);
+  show(ui.dismissSuggestion, visible && canToggle);
+  show(ui.reopenSuggestion, Boolean(state.decision) && canToggle && !visible);
+  ui.listen.dataset.decision = decisionState;
+  ui.body.dataset.decision = decisionState;
+  ui.dismissSuggestion.setAttribute("aria-expanded", visible ? "true" : "false");
+  ui.reopenSuggestion.setAttribute("aria-expanded", visible ? "true" : "false");
+  return visible;
+}
+
 function setSessionState(name) {
+  if (name !== state.session) {
+    clearTimeout(state.statusTimer);
+    state.statusTimer = null;
+    state.statusRevision += 1;
+    state.serverCryLatched = false;
+  }
   state.session = name;
   ui.listen.dataset.state = name;
   ui.body.dataset.session = name;
@@ -1421,11 +2003,7 @@ function setSessionState(name) {
   show(ui.resume, name === "paused");
   show(ui.outcomeForm, name === "awaiting_outcome");
   show(ui.savedBlock, name === "saved");
-  show(
-    ui.suggestion,
-    Boolean(state.decision) &&
-      (name === "listening" || name === "paused" || name === "awaiting_outcome")
-  );
+  const suggestionPresented = syncSuggestionPresentation();
   show(ui.recChip, name === "listening" || name === "paused");
   ui.recChip.setAttribute("aria-hidden", name === "idle" ? "true" : "false");
   setMicLive(live);
@@ -1435,16 +2013,22 @@ function setSessionState(name) {
   syncStartGate();
 
   if (name === "idle") orbState("idle");
-  else if (name === "listening") orbState(state.decision ? "grounded" : "listening");
+  else if (name === "listening") orbState(suggestionPresented ? "grounded" : "listening");
   else if (name === "paused") orbState("paused");
 }
 
 function setAnalysis(text, ttlMs) {
   clearTimeout(state.statusTimer);
+  state.statusTimer = null;
+  const statusRevision = ++state.statusRevision;
   setText(ui.analysis, text);
   if (ttlMs) {
     state.statusTimer = setTimeout(() => {
-      if (state.session === "listening") setAnalysis(CRY_STATUS_COPY.listening, 0);
+      if (statusRevision !== state.statusRevision) return;
+      state.statusTimer = null;
+      if (state.session === "listening" && !state.serverCryLatched) {
+        setAnalysis(CRY_STATUS_COPY.listening, 0);
+      }
     }, ttlMs);
   }
 }
@@ -1455,9 +2039,20 @@ function renderCryStatus(status) {
   if (state.session !== "listening") return;
   const copy = CRY_STATUS_COPY[status];
   if (!copy) return;
-  if (status === "infant_cry_detected" && !state.decision) orbState("detected");
-  setAnalysis(copy, CRY_STATUS_TTL_MS);
-  if (status !== "infant_cry_detected" && !state.decision) orbState("listening");
+  if (status === "infant_cry_detected") {
+    state.serverCryLatched = true;
+  } else if (
+    status === "no_cry_detected" ||
+    status === "decode_error" ||
+    status === "uneven_audio" ||
+    status === "quiet_audio"
+  ) {
+    state.serverCryLatched = false;
+  }
+  const suggestionPresented = Boolean(state.decision && state.suggestionVisible);
+  if (status === "infant_cry_detected" && !suggestionPresented) orbState("detected");
+  setAnalysis(copy, state.serverCryLatched ? 0 : CRY_STATUS_TTL_MS);
+  if (status !== "infant_cry_detected" && !suggestionPresented) orbState("listening");
 }
 
 /* -------------------------------------------------------------- start flow --- */
@@ -1729,6 +2324,7 @@ async function saveOutcome(event) {
       return;
     }
     applyServerSession(result.data.session);
+    invalidateHistory();
   } catch (error) {
     setText(ui.outcomeStatus, "The memory was not saved. Check the connection and try again.");
     setTransitionBusy(false);
@@ -1761,15 +2357,18 @@ async function discardSession() {
 
 function clearDecisionPresentation() {
   state.decision = null;
-  ui.listen.dataset.decision = "none";
-  ui.body.dataset.decision = "none";
-  show(ui.suggestion, false);
+  state.suggestionVisible = false;
+  state.railIndex = 0;
+  cancelAnimationFrame(state.railRaf);
+  state.railRaf = null;
+  syncSuggestionPresentation();
   setText(ui.gHeadline, "");
   setText(ui.gRecommendation, "");
   setText(ui.gEvidence, "");
   setText(ui.gInterpretation, "");
   ui.basisList.textContent = "";
   ui.incidentList.textContent = "";
+  ui.railDots.textContent = "";
   setText($("incidents-count"), "0");
   show(ui.gArt, false);
 }
@@ -1811,12 +2410,102 @@ function actionIconFor(text) {
   return null;
 }
 
+function railCards() {
+  return Array.from(ui.suggestionRail.querySelectorAll(".rail-card"))
+    .filter((card) => !card.hidden);
+}
+
+function updateRailPosition() {
+  const cards = railCards();
+  if (!cards.length) return;
+  const railRect = ui.suggestionRail.getBoundingClientRect();
+  const railCenter = ui.suggestionRail.scrollLeft + ui.suggestionRail.clientWidth / 2;
+  let nearest = 0;
+  let distance = Infinity;
+  cards.forEach((card, index) => {
+    const cardRect = card.getBoundingClientRect();
+    const center = ui.suggestionRail.scrollLeft +
+      cardRect.left - railRect.left + cardRect.width / 2;
+    const nextDistance = Math.abs(center - railCenter);
+    if (nextDistance < distance) {
+      nearest = index;
+      distance = nextDistance;
+    }
+  });
+  state.railIndex = nearest;
+  Array.from(ui.railDots.querySelectorAll("button")).forEach((dot, index) => {
+    if (index === nearest) dot.setAttribute("aria-current", "true");
+    else dot.removeAttribute("aria-current");
+  });
+}
+
+function scrollRailTo(index) {
+  const cards = railCards();
+  const bounded = Math.max(0, Math.min(cards.length - 1, index));
+  const card = cards[bounded];
+  if (!card) return;
+  const railRect = ui.suggestionRail.getBoundingClientRect();
+  const cardRect = card.getBoundingClientRect();
+  const left = ui.suggestionRail.scrollLeft + cardRect.left - railRect.left -
+    (ui.suggestionRail.clientWidth - cardRect.width) / 2;
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  ui.suggestionRail.scrollTo({
+    left: Math.max(0, left),
+    behavior: reduced ? "auto" : "smooth",
+  });
+  state.railIndex = bounded;
+  updateRailPosition();
+}
+
+function buildRailNavigation() {
+  if (LAND_MQ.matches) ui.incidentsFold.open = true;
+  ui.railDots.textContent = "";
+  const cards = railCards();
+  cards.forEach((card, index) => {
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.setAttribute("aria-label",
+      "View suggestion card " + (index + 1) + " of " + cards.length);
+    dot.addEventListener("click", () => scrollRailTo(index));
+    ui.railDots.appendChild(dot);
+  });
+  state.railIndex = 0;
+  updateRailPosition();
+}
+
+function dismissGroundedSuggestion() {
+  if (!state.decision || !suggestionCanToggle()) return;
+  state.suggestionVisible = false;
+  syncSuggestionPresentation();
+  if (state.session === "listening") {
+    orbState("listening");
+    setAnalysis(CRY_STATUS_COPY.listening, 0);
+  } else {
+    orbState("paused");
+  }
+  requestAnimationFrame(() => ui.reopenSuggestion.focus());
+}
+
+function reopenGroundedSuggestion() {
+  if (!state.decision || !suggestionCanToggle()) return;
+  state.suggestionVisible = true;
+  syncSuggestionPresentation();
+  if (state.session === "listening") orbState("grounded");
+  else orbState("paused");
+  setAnalysis("", 0);
+  requestAnimationFrame(() => {
+    scrollRailTo(state.railIndex);
+    ui.dismissSuggestion.focus();
+  });
+}
+
 function latchDecision(decision) {
   if (state.decision) return;                    // first decision wins, immutable
   if (!decision || !decision.guidance) return;
   const g = decision.guidance;
   if (g.status !== "grounded" || !g.recommendation) return;
   state.decision = decision;
+  state.suggestionVisible = true;
 
   const headline = g.headline || "";
   setText(ui.gHeadline, headline);
@@ -1824,6 +2513,7 @@ function latchDecision(decision) {
   setText(ui.gRecommendation, g.recommendation);
   setText(ui.gEvidence, g.evidence_summary || "");
   setText(ui.gInterpretation, g.interpretation || "");
+  show(ui.interpretationCard, Boolean(g.interpretation));
 
   const iconKey = actionIconFor((decision.scenarios && decision.scenarios[0] &&
     decision.scenarios[0].interventions && decision.scenarios[0].interventions[0] &&
@@ -1849,9 +2539,8 @@ function latchDecision(decision) {
   setText($("incidents-count"),
     typeof g.support_count === "number" ? g.support_count : scenarios.length);
 
-  show(ui.suggestion, true);
-  ui.listen.dataset.decision = "latched";
-  ui.body.dataset.decision = "latched";
+  buildRailNavigation();
+  syncSuggestionPresentation();
   orbState("grounded");
   setAnalysis("", 0);
 }
@@ -1887,9 +2576,41 @@ function formatWhen(iso) {
   return day + ", " + time;
 }
 
+function caregiverEvidenceFor(sc) {
+  const supplied = sc && sc.caregiver_evidence;
+  if (supplied && typeof supplied.text === "string" && supplied.text.trim()) {
+    return {
+      text: supplied.text.trim(),
+      source: typeof supplied.source === "string"
+        ? supplied.source : "caregiver_record",
+    };
+  }
+  const first = sc && Array.isArray(sc.interventions) && sc.interventions[0];
+  if (first && typeof first.evidence === "string" && first.evidence.trim()) {
+    return {
+      text: first.evidence.trim(),
+      source: sc.outcome_src === "seed" ? "synthetic_demo" : "caregiver_record",
+    };
+  }
+  return null;
+}
+
+function caregiverEvidenceCopy(sc) {
+  const evidence = caregiverEvidenceFor(sc);
+  if (!evidence) return "No caregiver speech recorded";
+  const labels = {
+    captured_transcript: "Caregiver said",
+    typed_follow_up: "Caregiver typed",
+    synthetic_demo: "Synthetic demo evidence",
+    caregiver_record: "Caregiver note",
+  };
+  const label = labels[evidence.source] || "Caregiver note";
+  return label + ": “" + evidence.text + "”";
+}
+
 function renderIncident(sc) {
   const li = document.createElement("li");
-  li.className = "incident";
+  li.className = "incident rail-card";
   const provenance = sc.outcome_src === "caregiver" ? ["bd-care", "caregiver"]
     : sc.outcome_src === "inferred" ? ["bd-inf", "inferred"]
     : sc.outcome_src === "seed" ? ["bd-seed", "seeded"]
@@ -1936,8 +2657,12 @@ function renderIncident(sc) {
   const meta = document.createElement("p");
   meta.className = "meta";
   meta.append(formatWhen(sc.started_at) + (sc.outcome ? ". " + sc.outcome + " " : " "));
+  const quote = document.createElement("p");
+  quote.className = "quote";
+  quote.textContent = caregiverEvidenceCopy(sc);
   body.appendChild(actline);
   body.appendChild(meta);
+  body.appendChild(quote);
 
   const badge = document.createElement("span");
   badge.className = "badge " + provenance[0];
@@ -2046,6 +2771,39 @@ function initSettled() {
 
 const LAND_MQ = window.matchMedia("(orientation: landscape) and (max-height: 580px)");
 let navPeekTimer = null;
+ui.suggestionRail.addEventListener("scroll", () => {
+  cancelAnimationFrame(state.railRaf);
+  state.railRaf = requestAnimationFrame(() => {
+    state.railRaf = null;
+    updateRailPosition();
+  });
+}, { passive: true });
+ui.suggestionRail.addEventListener("keydown", (event) => {
+  let next = state.railIndex;
+  if (event.key === "ArrowRight") next += 1;
+  else if (event.key === "ArrowLeft") next -= 1;
+  else if (event.key === "Home") next = 0;
+  else if (event.key === "End") next = railCards().length - 1;
+  else if (event.key === "Escape") {
+    event.preventDefault();
+    dismissGroundedSuggestion();
+    return;
+  } else {
+    return;
+  }
+  event.preventDefault();
+  scrollRailTo(next);
+});
+const syncRailForViewport = () => {
+  if (!state.decision) return;
+  buildRailNavigation();
+  requestAnimationFrame(() => scrollRailTo(state.railIndex));
+};
+if (typeof LAND_MQ.addEventListener === "function") {
+  LAND_MQ.addEventListener("change", syncRailForViewport);
+} else if (typeof LAND_MQ.addListener === "function") {
+  LAND_MQ.addListener(syncRailForViewport);
+}
 document.addEventListener("click", (event) => {
   if (!LAND_MQ.matches) return;
   if (event.target.closest("button, a, input, textarea, select, summary, details, " +
@@ -2069,13 +2827,22 @@ document.addEventListener("visibilitychange", () => {
 });
 
 ui.start.addEventListener("click", startListening);
+ui.dismissSuggestion.addEventListener("click", dismissGroundedSuggestion);
+ui.reopenSuggestion.addEventListener("click", reopenGroundedSuggestion);
 ui.pause.addEventListener("click", () => enterPaused(false));
 ui.resume.addEventListener("click", resumeListening);
 ui.stop.addEventListener("click", stopSession);
 ui.outcomeForm.addEventListener("submit", saveOutcome);
 ui.discard.addEventListener("click", () => { void discardSession(); });
 ui.savedDone.addEventListener("click", resetToIdle);
+ui.historyRetry.addEventListener("click", () => { void loadHistory(true); });
 ui.historyMore.addEventListener("click", () => { void loadHistory(false); });
+ui.historyDetailClose.addEventListener("click", closeHistoryDetail);
+ui.historyDetailTabs.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-tab]");
+  if (button) selectHistoryDetailTab(button.dataset.tab);
+});
+ui.babyRetry.addEventListener("click", () => { void loadBaby(); });
 ui.deleteVisitorData.addEventListener("click", () => { void deleteVisitorData(); });
 ui.humanConsentButton.addEventListener("click", () => { void grantHumanConsent(); });
 ui.newHumanSession.addEventListener("click", () => { void createHumanSession(); });
@@ -2096,6 +2863,12 @@ ui.connRetry.addEventListener("click", () => {
 });
 ui.profilePicker.addEventListener("change", () => {
   if (state.session !== "idle") return;
+  if (ui.profilePicker.value === HUMAN_PROFILE_VALUE) {
+    location.hash = "human";
+    navigate("human");
+    if (state.selectedProfile) ui.profilePicker.value = String(state.selectedProfile.id);
+    return;
+  }
   const profileId = Number(ui.profilePicker.value);
   applySelectedProfile(
     state.profiles.find((profile) => profile.id === profileId) || null

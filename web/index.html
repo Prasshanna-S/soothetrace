@@ -131,35 +131,63 @@
         <canvas id="orb" aria-hidden="true"></canvas>
       </div>
       <p id="analysis-status" role="status" aria-live="polite"></p>
+      <button type="button" id="btn-reopen-suggestion" class="suggestion-toggle"
+              aria-controls="suggestion-block" aria-expanded="false" hidden>
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <use href="#i-star"/>
+        </svg>
+        <span>View suggestion</span>
+      </button>
     </div>
 
-    <!-- latched guidance. Every visible string inside is a verbatim server field, and the
-         block exists only while the server holds a grounded decision. -->
+    <!-- Grounded guidance remains retained by the session. The caregiver may put this
+         presentation away and reopen it without changing the server decision. -->
     <div id="suggestion-block" hidden>
-      <article id="suggestion-card">
-        <p class="kicker" id="g-headline"></p>
-        <h2 id="g-recommendation"></h2>
-        <div class="g-foot">
-          <p id="g-evidence-summary"></p>
-          <img id="suggestion-art" alt="" hidden>
-        </div>
-      </article>
-      <p id="g-interpretation"></p>
-      <article class="wcard" id="basis-card">
-        <p class="card-kicker">Why this came up</p>
-        <ul id="basis-list"></ul>
-      </article>
-      <details id="incidents-fold">
-        <summary>
-          <span class="fold-disc"><svg viewBox="0 0 24 24" width="16" height="16">
-            <use href="#i-history"/></svg></span>
-          <span class="fold-label">Supporting incidents</span>
-          <span class="fold-count" id="incidents-count">0</span>
-          <svg class="fold-chev" viewBox="0 0 24 24" width="16" height="16">
-            <use href="#i-chev-d"/></svg>
-        </summary>
-        <ul id="incident-list"></ul>
-      </details>
+      <div id="suggestion-toolbar">
+        <p>
+          <strong>Suggestion ready</strong>
+          <span>Based on this baby's recorded history</span>
+        </p>
+        <button type="button" id="btn-dismiss-suggestion" class="suggestion-toggle"
+                aria-controls="suggestion-block" aria-expanded="true">
+          Continue listening
+        </button>
+      </div>
+      <div id="suggestion-rail" role="region"
+           aria-label="Suggestion and supporting memories" tabindex="0">
+        <article id="suggestion-card" class="rail-card">
+          <p class="kicker" id="g-headline"></p>
+          <h2 id="g-recommendation"></h2>
+          <div class="g-foot">
+            <p id="g-evidence-summary"></p>
+            <img id="suggestion-art" alt="" hidden>
+          </div>
+        </article>
+        <article id="interpretation-card" class="wcard rail-card">
+          <p class="card-kicker">Pattern seen</p>
+          <p id="g-interpretation"></p>
+        </article>
+        <article class="wcard rail-card" id="basis-card">
+          <p class="card-kicker">Why this came up</p>
+          <ul id="basis-list"></ul>
+        </article>
+        <details id="incidents-fold">
+          <summary>
+            <span class="fold-disc"><svg viewBox="0 0 24 24" width="16" height="16">
+              <use href="#i-history"/></svg></span>
+            <span class="fold-label">Supporting incidents</span>
+            <span class="fold-count" id="incidents-count">0</span>
+            <svg class="fold-chev" viewBox="0 0 24 24" width="16" height="16">
+              <use href="#i-chev-d"/></svg>
+          </summary>
+          <ul id="incident-list"></ul>
+        </details>
+        <article id="suggestion-reminder" class="wcard rail-card">
+          <p class="card-kicker">Caregiver check</p>
+          <p>This is a suggestion from this baby's recorded history. You decide what fits now.</p>
+        </article>
+      </div>
+      <nav id="rail-dots" aria-label="Suggestion cards"></nav>
     </div>
 
     <!-- idle bottom stack -->
@@ -231,7 +259,8 @@
   </section>
 
   <!-- ================================ HISTORY ================================ -->
-  <section id="page-history" class="page" hidden aria-labelledby="history-title">
+  <section id="page-history" class="page" hidden aria-labelledby="history-title"
+           data-state="idle">
     <header class="page-head">
       <div class="head-left">
         <p class="kicker" id="history-profile-name">Active baby</p>
@@ -241,30 +270,103 @@
         <svg viewBox="0 0 24 24" width="20" height="20"><use href="#i-history"/></svg>
       </span>
     </header>
-    <p id="history-status" class="page-status" role="status" aria-live="polite">Choose a baby to see their recorded moments.</p>
-    <ol id="history-list" class="record-list" aria-label="Recorded moments"></ol>
-    <button type="button" class="linkbtn page-more" id="btn-history-more" hidden>Show earlier moments</button>
-    <article id="history-detail" class="detail-card" hidden aria-live="polite"></article>
+    <p id="history-status" class="page-status" role="status" aria-live="polite">
+      Choose a baby to see their recorded moments.
+    </p>
+    <div id="history-loading" class="skel-stack" hidden aria-hidden="true">
+      <div class="skel-row"></div>
+      <div class="skel-row"></div>
+      <div class="skel-row"></div>
+    </div>
+    <div id="history-error" class="record-error" hidden>
+      <p>The record could not be reached, so nothing is shown instead of something invented.</p>
+      <button type="button" class="linkbtn" id="history-retry">Try again</button>
+    </div>
+    <div id="history-empty" class="history-empty empty-state" hidden>
+      <img data-slot-name="page-history" data-slot-fallback="notes" alt="">
+      <h2>No memories yet</h2>
+      <p>Saved sessions will appear here with what was tried, what happened, and the evidence that was recorded.</p>
+    </div>
+    <ol id="history-list" class="record-list hist-list" aria-label="Recorded moments"></ol>
+    <button type="button" class="pillbtn ghost page-more" id="btn-history-more" hidden>
+      Show earlier moments
+    </button>
+    <article id="history-detail" class="detail-card record-detail" hidden aria-live="polite">
+      <header class="record-detail-head">
+        <button type="button" class="circ" id="history-detail-close"
+                aria-label="Back to history">
+          <svg class="back-chevron" viewBox="0 0 24 24" width="19" height="19">
+            <use href="#i-chev-d"/>
+          </svg>
+        </button>
+        <div>
+          <p class="kicker" id="history-detail-when"></p>
+          <h2 id="history-detail-title">Recorded moment</h2>
+        </div>
+        <span class="pill-chip mono" id="history-detail-duration"></span>
+      </header>
+      <div class="segs" id="history-detail-tabs" role="tablist"
+           aria-label="Recorded moment views">
+        <button type="button" role="tab" data-tab="overview"
+                aria-selected="true">Overview</button>
+        <button type="button" role="tab" data-tab="said"
+                aria-selected="false">Said</button>
+        <button type="button" role="tab" data-tab="context"
+                aria-selected="false">Context</button>
+        <button type="button" role="tab" data-tab="evidence"
+                aria-selected="false">Evidence</button>
+      </div>
+      <div id="history-detail-overview" class="record-detail-pane"></div>
+      <div id="history-detail-said" class="record-detail-pane" hidden></div>
+      <div id="history-detail-context" class="record-detail-pane" hidden></div>
+      <div id="history-detail-evidence" class="record-detail-pane" hidden></div>
+    </article>
   </section>
 
   <!-- ================================ BABY ================================ -->
-  <section id="page-baby" class="page" hidden aria-labelledby="baby-title">
+  <section id="page-baby" class="page" hidden aria-labelledby="baby-title"
+           data-state="idle">
     <header class="page-head">
       <div class="head-left">
         <p class="kicker">Profile</p>
         <h1 id="baby-title">Active baby</h1>
       </div>
-      <span class="circ circ-still" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="20" height="20"><use href="#i-baby"/></svg>
-      </span>
+      <span class="pill-chip" id="baby-profile-status">Profile</span>
     </header>
-    <p id="baby-status" class="page-status" role="status" aria-live="polite">Choose a baby to see their memory.</p>
-    <section id="baby-summary" class="summary-card" aria-label="Baby memory summary"></section>
-    <section class="training-card" aria-labelledby="training-title">
-      <p class="card-kicker">Training clips</p>
-      <h2 id="training-title">Recordings that help this memory</h2>
-      <ol id="baby-training" class="record-list compact"></ol>
-    </section>
+    <p id="baby-status" class="page-status" role="status" aria-live="polite">
+      Choose a baby to see their memory.
+    </p>
+    <div id="baby-loading" class="skel-stack" hidden aria-hidden="true">
+      <div class="skel-row tall"></div>
+      <div class="skel-row"></div>
+      <div class="skel-row"></div>
+    </div>
+    <div id="baby-error" class="record-error" hidden>
+      <p>The profile could not be reached, so no profile details are being guessed.</p>
+      <button type="button" class="linkbtn" id="baby-retry">Try again</button>
+    </div>
+    <div id="baby-content" hidden>
+      <section id="baby-summary" class="summary-card memory-card"
+               aria-label="Baby memory summary">
+        <div class="memory-copy">
+          <p class="kicker">Saved care memories</p>
+          <p id="baby-memory-count"><span>Memories:</span> <b id="baby-memory-number">0</b></p>
+          <p id="baby-memory-state"></p>
+          <div id="baby-memory-beads" aria-hidden="true"></div>
+        </div>
+        <img data-slot-name="page-baby" data-slot-fallback="sleeping" alt="">
+      </section>
+      <section class="training-card" aria-labelledby="training-title">
+        <p class="card-kicker" id="baby-training-kicker">Training clips</p>
+        <h2 id="training-title">Recordings that support profile comparison</h2>
+        <ol id="baby-training" class="record-list hist-list compact"></ol>
+      </section>
+      <section class="training-card baby-context-card" aria-labelledby="baby-context-title">
+        <p class="card-kicker">Available memory signals</p>
+        <h2 id="baby-context-title">What this profile has recorded</h2>
+        <div id="baby-context-list" class="tag-row"></div>
+      </section>
+    </div>
     <button type="button" class="linkbtn danger-link" id="btn-delete-visitor-data" hidden>Delete this visitor data</button>
   </section>
 
@@ -321,7 +423,7 @@
     <svg viewBox="0 0 24 24" width="21" height="21"><use href="#i-baby"/></svg>
     <span>Baby</span>
   </a>
-  <a href="#human" id="tab-human">
+  <a href="#human" id="tab-human" hidden>
     <svg viewBox="0 0 24 24" width="21" height="21"><use href="#i-mic"/></svg>
     <span>Human Baby</span>
   </a>

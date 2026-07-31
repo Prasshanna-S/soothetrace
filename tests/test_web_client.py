@@ -56,13 +56,20 @@ class PhoneCareMarkupTests(unittest.TestCase):
         "btn-conn-retry",
         "orb",
         "analysis-status",
+        "btn-reopen-suggestion",
         "suggestion-block",
+        "suggestion-toolbar",
+        "btn-dismiss-suggestion",
+        "suggestion-rail",
+        "rail-dots",
         "g-headline",
         "g-recommendation",
         "g-evidence-summary",
         "g-interpretation",
+        "interpretation-card",
         "basis-list",
         "incident-list",
+        "suggestion-reminder",
         "btn-start",
         "btn-pause",
         "btn-resume",
@@ -78,12 +85,30 @@ class PhoneCareMarkupTests(unittest.TestCase):
         "btn-save-outcome",
         "btn-discard",
         "history-status",
+        "history-loading",
+        "history-error",
+        "history-retry",
+        "history-empty",
         "history-list",
         "btn-history-more",
         "history-detail",
+        "history-detail-close",
+        "history-detail-tabs",
+        "history-detail-overview",
+        "history-detail-said",
+        "history-detail-context",
+        "history-detail-evidence",
         "baby-status",
+        "baby-loading",
+        "baby-error",
+        "baby-retry",
+        "baby-content",
         "baby-summary",
+        "baby-memory-count",
+        "baby-memory-state",
+        "baby-memory-beads",
         "baby-training",
+        "baby-context-list",
         "btn-delete-visitor-data",
         "page-human",
         "tab-human",
@@ -115,6 +140,16 @@ class PhoneCareMarkupTests(unittest.TestCase):
         self.assertNotIn("limited in this test build", lowered)
         self.assertNotIn("profile details are next", lowered)
         self.assertIn("human baby", lowered)
+        self.assertIn('class="skel-stack"', lowered)
+        self.assertIn('class="history-empty empty-state"', lowered)
+        self.assertIn('class="memory-copy"', lowered)
+        self.assertIn('role="tablist"', lowered)
+
+    def test_human_baby_is_selected_as_a_profile_not_a_fourth_tab(self):
+        """The playful matcher is the third profile choice, not a fourth app area."""
+        human_tab = re.search(r'<a\b[^>]*\bid="tab-human"[^>]*>', self.html)
+        self.assertIsNotNone(human_tab)
+        self.assertRegex(human_tab.group(0), r"\bhidden\b")
 
     def test_no_profile_or_care_result_is_hard_coded(self):
         """The visible baby and guidance must come from the server."""
@@ -189,15 +224,42 @@ class PhoneCareScriptTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.js)
 
-    def test_server_latch_is_visible_without_client_delay(self):
-        """A returned grounded decision must replace the status immediately."""
+    def test_human_baby_is_appended_to_the_profile_picker(self):
+        """Two infant profiles are followed by the Human Baby activity."""
+        self.assertIn('const HUMAN_PROFILE_VALUE = "human-baby"', self.js)
+        self.assertIn("humanOption.value = HUMAN_PROFILE_VALUE", self.js)
+        self.assertIn('humanOption.textContent = "Human Baby"', self.js)
+        self.assertIn('navigate("human")', self.js)
+
+    def test_human_participant_names_follow_the_live_session_contract(self):
+        """Live sessions return display_name, with label accepted only for compatibility."""
+        self.assertIn("participant.display_name || participant.label", self.js)
+
+    def test_microphone_activity_uses_a_non_diagnostic_checking_state(self):
+        """Local energy may start analysis feedback but may never claim a cry."""
+        self.assertIn('checking_activity: "Checking for infant cry"', self.js)
+        self.assertIn('orbState("checking")', self.js)
+        self.assertIn("updateActivityFeedback(energy)", self.js)
+        activity = re.search(
+            r"function updateActivityFeedback\(energy\) \{(?P<body>.*?)\n\}",
+            self.js,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(activity)
+        self.assertNotIn("infant_cry_detected", activity.group("body"))
+        self.assertNotIn("Infant-cry-like sound detected", activity.group("body"))
+
+    def test_server_latch_waits_only_long_enough_to_show_cry_detection_first(self):
+        """Cry feedback must be perceptible before the returned suggestion opens."""
         self.assertNotIn("DECISION_REVEAL_MS", self.js)
         self.assertNotIn("scheduleDecisionReveal", self.js)
+        self.assertIn("pendingDecision", self.js)
+        self.assertIn("}, 900);", self.js)
 
-    def test_capture_is_audio_only_and_uses_complete_six_second_files(self):
+    def test_capture_is_audio_only_and_uses_complete_three_second_files(self):
         """Video or timeslice fragments would violate the demo and decode contract."""
         lowered = self.js.lower()
-        self.assertIn("const care_segment_ms = 6000", lowered)
+        self.assertIn("const care_segment_ms = 3000", lowered)
         self.assertIn("const max_pending_segments = 1", lowered)
         self.assertIn("new mediarecorder(state.stream", lowered)
         self.assertNotRegex(lowered, r"\.start\s*\(\s*care_segment_ms")
@@ -262,13 +324,17 @@ class PhoneCareResponsiveTests(unittest.TestCase):
         )
 
     def test_orb_motion_is_internal_and_reduced_motion_safe(self):
-        """Listening motion must advect the shader, not spin the canvas."""
+        """Listening must layer opposing shader flows, not spin the canvas."""
         js = re.sub(r"\s+", "", read(APP_JS))
         css = re.sub(r"\s+", "", read(APP_CSS)).lower()
         self.assertIn("uniformfloatuTurn;", js)
         self.assertIn("mat2rot2(floata)", js)
-        self.assertIn("rot2(uTime*uTurn)", js)
+        self.assertRegex(js, r"rot2\(phase\*[0-9.]+\)\*sphere")
+        self.assertRegex(js, r"rot2\(-phase\*[0-9.]+\)\*sphere")
+        self.assertIn("vec2tangent=vec2(-sphere.y,sphere.x);", js)
+        self.assertRegex(js, r"tangent\*[0-9.]+\*sin\(")
         self.assertIn("reduce?0:cur.turn", js)
+        self.assertNotIn('canvas.style.transform="rotate(', js)
         self.assertNotIn("@keyframesorb-spin", css)
         self.assertNotRegex(css, r"#orb\{[^}]*animation:")
 

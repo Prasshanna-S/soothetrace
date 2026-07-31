@@ -21,6 +21,8 @@ No network calls (rule 7).
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 
 try:
@@ -32,6 +34,72 @@ except ImportError:
 MIN_EPISODES_FOR_MATCH = config.MIN_EPISODES_FOR_MATCH
 
 _SELF_MATCH_EPS = 0.9999  # guards against comparing an episode with itself
+EpisodeFilter = Callable[[dict], bool]
+_CAREGIVER_EVIDENCE_MAX_CHARS = 220
+
+
+def _excerpt(value) -> str:
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.split()).strip()[:_CAREGIVER_EVIDENCE_MAX_CHARS]
+
+
+def _caregiver_evidence(episode: dict) -> dict | None:
+    """Return one bounded literal excerpt with honest provenance."""
+    if not isinstance(episode, dict):
+        return None
+    context = episode.get("context")
+    context = context if isinstance(context, dict) else {}
+    transcript = episode.get("transcript")
+    transcript = transcript if isinstance(transcript, str) else ""
+
+    evidence = ""
+    for intervention in episode.get("interventions") or []:
+        if not isinstance(intervention, dict):
+            continue
+        candidate = intervention.get("evidence")
+        if isinstance(candidate, str) and candidate.strip():
+            evidence = candidate
+            break
+
+    audio_marker = "Audio transcript:"
+    typed_marker = "Typed caregiver follow-up:"
+    audio_text = ""
+    typed_text = ""
+    if audio_marker in transcript:
+        audio_text = transcript.split(audio_marker, 1)[1]
+        if typed_marker in audio_text:
+            audio_text = audio_text.split(typed_marker, 1)[0]
+    if typed_marker in transcript:
+        typed_text = transcript.split(typed_marker, 1)[1]
+
+    is_synthetic = (
+        episode.get("outcome_src") == "seed"
+        or context.get("synthetic_demo_memory") is True
+    )
+    if is_synthetic:
+        source = "synthetic_demo"
+        literal = evidence or transcript
+    elif evidence and audio_text and evidence.casefold() in audio_text.casefold():
+        source = "captured_transcript"
+        literal = evidence
+    elif evidence and typed_text and evidence.casefold() in typed_text.casefold():
+        source = "typed_follow_up"
+        literal = evidence
+    elif audio_text:
+        source = "captured_transcript"
+        literal = audio_text
+    elif typed_text:
+        source = "typed_follow_up"
+        literal = typed_text
+    else:
+        source = "caregiver_record"
+        literal = evidence or transcript
+
+    text = _excerpt(literal)
+    if not text:
+        return None
+    return {"text": text, "source": source}
 
 
 # --------------------------------------------------------------- normalization
@@ -95,9 +163,20 @@ def _band(sim: float, cuts) -> str:
 
 # --------------------------------------------------------------- public API
 
+def _eligible_episodes(
+    subject_id: str,
+    db_path: str | None,
+    episode_filter: EpisodeFilter | None,
+) -> list[dict]:
+    episodes = store.list_episodes(subject_id, db_path)
+    if episode_filter is not None:
+        episodes = [episode for episode in episodes if episode_filter(episode)]
+    return episodes
+
 def find_similar(subject_id: str, fingerprint: list[float], k: int = 3,
                  exclude_episode_id: int | None = None,
-                 db_path: str | None = None) -> list[dict]:
+                 db_path: str | None = None,
+                 episode_filter: EpisodeFilter | None = None) -> list[dict]:
     """Top-k Matches from this subject's prior episodes, best first.
 
     Guarantees (docs/CONTRACTS.md):
@@ -109,11 +188,15 @@ def find_similar(subject_id: str, fingerprint: list[float], k: int = 3,
 
     `exclude_episode_id` skips a specific episode - pass it if the query episode has
     already been saved, otherwise it will match itself.
+
+    `episode_filter`, when supplied by a controlled product flow, is applied before
+    the minimum-history gate, confidence bands, ranking, and top-k truncation.
     """
     if not subject_id or not fingerprint:
         return []
 
-    episodes = [ep for ep in store.list_episodes(subject_id, db_path)
+    episodes = [ep for ep in _eligible_episodes(
+                subject_id, db_path, episode_filter)
                 if ep.get("fingerprint")
                 and ep.get("id") != exclude_episode_id]
     if len(episodes) < MIN_EPISODES_FOR_MATCH:
@@ -157,7 +240,11 @@ def find_similar(subject_id: str, fingerprint: list[float], k: int = 3,
     return out
 
 
-def episode_count(subject_id: str, db_path: str | None = None) -> int:
+def episode_count(
+    subject_id: str,
+    db_path: str | None = None,
+    episode_filter: EpisodeFilter | None = None,
+) -> int:
     """How many USABLE episodes this subject has - i.e. ones with a fingerprint.
 
     Counts exactly what find_similar can act on. Counting un-fingerprintable episodes
@@ -165,11 +252,16 @@ def episode_count(subject_id: str, db_path: str | None = None) -> int:
     retrieval quietly refuses to compare any of them - the numbers on screen would
     contradict the behaviour, and she would have no way to tell which was lying.
     """
-    return sum(1 for ep in store.list_episodes(subject_id, db_path)
+    return sum(1 for ep in _eligible_episodes(
+               subject_id, db_path, episode_filter)
                if ep.get("fingerprint"))
 
 
-def intervention_tally(subject_id: str, db_path: str | None = None) -> list[dict]:
+def intervention_tally(
+    subject_id: str,
+    db_path: str | None = None,
+    episode_filter: EpisodeFilter | None = None,
+) -> list[dict]:
     """Per-intervention success counts across a subject's whole history.
 
     This is the T2 ("health over time") payload and the one part of the system that
@@ -199,7 +291,7 @@ def intervention_tally(subject_id: str, db_path: str | None = None) -> list[dict
         return tally.setdefault(action, {"action": action, "tried": 0,
                                          "worked": 0, "worked_last": 0})
 
-    for ep in store.list_episodes(subject_id, db_path):
+    for ep in _eligible_episodes(subject_id, db_path, episode_filter):
         ivs = [iv for iv in (ep.get("interventions") or [])
                if isinstance(iv, dict) and (iv.get("action") or "").strip()]
         if not ivs:
@@ -256,7 +348,8 @@ def _notes_similarity(tags_a, tags_b) -> float | None:
 
 def find_scenarios(subject_id: str, fingerprint_vec: list[float],
                    current_context: dict | None = None, k: int = 3,
-                   db_path: str | None = None) -> list[dict]:
+                   db_path: str | None = None,
+                   episode_filter: EpisodeFilter | None = None) -> list[dict]:
     """Rank ONE subject's prior episodes by acoustic + contextual similarity.
 
     MUST be called only after identity returns `match`. This function does not check
@@ -266,6 +359,8 @@ def find_scenarios(subject_id: str, fingerprint_vec: list[float],
     `current_context` may contain `hour_local` and `tags` (list[str]). Missing components are
     omitted and the remaining weights renormalized, so an episode is never penalised for data
     we do not have.
+
+    `episode_filter` is applied before acoustic ranking and to the context lookup.
 
     Returns, best first:
         {episode_id, rank_score, band, similarity, started_at, interventions, outcome,
@@ -278,11 +373,20 @@ def find_scenarios(subject_id: str, fingerprint_vec: list[float],
     if not subject_id or not fingerprint_vec:
         return []
     ctx = current_context or {}
-    acoustic = find_similar(subject_id, fingerprint_vec, k=50, db_path=db_path)
+    acoustic = find_similar(
+        subject_id,
+        fingerprint_vec,
+        k=50,
+        db_path=db_path,
+        episode_filter=episode_filter,
+    )
     if not acoustic:
         return []
 
-    by_id = {ep["id"]: ep for ep in store.list_episodes(subject_id, db_path)}
+    by_id = {
+        ep["id"]: ep
+        for ep in _eligible_episodes(subject_id, db_path, episode_filter)
+    }
     out = []
     for m in acoustic:
         ep = by_id.get(m["episode_id"], {})
@@ -312,11 +416,18 @@ def find_scenarios(subject_id: str, fingerprint_vec: list[float],
         if "time_of_day" not in comps:
             contributions.append("no time-of-day information available")
 
-        out.append({**m, "rank_score": round(float(score), 6),
-                    "worked": ep.get("worked"),
-                    "components": {c: round(float(v), 4) for c, v in comps.items()},
-                    "weights_used": {c: round(w / total, 4) for c, w in active.items()},
-                    "contributions": contributions})
+        scenario = {
+            **m,
+            "rank_score": round(float(score), 6),
+            "worked": ep.get("worked"),
+            "components": {c: round(float(v), 4) for c, v in comps.items()},
+            "weights_used": {c: round(w / total, 4) for c, w in active.items()},
+            "contributions": contributions,
+        }
+        caregiver_evidence = _caregiver_evidence(ep)
+        if caregiver_evidence is not None:
+            scenario["caregiver_evidence"] = caregiver_evidence
+        out.append(scenario)
 
     out.sort(key=lambda r: -r["rank_score"])
     return out[:max(1, k)]

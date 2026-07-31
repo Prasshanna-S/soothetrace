@@ -1,23 +1,253 @@
 {
-  "schema_version": 1,
-  "purpose": "Three controlled playback assets for the phone care-session demonstration",
+  "schema_version": 2,
+  "purpose": "Three controlled long-form playback assets for the phone care-session demonstration",
   "profile": {
     "display_name": "Demo Baby",
     "trial_label": "Baby X",
     "identity_basis": "fixed_rig_round_2_trial_label",
     "population_accuracy_evidence": false
   },
+  "production_gate": {
+    "segment_seconds": 3,
+    "candidate_segments": 1,
+    "additional_grounded_confirmations": 5,
+    "required_grounded_segments": 6,
+    "minimum_segments_before_suggestion": 7,
+    "minimum_analyzed_audio_seconds": 20.0,
+    "duplicate_guard": {
+      "enabled": true,
+      "exact_source_digest": true,
+      "near_duplicate_signature": true,
+      "rule": "An exact or acoustically near-identical recording does not advance grounded confirmation."
+    },
+    "eligibility_rule": "The current recording must contain an infant-cry-like sound, select Demo Baby, preserve the same grounded history suggestion, satisfy five additional fresh confirmations, reach seven processed recordings, and reach 20 analyzed seconds.",
+    "first_server_classification_audio_seconds": 3,
+    "observed_latch_audio_seconds": {
+      "X4": 21,
+      "X7": 30,
+      "X8": 21
+    }
+  },
   "playback_rule": {
     "fixed_path_required": true,
     "instructions": "Keep the playback device, volume, distance, room, phone microphone, and phone position unchanged for all three files.",
-    "segment_seconds": 6,
-    "confirmation_segments": 4,
-    "earliest_suggestion_seconds": 24,
-    "confirmation_rule": "Hold the first grounded candidate, then process three additional accepted infant-cry segments before showing it.",
-    "asset_duration_seconds": 45,
-    "composition": "Each asset contains three exact copies of one distinct 15-second source recording.",
-    "independence_limit": "The three repetitions inside one asset are not independent recordings."
+    "asset_duration_seconds": {
+      "X4": 45.0,
+      "X7": 46.5,
+      "X8": 45.0
+    },
+    "composition": "Each asset contains three copies of one distinct 15-second source recording. X7 includes two 0.75-second quiet separators so complete 3-second recordings do not repeat the same fixed source alignment.",
+    "independence_limit": "The three repetitions inside one asset are not independent recordings and must not be presented as independent evidence.",
+    "network_and_processing_limit": "Audio timeline values do not include browser upload, network, queue, or inference delay."
   },
+  "memory_design": {
+    "profile": "Demo Baby",
+    "history_count": 6,
+    "synthetic_history": true,
+    "disclosure": "All six prior incidents are clearly labeled synthetic demo memories.",
+    "groups": [
+      {
+        "source_pattern": "X4",
+        "history_incidents": 2,
+        "action": "offered bottle",
+        "outcome": "Bottle feeding settled the baby."
+      },
+      {
+        "source_pattern": "X7",
+        "history_incidents": 2,
+        "action": "held baby upright",
+        "outcome": "Being held upright settled the baby."
+      },
+      {
+        "source_pattern": "X8",
+        "history_incidents": 2,
+        "action": "turned on white noise",
+        "outcome": "White noise settled the baby."
+      }
+    ]
+  },
+  "production_acceptance": {
+    "run_date": "2026-07-30",
+    "database": "fresh disposable database prepared by scripts/prepare_care_demo.py",
+    "production_database_changed": false,
+    "pipeline": [
+      "3-second complete-file browser chunking",
+      "managed audio ingest",
+      "AudioSet AST infant-cry gate",
+      "infant identity",
+      "profile-only history retrieval",
+      "cry-pattern and context ranking",
+      "grounded guidance",
+      "duplicate guard",
+      "duration and confirmation latch"
+    ],
+    "current_context": {
+      "hour_local": 17,
+      "caregiver_tags": [],
+      "care_events": [],
+      "notes_component": "omitted because no current caregiver note was supplied",
+      "active_factors": [
+        "cry-pattern similarity",
+        "similar time of day"
+      ]
+    },
+    "result": {
+      "status": "passed",
+      "passed": 3,
+      "tested": 3,
+      "distinct_recommendations": 3,
+      "outputs": [
+        {
+          "asset": "X4",
+          "path": "demo-baby-x4-extended-playback.wav",
+          "duration_seconds": 45.0,
+          "processed_segments": 7,
+          "cry_positive_segments": 7,
+          "first_cry_segment": 1,
+          "first_cry_audio_seconds": 3,
+          "first_segment_backend_processing_seconds": 0.706,
+          "latch_segment": 7,
+          "latch_audio_seconds": 21,
+          "identity_not_selected_segments": 1,
+          "duplicate_blocked_segments": 0,
+          "profile": "Demo Baby",
+          "guidance_status": "grounded",
+          "recommendation": "What helped before: offered bottle.",
+          "action": "offered bottle",
+          "support_count": 2,
+          "disposable_database_incident_ids": [
+            2,
+            1
+          ],
+          "worked_outcomes": 2,
+          "pattern": "similar time of day",
+          "basis": [
+            "cry pattern was the strongest available signal",
+            "occurred at a similar time of day"
+          ],
+          "clean_demo_result": true
+        },
+        {
+          "asset": "X7",
+          "path": "demo-baby-x7-extended-playback.wav",
+          "duration_seconds": 46.5,
+          "processed_segments": 10,
+          "cry_positive_segments": 10,
+          "first_cry_segment": 1,
+          "first_cry_audio_seconds": 3,
+          "first_segment_backend_processing_seconds": 0.592,
+          "latch_segment": 10,
+          "latch_audio_seconds": 30,
+          "identity_not_selected_segments": 4,
+          "duplicate_blocked_segments": 0,
+          "profile": "Demo Baby",
+          "guidance_status": "grounded",
+          "recommendation": "What helped before: held baby upright.",
+          "action": "held baby upright",
+          "support_count": 2,
+          "disposable_database_incident_ids": [
+            4,
+            3
+          ],
+          "worked_outcomes": 2,
+          "pattern": "similar time of day",
+          "basis": [
+            "cry pattern was the strongest available signal",
+            "occurred at a similar time of day"
+          ],
+          "clean_demo_result": true,
+          "operational_note": "This was the slowest case. Four segments did not select the profile, so the system kept listening until six distinct grounded matches were available."
+        },
+        {
+          "asset": "X8",
+          "path": "demo-baby-x8-extended-playback.wav",
+          "duration_seconds": 45.0,
+          "processed_segments": 7,
+          "cry_positive_segments": 7,
+          "first_cry_segment": 1,
+          "first_cry_audio_seconds": 3,
+          "first_segment_backend_processing_seconds": 0.746,
+          "latch_segment": 7,
+          "latch_audio_seconds": 21,
+          "identity_not_selected_segments": 1,
+          "duplicate_blocked_segments": 0,
+          "profile": "Demo Baby",
+          "guidance_status": "grounded",
+          "recommendation": "What helped before: turned on white noise.",
+          "action": "turned on white noise",
+          "support_count": 2,
+          "disposable_database_incident_ids": [
+            6,
+            5
+          ],
+          "worked_outcomes": 2,
+          "pattern": "similar time of day",
+          "basis": [
+            "cry pattern was the strongest available signal",
+            "occurred at a similar time of day"
+          ],
+          "clean_demo_result": true
+        }
+      ]
+    },
+    "interpretation": "The production path produced three distinct, profile-scoped, history-grounded suggestions from three controlled recordings. This is proof-of-concept evidence and not a population accuracy result."
+  },
+  "assets": [
+    {
+      "order": 1,
+      "path": "demo-baby-x4-extended-playback.wav",
+      "source_recording": "data/audio/round2_h/07-X4.wav",
+      "source_trial_role": "stored_trial_example",
+      "source_sha256": "237898e8e6815a9df7e783b4c2ab197bad229b3d3c118e260abc1c66b230a3e3",
+      "asset_sha256": "0189740b93842b2db7f30d114ac9264eba8c716762cfeb3ecd1fe29a6aaefc1b",
+      "format": {
+        "duration_seconds": 45.0,
+        "sample_rate_hz": 16000,
+        "channels": 1,
+        "codec": "pcm_s16le"
+      },
+      "current_recommendation": "What helped before: offered bottle.",
+      "observed_latch_audio_seconds": 21,
+      "subtitle": "captions/01-x4.srt",
+      "short_subtitle": "captions/distinct-output/01-x4-bottle.srt"
+    },
+    {
+      "order": 2,
+      "path": "demo-baby-x7-extended-playback.wav",
+      "source_recording": "data/audio/round2_h/13-X7.wav",
+      "source_trial_role": "held_out_query_with_caregiver_speech",
+      "source_sha256": "b56cb71c6b8ed536fd3e1f0e32ca146806ea302a3da2a5b17b53807d927108c9",
+      "asset_sha256": "df7d99bb7fbc2d19603f07fbb1fd0e5b565ae7ef5cb0047805322022077407b6",
+      "format": {
+        "duration_seconds": 46.5,
+        "sample_rate_hz": 16000,
+        "channels": 1,
+        "codec": "pcm_s16le"
+      },
+      "current_recommendation": "What helped before: held baby upright.",
+      "observed_latch_audio_seconds": 30,
+      "subtitle": "captions/02-x7.srt",
+      "short_subtitle": "captions/distinct-output/02-x7-upright.srt"
+    },
+    {
+      "order": 3,
+      "path": "demo-baby-x8-extended-playback.wav",
+      "source_recording": "data/audio/round2_h/15-X8.wav",
+      "source_trial_role": "held_out_query_without_caregiver_speech",
+      "source_sha256": "66ac3230db9df5ddacf2057f9614f4b0741535f2794c019e6c2efc070da5d1",
+      "asset_sha256": "31b4f184db65b85f10e9acb95bc60c00b8013fee58f744acde806fde9c4a65f4",
+      "format": {
+        "duration_seconds": 45.0,
+        "sample_rate_hz": 16000,
+        "channels": 1,
+        "codec": "pcm_s16le"
+      },
+      "current_recommendation": "What helped before: turned on white noise.",
+      "observed_latch_audio_seconds": 21,
+      "subtitle": "captions/03-x8.srt",
+      "short_subtitle": "captions/distinct-output/03-x8-white-noise.srt"
+    }
+  ],
   "supporting_files": [
     {
       "path": "demo-baby-warning.wav",
@@ -76,293 +306,21 @@
       "channels": 1
     }
   ],
-  "verified_probe": {
-    "run_at": "2026-07-30T15:33:00-04:00",
-    "database": "disposable copy of the seeded live demo database",
-    "current_context": {
-      "hour_local": 15,
-      "caregiver_tags": [],
-      "care_events": [],
-      "notes_component": "omitted because no current caregiver note was supplied"
-    },
-    "active_ranking_weights": {
-      "cry_pattern": 0.7647,
-      "time_of_day": 0.2353
-    },
-    "prior_incident": {
-      "episode_id": 4,
-      "started_at": "2026-07-26T18:45:00-04:00",
-      "interventions": [
-        "swaddled baby",
-        "turned on white noise"
-      ],
-      "caregiver_reported_outcome": "Swaddling with white noise settled the baby.",
-      "worked": true
-    },
-    "latched_guidance": "What helped before: turned on white noise.",
-    "guidance_limit": "This is a profile-memory suggestion, not a diagnosis or a claim about why the baby is crying."
-  },
-  "validated_distinct_output_spike": {
-    "production_database_changed": false,
-    "database": "disposable copy of the seeded live demo database",
-    "run_environment": {
-      "OMP_NUM_THREADS": "1",
-      "KMP_USE_SHM": "0"
-    },
-    "memory_design": {
-      "profile": "Demo Baby",
-      "history_count": 6,
-      "current_hour_local": 15,
-      "current_caregiver_tags": [],
-      "current_care_events": [],
-      "prior_incidents": [
-        {
-          "source_pattern": "X4 full 15-second fingerprint",
-          "copies": 2,
-          "hour_local": 15,
-          "action": "offered bottle",
-          "outcome": "Bottle feeding settled the baby."
-        },
-        {
-          "source_pattern": "X7 full 15-second fingerprint",
-          "copies": 2,
-          "hour_local": 15,
-          "action": "held baby upright",
-          "outcome": "Being held upright settled the baby."
-        },
-        {
-          "source_pattern": "X8 full 15-second fingerprint",
-          "copies": 2,
-          "hour_local": 15,
-          "action": "turned on white noise",
-          "outcome": "White noise settled the baby."
-        }
-      ],
-      "disclosure": "All six prior incidents were clearly marked synthetic spike memories."
-    },
-    "result": {
-      "passed": 3,
-      "tested": 3,
-      "outputs": [
-        {
-          "asset": "X4",
-          "cry_status": "infant_cry_detected",
-          "chunk_status": "guidance_latched",
-          "recommendation": "What helped before: offered bottle.",
-          "support_count": 2,
-          "incident_ids": [
-            9,
-            8
-          ],
-          "pattern": "similar time of day"
-        },
-        {
-          "asset": "X7",
-          "cry_status": "infant_cry_detected",
-          "chunk_status": "guidance_latched",
-          "recommendation": "What helped before: held baby upright.",
-          "support_count": 2,
-          "incident_ids": [
-            11,
-            10
-          ],
-          "pattern": "similar time of day"
-        },
-        {
-          "asset": "X8",
-          "cry_status": "infant_cry_detected",
-          "chunk_status": "guidance_latched",
-          "recommendation": "What helped before: turned on white noise.",
-          "support_count": 2,
-          "incident_ids": [
-            13,
-            12
-          ],
-          "pattern": "similar time of day"
-        }
-      ]
-    },
-    "interpretation": "The real retrieval and guidance path can produce three distinct history-grounded outputs when the selected profile contains repeated pattern-linked records. This spike is not the current default seed and does not establish population accuracy."
-  },
-  "clean_clone_bootstrap_validation": {
-    "run_at": "2026-07-30T15:55:00-04:00",
-    "database": "new disposable database prepared by scripts/prepare_care_demo.py",
-    "profile_enrollments": [
-      "X1",
-      "X2",
-      "X3"
-    ],
-    "synthetic_memory_count": 6,
-    "query_segment_seconds": 6,
-    "confirmation_segments": 4,
-    "result": {
-      "passed": 3,
-      "tested": 3,
-      "outputs": [
-        {
-          "asset": "X4",
-          "chunk_statuses": [
-            "matched_no_guidance",
-            "matched_no_guidance",
-            "matched_no_guidance",
-            "guidance_latched"
-          ],
-          "decision_present_by_segment": [
-            false,
-            false,
-            false,
-            true
-          ],
-          "recommendation": "What helped before: offered bottle."
-        },
-        {
-          "asset": "X7",
-          "chunk_statuses": [
-            "matched_no_guidance",
-            "matched_no_guidance",
-            "matched_no_guidance",
-            "guidance_latched"
-          ],
-          "decision_present_by_segment": [
-            false,
-            false,
-            false,
-            true
-          ],
-          "recommendation": "What helped before: held baby upright."
-        },
-        {
-          "asset": "X8",
-          "chunk_statuses": [
-            "matched_no_guidance",
-            "matched_no_guidance",
-            "matched_no_guidance",
-            "guidance_latched"
-          ],
-          "decision_present_by_segment": [
-            false,
-            false,
-            false,
-            true
-          ],
-          "recommendation": "What helped before: turned on white noise."
-        }
-      ]
-    },
-    "interpretation": "A clean clone can prepare the two demo profiles and produce three distinct history-grounded suggestions through the real four-segment confirmation path. This is controlled proof-of-concept evidence, not population accuracy."
-  },
-  "assets": [
-    {
-      "order": 1,
-      "path": "demo-baby-x4-extended-playback.wav",
-      "source_recording": "data/audio/round2_h/07-X4.wav",
-      "source_trial_role": "stored_trial_example",
-      "source_sha256": "237898e8e6815a9df7e783b4c2ab197bad229b3d3c118e260abc1c66b230a3e3",
-      "asset_sha256": "0189740b93842b2db7f30d114ac9264eba8c716762cfeb3ecd1fe29a6aaefc1b",
-      "format": {
-        "duration_seconds": 45.0,
-        "sample_rate_hz": 16000,
-        "channels": 1,
-        "codec": "pcm_s16le"
-      },
-      "six_second_quiet_probe": {
-        "captured_mean_db": -39.0455,
-        "captured_peak_db": -22.7374,
-        "cry_gate_status": "infant_cry_detected",
-        "infant_gate_score_debug_only": 0.582063,
-        "generic_cry_score_debug_only": 0.105094,
-        "identity_status": "match",
-        "identity_band": "strong",
-        "identity_score_debug_only": 0.94858,
-        "runner_up_margin_debug_only": 0.093977,
-        "profile": "Demo Baby",
-        "chunk_status": "guidance_latched",
-        "retrieval_components": {
-          "cry_pattern": 0.9601,
-          "time_of_day": 0.75,
-          "composite_rank_debug_only": 0.910644
-        }
-      },
-      "subtitle": "captions/01-x4.srt",
-      "distinct_output_spike_subtitle": "captions/distinct-output/01-x4-bottle.srt"
-    },
-    {
-      "order": 2,
-      "path": "demo-baby-x7-extended-playback.wav",
-      "source_recording": "data/audio/round2_h/13-X7.wav",
-      "source_trial_role": "held_out_query_with_caregiver_speech",
-      "source_sha256": "b56cb71c6b8ed536fd3e1f0e32ca146806ea302a3da2a5b17b53807d927108c9",
-      "asset_sha256": "b1d3982e13e610364dc673a271eb52ba4e5d17e5a24d53653b1456187af7d647",
-      "format": {
-        "duration_seconds": 45.0,
-        "sample_rate_hz": 16000,
-        "channels": 1,
-        "codec": "pcm_s16le"
-      },
-      "six_second_quiet_probe": {
-        "captured_mean_db": -38.4023,
-        "captured_peak_db": -20.7175,
-        "cry_gate_status": "infant_cry_detected",
-        "infant_gate_score_debug_only": 0.569404,
-        "generic_cry_score_debug_only": 0.053864,
-        "identity_status": "match",
-        "identity_band": "weak",
-        "identity_score_debug_only": 0.8276,
-        "runner_up_margin_debug_only": 0.136095,
-        "profile": "Demo Baby",
-        "chunk_status": "guidance_latched",
-        "retrieval_components": {
-          "cry_pattern": 0.8952,
-          "time_of_day": 0.75,
-          "composite_rank_debug_only": 0.861071
-        }
-      },
-      "subtitle": "captions/02-x7.srt",
-      "distinct_output_spike_subtitle": "captions/distinct-output/02-x7-upright.srt"
-    },
-    {
-      "order": 3,
-      "path": "demo-baby-x8-extended-playback.wav",
-      "source_recording": "data/audio/round2_h/15-X8.wav",
-      "source_trial_role": "held_out_query_without_caregiver_speech",
-      "source_sha256": "66ac3230db9dfbd5ddacf2057f9614f4b0741535f2794c019e6c2efc070da5d1",
-      "asset_sha256": "31b4f184db65b85f10e9acb95bc60c00b8013fee58f744acde806fde9c4a65f4",
-      "format": {
-        "duration_seconds": 45.0,
-        "sample_rate_hz": 16000,
-        "channels": 1,
-        "codec": "pcm_s16le"
-      },
-      "six_second_quiet_probe": {
-        "captured_mean_db": -39.0789,
-        "captured_peak_db": -24.019,
-        "cry_gate_status": "infant_cry_detected",
-        "infant_gate_score_debug_only": 0.787309,
-        "generic_cry_score_debug_only": 0.226428,
-        "identity_status": "match",
-        "identity_band": "strong",
-        "identity_score_debug_only": 0.929553,
-        "runner_up_margin_debug_only": 0.126571,
-        "profile": "Demo Baby",
-        "chunk_status": "guidance_latched",
-        "retrieval_components": {
-          "cry_pattern": 0.947,
-          "time_of_day": 0.75,
-          "composite_rank_debug_only": 0.900649
-        }
-      },
-      "subtitle": "captions/03-x8.srt",
-      "distinct_output_spike_subtitle": "captions/distinct-output/03-x8-white-noise.srt"
-    }
-  ],
-  "excluded_candidates": [
+  "source_selection_notes": [
     {
       "source_recording": "data/audio/round2_h/09-X5.wav",
-      "reason": "The six-second probe was below the identity acceptance threshold."
+      "reason_not_selected": "An earlier fixed-rig source-selection check did not meet identity acceptance."
     },
     {
       "source_recording": "data/audio/round2_h/11-X6.wav",
-      "reason": "The six-second probe did not clear the selected Demo Baby demo threshold."
+      "reason_not_selected": "An earlier fixed-rig source-selection check did not meet the selected Demo Baby threshold."
     }
+  ],
+  "limitations": [
+    "The history incidents used for these three outputs are synthetic and clearly labeled.",
+    "The recordings are controlled fixed-rig fixtures and do not establish population accuracy.",
+    "Repeated audio inside a long-form file is not independent evidence.",
+    "A suggestion reports what helped in recorded history. It does not infer a medical or behavioral cause.",
+    "The verified context used cry-pattern similarity and time of day. No current caregiver note, tag, or care event was supplied."
   ]
 }

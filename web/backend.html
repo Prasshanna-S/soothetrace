@@ -3,165 +3,87 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta name="color-scheme" content="dark">
-    <title>SootheTrace | Live processing</title>
+    <meta name="color-scheme" content="light">
+    <title>SootheTrace | Processing monitor</title>
     <link rel="stylesheet" href="/backend.css">
     <script src="/backend.js" defer></script>
   </head>
-  <body data-live="false">
-    <div class="scanline" aria-hidden="true"></div>
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true">
-          <i></i><i></i><i></i><i></i><i></i>
-        </span>
-        <div>
-          <p class="eyebrow">SootheTrace</p>
-          <h1>Live processing</h1>
+  <body data-connected="false">
+    <header class="monitor-header">
+      <div>
+        <p class="product-name">SootheTrace</p>
+        <h1>Processing monitor</h1>
+      </div>
+      <div class="header-actions">
+        <div class="connection-status" id="connection-status" role="status" aria-live="polite">
+          <span class="connection-dot" aria-hidden="true"></span>
+          <span id="connection-copy">Connecting</span>
         </div>
+        <a href="/">Open phone view</a>
       </div>
-      <div class="server-state" id="server-state" role="status" aria-live="polite">
-        <span class="state-light" aria-hidden="true"></span>
-        <span id="server-state-copy">Connecting to local server</span>
-      </div>
-      <a class="phone-link" href="/">Open phone view</a>
     </header>
 
     <main>
-      <section class="run-header" aria-labelledby="run-title">
-        <div>
-          <p class="eyebrow" id="run-kicker">Waiting for a care session</p>
-          <h2 id="run-title">The phone feed will appear here</h2>
-          <p class="run-summary" id="run-summary">
-            Start listening on the phone to watch each segment move through the backend.
-          </p>
-        </div>
-        <dl class="run-facts" aria-label="Current run">
+      <section class="session-strip" aria-label="Current processing session">
+        <dl class="session-facts">
           <div>
             <dt>Session</dt>
-            <dd id="session-id">None</dd>
+            <dd id="session-value">None</dd>
           </div>
           <div>
-            <dt>Latest segment</dt>
-            <dd id="segment-id">Waiting</dd>
+            <dt>Profile</dt>
+            <dd id="profile-value">Waiting</dd>
           </div>
           <div>
-            <dt>Server state</dt>
+            <dt>State</dt>
             <dd id="session-state">Idle</dd>
           </div>
         </dl>
+        <div class="current-summary" role="status" aria-live="polite">
+          <p id="current-state">Waiting for a phone session</p>
+          <p id="current-detail">Completed segments will appear below.</p>
+        </div>
       </section>
 
-      <section class="flow-panel" aria-labelledby="flow-title">
-        <div class="section-heading">
+      <section class="segment-section" aria-labelledby="segment-heading">
+        <div class="section-header">
           <div>
-            <p class="eyebrow">Same data path as the phone</p>
-            <h2 id="flow-title">Six-second segment pipeline</h2>
+            <h2 id="segment-heading">Completed segments</h2>
+            <p>Each row appears after one 3-second segment finishes processing.</p>
           </div>
-          <p id="flow-clock">Waiting for input</p>
+          <p class="refresh-copy">Updates every second</p>
         </div>
-        <ol class="signal-rail" id="signal-rail"></ol>
+
+        <div class="table-scroll">
+          <table id="segment-table">
+            <thead>
+              <tr>
+                <th scope="col">Segment</th>
+                <th scope="col">Received</th>
+                <th scope="col">Cry gate</th>
+                <th scope="col">Baby match</th>
+                <th scope="col">Confirmations</th>
+                <th scope="col">Result</th>
+              </tr>
+            </thead>
+            <tbody id="segment-rows"></tbody>
+          </table>
+          <p class="empty-table" id="empty-table">No completed segments yet.</p>
+        </div>
       </section>
 
-      <div class="dashboard-grid">
-        <section class="decision-panel" id="decision-panel" aria-labelledby="decision-title">
-          <div class="decision-index" aria-hidden="true">OUTPUT</div>
-          <div class="decision-copy">
-            <p class="eyebrow" id="decision-state">No output yet</p>
-            <h2 id="decision-title">Listening for a grounded pattern</h2>
-            <p class="decision-lede" id="decision-recommendation">
-              No suggestion has been created. The system only responds when the cry gate,
-              selected baby check, and recorded history all support it.
-            </p>
-            <p class="decision-detail" id="decision-detail"></p>
-            <p class="decision-evidence" id="decision-evidence"></p>
-          </div>
-          <div class="latch-stamp" id="latch-stamp" hidden>
-            <span>Latched</span>
-            <strong id="latch-time"></strong>
-          </div>
-        </section>
-
-        <aside class="context-panel" aria-labelledby="context-title">
-          <div class="section-heading compact">
-            <div>
-              <p class="eyebrow">Context in this decision</p>
-              <h2 id="context-title">Signals used</h2>
-            </div>
-          </div>
-          <dl class="factor-list" id="factor-list">
-            <div>
-              <dt>Cry pattern</dt>
-              <dd>Waiting for the first segment</dd>
-            </div>
-            <div>
-              <dt>Time</dt>
-              <dd>Waiting for server time</dd>
-            </div>
-            <div>
-              <dt>Care tags</dt>
-              <dd>No active session</dd>
-            </div>
-            <div>
-              <dt>Recorded memory</dt>
-              <dd>No grounded incident selected yet</dd>
-            </div>
-          </dl>
-        </aside>
-      </div>
-
-      <div class="detail-grid">
-        <section class="segment-panel" aria-labelledby="segment-title">
-          <div class="section-heading compact">
-            <div>
-              <p class="eyebrow">Latest completed upload</p>
-              <h2 id="segment-title">Segment detail</h2>
-            </div>
-            <span class="segment-duration" id="segment-duration">0.00 s</span>
-          </div>
-          <div class="segment-stages" id="segment-stages">
-            <article>
-              <p>Ingest</p>
-              <strong>Waiting</strong>
-              <span>No phone segment yet</span>
-            </article>
-            <article>
-              <p>Cry gate</p>
-              <strong>Waiting</strong>
-              <span>No phone segment yet</span>
-            </article>
-            <article>
-              <p>Identity</p>
-              <strong>Waiting</strong>
-              <span>No phone segment yet</span>
-            </article>
-          </div>
-        </section>
-
-        <section class="evidence-panel" aria-labelledby="evidence-title">
-          <div class="section-heading compact">
-            <div>
-              <p class="eyebrow">Recorded incidents only</p>
-              <h2 id="evidence-title">Why this output appeared</h2>
-            </div>
-          </div>
-          <div class="evidence-list" id="evidence-list">
-            <p class="empty-copy">Evidence appears only after guidance latches.</p>
-          </div>
-        </section>
-      </div>
-
-      <section class="event-panel" aria-labelledby="event-title">
-        <div class="section-heading compact">
+      <section class="suggestion-panel" id="suggestion-panel" hidden aria-labelledby="suggestion-recommendation">
+        <div class="suggestion-heading">
           <div>
-            <p class="eyebrow">Local demo diagnostics</p>
-            <h2 id="event-title">Processing stream</h2>
+            <p class="suggestion-state">Suggestion ready</p>
+            <h2 id="suggestion-recommendation"></h2>
           </div>
-          <span class="poll-label">Refreshes every second</span>
+          <p class="suggestion-time" id="suggestion-time"></p>
         </div>
-        <ol class="event-stream" id="event-stream" aria-live="polite">
-          <li class="event-empty">Waiting for the first phone segment.</li>
-        </ol>
+        <p class="suggestion-copy" id="suggestion-interpretation"></p>
+        <p class="suggestion-copy" id="suggestion-pattern"></p>
+        <p class="suggestion-copy" id="suggestion-summary"></p>
+        <div class="evidence-list" id="evidence-list"></div>
       </section>
     </main>
   </body>

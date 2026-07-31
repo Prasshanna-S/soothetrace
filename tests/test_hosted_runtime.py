@@ -1,5 +1,7 @@
 import importlib
 import io
+import json
+import os
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
@@ -135,8 +137,11 @@ class HostedDeploymentAssetsTests(unittest.TestCase):
         self.assertIn("IM_DB_PATH=/var/data/episodes.db", dockerfile)
         self.assertIn("IM_AUDIO_DIR=/var/data/audio", dockerfile)
         self.assertIn("IM_MODEL_DIR=/var/data/models", dockerfile)
-        self.assertIn("--behind-tls-proxy", dockerfile)
-        self.assertIn("${PORT:-10000}", dockerfile)
+        self.assertIn("scripts/hosted_entrypoint.py", dockerfile)
+        self.assertIn("deploy/population-baseline.json", dockerfile)
+        entrypoint = self._read_release_file("scripts/hosted_entrypoint.py")
+        self.assertIn("--behind-tls-proxy", entrypoint)
+        self.assertIn('os.environ.get("PORT", "10000")', entrypoint)
 
     def test_render_blueprint_uses_one_persistent_instance_with_readiness_check(self):
         """A second instance or an ephemeral disk would split persistent SQLite state."""
@@ -164,6 +169,199 @@ class HostedDeploymentAssetsTests(unittest.TestCase):
         self.assertIn("IM_AUDIO_DIR=/var/data/audio", environment)
         self.assertIn("IM_MODEL_DIR=/var/data/models", environment)
         self.assertIn("OPENAI_API_KEY=", environment)
+
+
+class HostedEntrypointTests(unittest.TestCase):
+    def _entrypoint(self):
+        try:
+            return importlib.import_module("scripts.hosted_entrypoint")
+        except ModuleNotFoundError:
+            self.fail(
+                "scripts.hosted_entrypoint must initialize a fresh disk before serving"
+            )
+
+    def test_fresh_disk_installs_packaged_population_baseline(self):
+        entrypoint = self._entrypoint()
+        from src import config, fingerprint, store
+
+        with TemporaryDirectory() as temporary:
+            database = Path(temporary) / "episodes.db"
+            installed = entrypoint.ensure_population_baseline(str(database))
+            baseline = store.get_baseline(config.POPULATION_KEY, str(database))
+
+        self.assertTrue(installed)
+        self.assertEqual(421, baseline["n"])
+        self.assertEqual(fingerprint.DIM, len(baseline["mu"]))
+        self.assertEqual(fingerprint.DIM, len(baseline["sd"]))
+
+    def test_existing_persistent_baseline_is_never_overwritten(self):
+        entrypoint = self._entrypoint()
+        from src import config, fingerprint, store
+
+        with TemporaryDirectory() as temporary:
+            database = str(Path(temporary) / "episodes.db")
+            store.init_db(database)
+            expected_mu = [3.0] * fingerprint.DIM
+            expected_sd = [4.0] * fingerprint.DIM
+            store.save_baseline(
+                config.POPULATION_KEY,
+                expected_mu,
+                expected_sd,
+                99,
+                database,
+            )
+
+            installed = entrypoint.ensure_population_baseline(database)
+            baseline = store.get_baseline(config.POPULATION_KEY, database)
+
+        self.assertFalse(installed)
+        self.assertEqual(99, baseline["n"])
+        self.assertEqual(expected_mu, list(baseline["mu"]))
+        self.assertEqual(expected_sd, list(baseline["sd"]))
+
+    def test_bootstrap_failure_prevents_server_exec(self):
+        entrypoint = self._entrypoint()
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            environment = {
+                "IM_DATA_ROOT": str(root),
+                "IM_DB_PATH": str(root / "episodes.db"),
+                "IM_AUDIO_DIR": str(root / "audio"),
+                "PORT": "10000",
+            }
+            with (
+                patch.dict(os.environ, environment, clear=False),
+                patch.object(
+                    entrypoint,
+                    "ensure_population_baseline",
+                    return_value=True,
+                ) as ensure,
+                patch.object(
+                    entrypoint.hosted_bootstrap,
+                    "main",
+                    return_value=7,
+                ) as bootstrap,
+                patch.object(entrypoint.os, "execv") as execute,
+            ):
+                result = entrypoint.main()
+
+        self.assertEqual(7, result)
+        ensure.assert_called_once_with(environment["IM_DB_PATH"])
+        bootstrap.assert_called_once_with(
+            [
+                "--data-root",
+                environment["IM_DATA_ROOT"],
+                "--db",
+                environment["IM_DB_PATH"],
+            ]
+        )
+        execute.assert_not_called()
+
+    def test_fresh_disk_reaches_server_only_after_real_bootstrap_contract(self):
+        entrypoint = self._entrypoint()
+        from src import config, store
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = str(root / "episodes.db")
+            environment = {
+                "IM_DATA_ROOT": str(root),
+                "IM_DB_PATH": database,
+                "IM_AUDIO_DIR": str(root / "audio"),
+                "PORT": "10000",
+            }
+            with (
+                patch.dict(os.environ, environment, clear=False),
+                patch.object(
+                    entrypoint.hosted_bootstrap,
+                    "_prepare_demo",
+                ) as prepare_demo,
+                patch.object(
+                    entrypoint.hosted_bootstrap.encoders,
+                    "warm",
+                    return_value={
+                        "mfcc87-v1": True,
+                        "ecapa-cryceleb-v1": True,
+                    },
+                ),
+                patch.object(
+                    entrypoint.hosted_bootstrap.cry_gate,
+                    "warm",
+                    return_value=True,
+                ),
+                patch.object(entrypoint.os, "execv") as execute,
+            ):
+                result = entrypoint.main()
+
+            baseline = store.get_baseline(config.POPULATION_KEY, database)
+
+        self.assertEqual(0, result)
+        self.assertEqual(421, baseline["n"])
+        prepare_demo.assert_called_once_with(
+            str(Path(database).resolve()),
+            str(Path(environment["IM_AUDIO_DIR"]).resolve()),
+        )
+        execute.assert_called_once()
+
+    def test_successful_bootstrap_execs_proxy_server_with_persistent_paths(self):
+        entrypoint = self._entrypoint()
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            environment = {
+                "IM_DATA_ROOT": str(root),
+                "IM_DB_PATH": str(root / "episodes.db"),
+                "IM_AUDIO_DIR": str(root / "audio"),
+                "PORT": "12345",
+            }
+            with (
+                patch.dict(os.environ, environment, clear=False),
+                patch.object(
+                    entrypoint,
+                    "ensure_population_baseline",
+                    return_value=True,
+                ),
+                patch.object(
+                    entrypoint.hosted_bootstrap,
+                    "main",
+                    return_value=0,
+                ),
+                patch.object(entrypoint.os, "execv") as execute,
+            ):
+                result = entrypoint.main()
+
+        self.assertEqual(0, result)
+        executable, command = execute.call_args.args
+        self.assertEqual(entrypoint.sys.executable, executable)
+        self.assertEqual(entrypoint.sys.executable, command[0])
+        self.assertIn("--behind-tls-proxy", command)
+        self.assertEqual(
+            ["--port", "12345"],
+            command[command.index("--port") : command.index("--port") + 2],
+        )
+        self.assertEqual(
+            ["--data-root", environment["IM_AUDIO_DIR"]],
+            command[
+                command.index("--data-root") : command.index("--data-root") + 2
+            ],
+        )
+        self.assertEqual(
+            ["--db", environment["IM_DB_PATH"]],
+            command[command.index("--db") : command.index("--db") + 2],
+        )
+
+    def test_packaged_baseline_declares_public_provenance(self):
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "deploy"
+            / "population-baseline.json"
+        )
+        self.assertTrue(path.is_file())
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual("mfcc87-v1", payload["encoder"])
+        self.assertEqual(421, payload["n"])
+        self.assertIn("Donate-a-Cry", payload["source"])
+        self.assertEqual(87, len(payload["mu"]))
+        self.assertEqual(87, len(payload["sd"]))
 
 
 if __name__ == "__main__":

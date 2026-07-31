@@ -2,42 +2,52 @@
 
 ## Scope
 
-SootheTrace is a local-first prototype in which a browser client sends audio to a Python server. A future hosted version should keep the browser and API at one HTTPS origin. The source tree does not yet provide production authentication, encrypted storage, retention controls, or multi-tenant isolation.
+SootheTrace is a browser and Python prototype that can run locally or behind one
+hosted HTTPS origin. The included hosted path gives each consenting anonymous
+visitor an isolated copy of the demo database and audio directory. Visitor data
+expires after one hour and can be deleted immediately.
+
+That prototype isolation is not production authentication, authorization,
+encryption at rest, or a complete privacy and security program.
 
 ## Data flow
 
 ```mermaid
 flowchart TD
     A["Microphone or selected audio file"] --> B["Complete browser audio segment"]
-    B --> C["Validate MIME and size"]
-    C --> D["FFmpeg local decode to 16 kHz mono PCM WAV"]
-    D --> E["Canonical audio retained in managed local storage"]
-    D --> F["Fixed RMS identity copy"]
-    F --> G["AudioSet AST gate"]
-    G -->|"No or uncertain infant-cry-like evidence"| H["Abstain and show no care suggestion"]
-    G -->|"Cry-like evidence"| I["Acoustic profile check"]
-    I --> J["MFCC87 for infant profiles"]
-    I --> K["Optional CryCeleb ECAPA for human-imitation profiles"]
-    J --> L{"Selected profile accepted?"}
-    K --> L
+    B --> C["Same-origin Python API"]
+    C --> D["Validate MIME and size"]
+    D --> E["FFmpeg local decode to 16 kHz mono PCM WAV"]
+    E --> F["Canonical audio retained in managed storage"]
+    E --> G["Fixed RMS identity copy"]
+    G --> H["AudioSet AST infant-cry gate"]
+    H -->|"No or uncertain infant-cry-like evidence"| I["Keep listening and show no care suggestion"]
+    H -->|"Infant-cry-like evidence"| J["Selected infant profile check"]
+    J --> K["Custom MFCC87 representation"]
+    K --> L{"Selected infant profile accepted?"}
     L -->|"No or uncertain"| M["Abstain, retry, or unresolved state"]
     L -->|"Yes"| N["Read only this profile's prior incidents"]
     O["Current time"] --> P["Time-of-day similarity"]
     Q["Caregiver tags"] --> R["Tag overlap"]
-    F --> S["Cry-pattern similarity"]
+    G --> S["Cry-pattern similarity"]
     N --> S
     N --> T["Previous actions and caregiver-reported outcomes"]
-    P --> U["Heuristic incident ranking"]
+    P --> U["Fixed incident ranking"]
     R --> U
     S --> U
     T --> V["Grounded action from the selected prior incident"]
     U --> V
     W["Optional transcript and caregiver note"] --> X["Transcript-supported action and outcome extraction"]
     X --> T
-    V --> Y["Evidence-backed suggestion: what helped before"]
-    Y --> Z["Caregiver records what was tried and whether it helped"]
-    Z --> AA["SQLite episode, metadata, and managed audio references"]
-    AA --> N
+    V --> Y["Demo confirmation and duplicate guard"]
+    Y --> Z["Optional suggestion: what helped before"]
+    Z --> AA["Caregiver records what was tried and whether it helped"]
+    AA --> AB["SQLite episode, metadata, and managed audio references"]
+    AB --> N
+
+    E --> AC["Human Baby session branch"]
+    AC --> AD["CryCeleb ECAPA embedding"]
+    AD --> AE["Provisional or established session participant"]
 ```
 
 The diagram separates identity from retrieval intentionally. Current time, tags, transcripts, notes, previous actions, and outcomes never decide whose audio was recorded. They are eligible only after the selected profile passes the acoustic gate.
@@ -92,12 +102,38 @@ Once an infant profile is accepted, `src/retrieve.py` reads only that profile's 
 
 When a signal is unavailable, it is omitted and the other available weights are renormalized. These values are product choices, not a learned clinical model, probability, or causal explanation. The output should be read as: "this recorded action helped in a prior, acoustically and contextually similar incident," not "this is the action that will help now."
 
+For the controlled profile named Demo Baby, a live suggestion also has to pass a
+multi-segment confirmation rule. The server waits for at least 20 seconds, at
+least seven processed segments, and six distinct segments supporting the same
+grounded recommendation. Exact and near-duplicate source audio does not add
+confirmation. This presentation rule does not apply to an ordinary infant
+profile.
+
+The first grounded decision is latched for that recording session. The caregiver
+can dismiss the suggestion and return to listening, then reopen it without
+stopping capture.
+
 ## Optional transcription and reasoning extraction
 
 Speech processing is separate from the acoustic path. In default online mode, the configured transcription API model is `gpt-4o-transcribe`. With `IM_OFFLINE=1`, the code calls an externally installed Whisper CLI. The local Whisper dependency is optional and is not provisioned by `requirements.txt`.
 
 An optional reasoning-model call can extract caregiver actions and outcomes from a transcript. It is instructed to return literal transcript evidence, and the implementation rejects unsupported evidence before storing it. A local regex extractor is available as a fallback. No generative model is used for infant-cry detection, acoustic identity, or causal interpretation.
 
-## Hosted architecture requirements
+## Hosted prototype
 
-The desired deployment presents the browser and API at one HTTPS origin, represented in public documentation as `https://HOSTED_URL/`. Before it can handle real audio, it needs authentication, authorization, tenant isolation, encrypted storage and transport, deletion and retention workflows, backup policy, operational monitoring, model supply-chain review, and privacy and security review.
+`Dockerfile`, `render.yaml`, and `scripts/hosted_entrypoint.py` define the
+current hosted path. The hosting platform terminates HTTPS and preserves one
+5 GB volume at `/var/data`. Fresh-disk startup installs the packaged non-audio
+MFCC87 population baseline, prepares the controlled profiles, warms the
+required models, and serves the API only after those steps succeed.
+
+The HTTP layer issues an anonymous HttpOnly visitor cookie after explicit
+consent. Each visitor receives a cloned demo database and separate managed audio
+root. The session expires after one hour and has an immediate delete endpoint.
+The blueprint intentionally runs one service instance because SQLite state and
+the inference lock are process-local.
+
+No public hosted URL is claimed. Before this design handles real family audio,
+it still needs production authentication and authorization, reviewed encryption
+at rest, robust deletion and retention operations, backup policy, monitoring,
+model supply-chain review, and privacy and security review.

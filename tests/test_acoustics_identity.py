@@ -239,6 +239,46 @@ class TestFindScenarios(IdentityBase):
                 "outcome": "rocking worked", "outcome_src": "caregiver", "worked": True,
             }, self.db)
 
+    def _episodes_with_caregiver_evidence(
+        self,
+        *,
+        transcript="",
+        evidence="",
+        outcome_src="caregiver",
+        context=None,
+    ):
+        for i in range(8):
+            store.save_episode(
+                {
+                    "subject_id": "s1",
+                    "started_at": f"2026-07-{i + 1:02d}T19:20:00-04:00",
+                    "fingerprint": [
+                        math.sin(0.3 * (i + 1) * (j + 1))
+                        for j in range(fingerprint.DIM)
+                    ],
+                    "transcript": transcript,
+                    "context": context or {"hour_local": 19, "tags": []},
+                    "interventions": [
+                        {
+                            "order": 1,
+                            "action": "held baby upright",
+                            "evidence": evidence,
+                        }
+                    ],
+                    "outcome": "The baby settled.",
+                    "outcome_src": outcome_src,
+                    "worked": True,
+                },
+                self.db,
+            )
+        return retrieve.find_scenarios(
+            "s1",
+            [0.2] * fingerprint.DIM,
+            {"hour_local": 19},
+            k=3,
+            db_path=self.db,
+        )
+
     def test_time_of_day_is_cyclic(self):
         self.assertAlmostEqual(retrieve._time_of_day_similarity(23, 1), 1 - 2 / 12, places=6)
         self.assertEqual(retrieve._time_of_day_similarity(19, 7), 0.0)
@@ -287,6 +327,92 @@ class TestFindScenarios(IdentityBase):
         for r in got:
             self.assertNotIn(r["episode_id"], ids_s2,
                              "identity gating must be absolute")
+
+    def test_caregiver_evidence_is_literal_bounded_and_marks_captured_transcript(self):
+        literal = (
+            '<img src=x onerror="alert(1)"> caregiver said the bottle helped '
+            + ("x" * 300)
+        )
+        got = self._episodes_with_caregiver_evidence(
+            transcript=f"Audio transcript: {literal}",
+            evidence=literal,
+        )
+
+        self.assertTrue(got)
+        for scenario in got:
+            self.assertEqual("captured_transcript", scenario["caregiver_evidence"]["source"])
+            self.assertEqual(literal[:220], scenario["caregiver_evidence"]["text"])
+            self.assertNotIn("transcript", scenario)
+
+    def test_caregiver_evidence_marks_typed_follow_up_without_calling_it_speech(self):
+        got = self._episodes_with_caregiver_evidence(
+            transcript=(
+                "Typed caregiver follow-up: Action: Held baby upright "
+                "Settled: yes."
+            ),
+            evidence="Held baby upright",
+        )
+
+        self.assertTrue(got)
+        for scenario in got:
+            self.assertEqual(
+                {
+                    "text": "Held baby upright",
+                    "source": "typed_follow_up",
+                },
+                scenario["caregiver_evidence"],
+            )
+
+    def test_transcript_source_never_labels_a_nonliteral_extracted_action_as_speech(self):
+        got = self._episodes_with_caregiver_evidence(
+            transcript="Audio transcript: I picked the baby up and walked.",
+            evidence="Held baby upright",
+        )
+
+        self.assertTrue(got)
+        for scenario in got:
+            self.assertEqual(
+                {
+                    "text": "I picked the baby up and walked.",
+                    "source": "captured_transcript",
+                },
+                scenario["caregiver_evidence"],
+            )
+
+    def test_caregiver_evidence_marks_seeded_demo_text_as_synthetic(self):
+        got = self._episodes_with_caregiver_evidence(
+            transcript=(
+                "SYNTHETIC DEMO MEMORY: offered a bottle; "
+                "caregiver reported that it helped."
+            ),
+            evidence="offered a bottle",
+            outcome_src="seed",
+            context={
+                "hour_local": 19,
+                "tags": [],
+                "synthetic_demo_memory": True,
+            },
+        )
+
+        self.assertTrue(got)
+        for scenario in got:
+            self.assertEqual(
+                {
+                    "text": "offered a bottle",
+                    "source": "synthetic_demo",
+                },
+                scenario["caregiver_evidence"],
+            )
+
+    def test_scenario_omits_caregiver_evidence_when_nothing_literal_was_recorded(self):
+        got = self._episodes_with_caregiver_evidence(
+            transcript="",
+            evidence="",
+        )
+
+        self.assertTrue(got)
+        for scenario in got:
+            self.assertNotIn("caregiver_evidence", scenario)
 
 
 if __name__ == "__main__":

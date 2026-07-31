@@ -30,6 +30,27 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+async function ambientMetrics(page) {
+  return page.evaluate(() => {
+    const ambient = document.querySelector("#ambient");
+    const style = getComputedStyle(ambient);
+    const artStyle = getComputedStyle(ambient, "::after");
+    return {
+      opacity: style.opacity,
+      visibility: style.visibility,
+      animationNames: Array.from(document.querySelectorAll("#ambient .am"))
+        .map((node) => getComputedStyle(node).animationName),
+      animationPlayStates: Array.from(document.querySelectorAll("#ambient .am"))
+        .map((node) => getComputedStyle(node).animationPlayState),
+      art: {
+        backgroundImage: artStyle.backgroundImage,
+        animationName: artStyle.animationName,
+        animationPlayState: artStyle.animationPlayState,
+      },
+    };
+  });
+}
+
 const profile = {
   id: 12,
   display_name: "Demo Baby",
@@ -84,6 +105,10 @@ const decision = {
       outcome_src: "caregiver",
       worked: true,
       contributions: ["Server basis line"],
+      caregiver_evidence: {
+        text: 'I said <img src=x onerror="window.__evidenceInjected=true"> held upright',
+        source: "captured_transcript",
+      },
       audio_url: "/api/profiles/12/incidents/101/audio",
     },
   ],
@@ -223,6 +248,17 @@ async function installRoutes(page, requests, options = {}) {
       fs.readFileSync(path.join(repoRoot, "web", "manifest.webmanifest")),
     ],
   };
+  for (const imageName of [
+    "action-cuddle.png",
+    "action-feeding.png",
+    "action-sleeping.png",
+    "action-walk.png",
+  ]) {
+    assets[`/img/${imageName}`] = [
+      "image/png",
+      fs.readFileSync(path.join(repoRoot, "web", "img", imageName)),
+    ];
+  }
   const chunkMode = options.chunkMode || "guidance";
   let firstChunkAttempt = options.retryFirst !== false;
   await page.route("**/*", async (route) => {
@@ -419,6 +455,31 @@ async function runLivePath(browser) {
   await installRoutes(page, requests);
   await page.goto("http://care.test/", { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => !document.querySelector("#btn-start").disabled);
+  const idleAmbient = await ambientMetrics(page);
+  assert(
+    idleAmbient.opacity === "1" &&
+      idleAmbient.visibility === "visible" &&
+      idleAmbient.animationNames.every((name) => name === "none") &&
+      idleAmbient.art.backgroundImage.includes("/img/action-") &&
+      idleAmbient.art.animationName === "none",
+    `reduced-motion idle ambient was not visible and static: ${JSON.stringify(idleAmbient)}`
+  );
+  const inactiveAmbients = await page.evaluate(() => {
+    const result = {};
+    for (const name of ["requesting", "paused"]) {
+      setSessionState(name);
+      const style = getComputedStyle(document.querySelector("#ambient"));
+      result[name] = { opacity: style.opacity, visibility: style.visibility };
+    }
+    setSessionState("idle");
+    return result;
+  });
+  assert(
+    Object.values(inactiveAmbients).every((value) =>
+      value.opacity === "0" && value.visibility === "hidden"
+    ),
+    `an inactive recording state left ambient art visible: ${JSON.stringify(inactiveAmbients)}`
+  );
   assert(await page.locator(".profile-label").count() === 0,
     "visible Listening for title was not removed");
 
@@ -467,6 +528,16 @@ async function runLivePath(browser) {
   await page.click("#tab-listen");
   await page.click("#btn-start");
   await page.waitForSelector('body[data-session="listening"]');
+  await page.evaluate(() => {
+    clearInterval(state.rotateTimer);
+    state.rotateTimer = null;
+  });
+  const listeningAmbient = await ambientMetrics(page);
+  assert(
+    listeningAmbient.opacity === "0" &&
+      listeningAmbient.visibility === "hidden",
+    `listening left the ambient layer visible: ${JSON.stringify(listeningAmbient)}`
+  );
   assert(await page.locator("#profile-picker").isDisabled(),
     "active baby remained switchable during an open session");
   assert(await page.evaluate(() => window.__getUserMediaCalls) === 1,
@@ -485,8 +556,10 @@ async function runLivePath(browser) {
     activationOrder.indexOf("resume") < activationOrder.indexOf("getUserMedia"),
     `AudioContext was not primed during the trusted click: ${activationOrder.join(",")}`
   );
-  assert(await page.locator("#analysis-status").textContent() === "Listening",
-    "microphone energy changed the server-owned cry status");
+  assert(await page.locator("#analysis-status").textContent() === "Checking for infant cry",
+    "sustained microphone activity did not enter the neutral checking state");
+  assert(await page.locator("#orb").getAttribute("data-visual-state") === "checking",
+    "the orb did not react while the server was checking the active sound");
   assert(await page.locator("#suggestion-block").isHidden(),
     "microphone energy created client-side guidance");
   assert(requests.created.length === 1 && requests.created[0].profile_id === 12,
@@ -499,7 +572,7 @@ async function runLivePath(browser) {
   assert(await page.evaluate(() => window.__getUserMediaCalls) === 1,
     "view navigation replaced the retained MediaStream");
 
-  const revealOrder = await page.evaluate((payload) => {
+  const detectionOrder = await page.evaluate((payload) => {
     const progress = [];
     for (let sequence = 1; sequence <= 3; sequence += 1) {
       state.activeUpload = { sequence };
@@ -532,9 +605,53 @@ async function runLivePath(browser) {
         acceptedSequence: state.acceptedSequence,
       });
     }
+    return progress;
+  }, {
+    session: publicSession("listening", 4, decision),
+    chunk: {
+      id: 93,
+      sequence: 4,
+      status: "guidance_latched",
+      reason_codes: [],
+      decision_progress: {
+        consistent_grounded_segments: 4,
+        required_consistent_grounded_segments: 4,
+        additional_confirmations: 3,
+        required_additional_confirmations: 3,
+        decision_eligible: true,
+        label: "Infant cry detected. Match confirmed 3 of 3",
+      },
+      cry_presence: {
+        status: "infant_cry_detected",
+        label: "Infant-cry-like sound detected",
+        reason_codes: ["infant_cry_evidence_strong"],
+        analyzed_duration_s: 6,
+        analysis_view_count: 1,
+        model_version: "test",
+      },
+    },
+  });
+  assert(
+    detectionOrder.length === 3 &&
+      detectionOrder.every((step, index) =>
+        step.status === "Infant-cry-like sound detected" &&
+        step.orb === "detected" &&
+        step.suggestionHidden &&
+        step.decision === "none" &&
+        step.acceptedSequence === index + 1
+      ),
+    `detection was not visible before guidance: ${JSON.stringify(detectionOrder)}`
+  );
+
+  await page.waitForFunction(() =>
+    document.querySelector("#analysis-status").textContent ===
+      "Infant cry detected. Match held. Confirming 2 of 3"
+  );
+
+  const immediate = await page.evaluate((payload) => {
     state.activeUpload = { sequence: 4 };
     acceptUploadedSegment({ sequence: 4 }, payload);
-    const immediate = {
+    return {
       status: document.querySelector("#analysis-status").textContent,
       orb: document.querySelector("#orb").dataset.visualState,
       suggestionHidden: document.querySelector("#suggestion-block").hidden,
@@ -542,11 +659,6 @@ async function runLivePath(browser) {
       recommendation: document.querySelector("#g-recommendation").textContent,
       acceptedSequence: state.acceptedSequence,
       uploadCleared: state.activeUpload === null,
-    };
-    state.acceptedSequence = 0;
-    return {
-      progress,
-      immediate,
     };
   }, {
     session: publicSession("listening", 4, decision),
@@ -574,31 +686,99 @@ async function runLivePath(browser) {
     },
   });
   assert(
-    revealOrder.progress.length === 3 &&
-      revealOrder.progress.every((step, index) =>
-        step.status ===
-          `Infant cry detected. Match held. Confirming ${index} of 3` &&
-        step.orb === "detected" &&
-        step.suggestionHidden &&
-        step.decision === "none" &&
-        step.acceptedSequence === index + 1
-      ),
-    `early evidence produced guidance or lost progress: ${JSON.stringify(revealOrder)}`
+    immediate.status === "Infant-cry-like sound detected" &&
+      immediate.orb === "detected" &&
+      immediate.suggestionHidden &&
+      immediate.decision === "none",
+    `guidance hid the immediate cry response: ${JSON.stringify(immediate)}`
   );
   assert(
-    revealOrder.immediate.orb === "grounded" &&
-      !revealOrder.immediate.suggestionHidden &&
-      revealOrder.immediate.decision === "latched",
-    `returned guidance was not visible immediately: ${JSON.stringify(revealOrder)}`
+    immediate.acceptedSequence === 4 &&
+      immediate.uploadCleared,
+    `detection-first reveal blocked upload progress: ${JSON.stringify(immediate)}`
+  );
+
+  await page.waitForFunction(() =>
+    document.querySelector("#orb").dataset.visualState === "grounded" &&
+      !document.querySelector("#suggestion-block").hidden &&
+      document.querySelector("#page-listen").dataset.decision === "latched" &&
+      document.querySelector("#g-recommendation").textContent ===
+        "Server recommendation, exactly"
+  );
+  const revealed = await page.evaluate(() => {
+    const result = {
+      orb: document.querySelector("#orb").dataset.visualState,
+      suggestionHidden: document.querySelector("#suggestion-block").hidden,
+      decision: document.querySelector("#page-listen").dataset.decision,
+      recommendation: document.querySelector("#g-recommendation").textContent,
+      caregiverEvidence: document.querySelector("#incident-list .quote").textContent,
+      caregiverEvidenceHtml: document.querySelector("#incident-list .quote").innerHTML,
+      injectedImages: document.querySelectorAll("#incident-list .quote img").length,
+      injectionRan: window.__evidenceInjected === true,
+    };
+    state.acceptedSequence = 0;
+    return result;
+  });
+  assert(
+    revealed.orb === "grounded" &&
+      !revealed.suggestionHidden &&
+      revealed.decision === "latched" &&
+      revealed.recommendation === "Server recommendation, exactly",
+    `grounded guidance did not follow detection: ${JSON.stringify(revealed)}`
   );
   assert(
-    revealOrder.immediate.acceptedSequence === 4 &&
-      revealOrder.immediate.uploadCleared,
-    `decision reveal blocked upload progress: ${JSON.stringify(revealOrder)}`
+    revealed.caregiverEvidence ===
+      'Caregiver said: “I said <img src=x onerror="window.__evidenceInjected=true"> held upright”' &&
+      revealed.caregiverEvidenceHtml.includes("&lt;img") &&
+      revealed.injectedImages === 0 &&
+      !revealed.injectionRan,
+    `literal caregiver evidence was not rendered safely: ${JSON.stringify(revealed)}`
   );
+
+  const evidenceLabels = await page.evaluate(() => {
+    const base = {
+      episode_id: 150,
+      started_at: "2026-07-27T20:04:00-04:00",
+      interventions: [{ order: 1, action: "Held upright", evidence: "" }],
+      outcome: "The baby settled.",
+      outcome_src: "caregiver",
+      worked: true,
+      contributions: [],
+      audio_url: "/api/profiles/12/incidents/150/audio",
+    };
+    const quote = (scenario) => renderIncident(scenario).querySelector(".quote").textContent;
+    return {
+      typed: quote({
+        ...base,
+        caregiver_evidence: {
+          text: "Held baby upright",
+          source: "typed_follow_up",
+        },
+      }),
+      synthetic: quote({
+        ...base,
+        outcome_src: "seed",
+        caregiver_evidence: {
+          text: "offered a bottle",
+          source: "synthetic_demo",
+        },
+      }),
+      neutral: quote({
+        ...base,
+        caregiver_evidence: {
+          text: "held the baby close",
+          source: "caregiver_record",
+        },
+      }),
+      absent: quote(base),
+    };
+  });
   assert(
-    revealOrder.immediate.recommendation === "Server recommendation, exactly",
-    `immediate decision did not preserve server guidance: ${JSON.stringify(revealOrder)}`
+    evidenceLabels.typed === 'Caregiver typed: “Held baby upright”' &&
+      evidenceLabels.synthetic === 'Synthetic demo evidence: “offered a bottle”' &&
+      evidenceLabels.neutral === 'Caregiver note: “held the baby close”' &&
+      evidenceLabels.absent === "No caregiver speech recorded",
+    `caregiver evidence provenance was mislabeled: ${JSON.stringify(evidenceLabels)}`
   );
 
   const invalidCopy = await page.evaluate(() => {
@@ -623,6 +803,16 @@ async function runLivePath(browser) {
 
   await page.click("#btn-stop");
   await page.waitForSelector('body[data-session="awaiting_outcome"]', { timeout: 10000 });
+  assert(
+    await page.locator("#suggestion-block").isVisible(),
+    "portrait Stop hid the retained suggestion"
+  );
+  const outcomeAmbient = await ambientMetrics(page);
+  assert(
+    outcomeAmbient.opacity === "1" &&
+      outcomeAmbient.visibility === "visible",
+    `Stop did not restore the ambient layer: ${JSON.stringify(outcomeAmbient)}`
+  );
   assert(requests.chunks.length === 2, "failed finalized segment was not retried once");
   assert(requests.chunks[0].sequence === "1" && requests.chunks[1].sequence === "1",
     "retry did not preserve capture sequence 1");
@@ -639,6 +829,12 @@ async function runLivePath(browser) {
   await page.click('#settled-seg button[data-settled="true"]');
   await page.click("#btn-save-outcome");
   await page.waitForSelector('body[data-session="saved"]');
+  const savedAmbient = await ambientMetrics(page);
+  assert(
+    savedAmbient.opacity === "1" &&
+      savedAmbient.visibility === "visible",
+    `saved state hid the ambient layer: ${JSON.stringify(savedAmbient)}`
+  );
   assert(requests.completed.length === 1, "structured outcome was not saved once");
   assert(requests.completed[0].action === "Held upright", "typed action changed");
   assert(requests.completed[0].settled === true, "settled value changed");
@@ -650,6 +846,101 @@ async function runLivePath(browser) {
   assert(pageErrors.length === 0, `page errors: ${pageErrors.join("; ")}`);
   assert(cspErrors.length === 0, `CSP errors: ${cspErrors.join("; ")}`);
   await page.close();
+}
+
+async function runAmbientMotionPreference(browser) {
+  const page = await browser.newPage({
+    viewport: { width: 430, height: 932 },
+    reducedMotion: "no-preference",
+  });
+  const requests = { created: [], chunks: [], stopped: 0, completed: [] };
+  await installBrowserFakes(page);
+  await installRoutes(page, requests);
+  await page.goto("http://care.test/", { waitUntil: "domcontentloaded" });
+  const ambient = await ambientMetrics(page);
+  assert(
+    ambient.opacity === "1" &&
+      ambient.visibility === "visible" &&
+      ambient.animationNames.length === 5 &&
+      ambient.animationNames.every((name) => name !== "none") &&
+      ambient.animationPlayStates.every((state) => state === "running") &&
+      ambient.art.backgroundImage.includes("/img/action-") &&
+      ambient.art.animationName !== "none" &&
+      ambient.art.animationPlayState === "running",
+    `idle ambient did not float when motion was allowed: ${JSON.stringify(ambient)}`
+  );
+  await page.evaluate(() => setSessionState("listening"));
+  await page.waitForFunction(() => {
+    const style = getComputedStyle(document.querySelector("#ambient"));
+    return Number(style.opacity) <= 0.01 && style.visibility === "hidden";
+  });
+  const active = await ambientMetrics(page);
+  assert(
+    Number(active.opacity) <= 0.01 &&
+      active.visibility === "hidden" &&
+      active.animationPlayStates.every((state) => state === "paused") &&
+      active.art.animationPlayState === "paused",
+    `active recording did not hide and pause ambient motion: ${JSON.stringify(active)}`
+  );
+  await page.close();
+}
+
+async function measureNavbarGeometry(browser, viewport, landscape) {
+  const page = await browser.newPage({
+    viewport,
+    reducedMotion: "reduce",
+  });
+  const requests = { created: [], chunks: [], stopped: 0, completed: [] };
+  await installBrowserFakes(page);
+  await installRoutes(page, requests, { safeArea: true });
+  await page.goto("http://care.test/", { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => !document.querySelector("#btn-start").disabled);
+  if (landscape) {
+    await page.evaluate(() => {
+      document.body.dataset.navpeek = "true";
+    });
+  }
+  await page.waitForTimeout(80);
+  const metrics = await page.evaluate(() => {
+    const rect = (node) => {
+      const value = node.getBoundingClientRect();
+      return {
+        left: +value.left.toFixed(2),
+        top: +value.top.toFixed(2),
+        right: +value.right.toFixed(2),
+        bottom: +value.bottom.toFixed(2),
+        width: +value.width.toFixed(2),
+        height: +value.height.toFixed(2),
+        centerX: +(value.left + value.width / 2).toFixed(2),
+        centerY: +(value.top + value.height / 2).toFixed(2),
+      };
+    };
+    const rootStyle = getComputedStyle(document.documentElement);
+    const nav = document.querySelector("#tabbar");
+    const active = nav.querySelector('[aria-current="page"]');
+    const icon = active.querySelector("svg");
+    const label = active.querySelector("span");
+    const navRect = rect(nav);
+    const iconRect = rect(icon);
+    const labelRect = rect(label);
+    return {
+      viewport: { width: innerWidth, height: innerHeight },
+      safe: {
+        left: parseFloat(rootStyle.getPropertyValue("--sal")) || 0,
+        right: parseFloat(rootStyle.getPropertyValue("--sar")) || 0,
+        bottom: parseFloat(rootStyle.getPropertyValue("--sab")) || 0,
+      },
+      nav: navRect,
+      transform: getComputedStyle(nav).transform,
+      centerError: +(navRect.centerX - innerWidth / 2).toFixed(2),
+      icon: iconRect,
+      label: labelRect,
+      iconCenterOffset: +(iconRect.centerY - labelRect.centerY).toFixed(2),
+      links: Array.from(nav.querySelectorAll("a:not([hidden])")).map(rect),
+    };
+  });
+  await page.close();
+  return metrics;
 }
 
 async function checkResponsiveShell(browser, viewport) {
@@ -741,13 +1032,18 @@ async function runSequentialOutcomePath(browser) {
     const outcome = await page.evaluate(() => {
       const pageNode = document.querySelector("#page-listen");
       const suggestion = document.querySelector("#suggestion-block");
+      const rail = document.querySelector("#suggestion-rail");
       const card = document.querySelector("#suggestion-card").getBoundingClientRect();
+      const suggestionRect = suggestion.getBoundingClientRect();
+      const railRect = rail.getBoundingClientRect();
       const form = document.querySelector("#outcome-form").getBoundingClientRect();
       const pageRect = pageNode.getBoundingClientRect();
       return {
         suggestionVisible: !suggestion.hidden,
         recommendation: document.querySelector("#g-recommendation").textContent,
         pageWidth: Math.round(pageRect.width),
+        suggestionWidth: Math.round(suggestionRect.width),
+        railWidth: Math.round(railRect.width),
         cardWidth: Math.round(card.width),
         cardHeight: Math.round(card.height),
         formWidth: Math.round(form.width),
@@ -755,6 +1051,9 @@ async function runSequentialOutcomePath(browser) {
         viewportWidth: document.documentElement.clientWidth,
         formPageBottom: Math.round(form.bottom - pageRect.top),
         pageScrollHeight: pageNode.scrollHeight,
+        railDisplay: getComputedStyle(rail).display,
+        cardFlex: getComputedStyle(document.querySelector("#suggestion-card")).flex,
+        cardWidthStyle: getComputedStyle(document.querySelector("#suggestion-card")).width,
       };
     });
     assert(outcome.suggestionVisible,
@@ -791,6 +1090,145 @@ async function runSequentialOutcomePath(browser) {
   await page.close();
 }
 
+async function portraitRecordingMetrics(page) {
+  return page.evaluate(() => {
+    const rect = (selector) => {
+      const box = document.querySelector(selector).getBoundingClientRect();
+      return {
+        left: +box.left.toFixed(1),
+        top: +box.top.toFixed(1),
+        right: +box.right.toFixed(1),
+        bottom: +box.bottom.toFixed(1),
+        width: +box.width.toFixed(1),
+        height: +box.height.toFixed(1),
+      };
+    };
+    const intersects = (left, right) => !(
+      left.right <= right.left ||
+      left.left >= right.right ||
+      left.bottom <= right.top ||
+      left.top >= right.bottom
+    );
+    const page = rect("#page-listen");
+    const header = rect("#page-listen .page-head");
+    const profile = rect("#profile-control");
+    const timer = rect("#rec-chip");
+    const orb = rect("#orb-wrap");
+    const status = rect("#analysis-status");
+    const controls = rect("#ctl-capsule");
+    const buttons = Array.from(
+      document.querySelectorAll("#ctl-capsule button:not([hidden])")
+    ).map((button) => {
+      const box = button.getBoundingClientRect();
+      return {
+        id: button.id,
+        width: +box.width.toFixed(1),
+        height: +box.height.toFixed(1),
+      };
+    });
+    return {
+      viewport: { width: innerWidth, height: innerHeight },
+      documentScrollHeight: document.documentElement.scrollHeight,
+      bodyScrollHeight: document.body.scrollHeight,
+      page,
+      header,
+      profile,
+      timer,
+      orb,
+      status,
+      controls,
+      buttons,
+      timerCenterError: +(
+        timer.left + timer.width / 2 - innerWidth / 2
+      ).toFixed(1),
+      headerTimerOverlap: intersects(header, timer),
+      profileTimerOverlap: intersects(profile, timer),
+      timerOrbOverlap: intersects(timer, orb),
+      timerStatusOverlap: intersects(timer, status),
+      orbControlsOverlap: intersects(orb, controls),
+      statusControlsOverlap: intersects(status, controls),
+    };
+  });
+}
+
+function assertPortraitRecordingMetrics(metrics, expectedOrbWidth, label) {
+  assert(
+    metrics.documentScrollHeight <= metrics.viewport.height + 1 &&
+      metrics.bodyScrollHeight <= metrics.viewport.height + 1,
+    `${label} portrait recording scrolls: ${JSON.stringify(metrics)}`
+  );
+  assert(
+    Math.abs(metrics.header.left - metrics.page.left) <= 0.5 &&
+      Math.abs(metrics.header.right - metrics.page.right) <= 0.5 &&
+      metrics.profile.left >= metrics.header.left - 0.5 &&
+      metrics.profile.right <= metrics.header.right + 0.5,
+    `${label} profile header does not own the full top row: ${JSON.stringify(metrics)}`
+  );
+  assert(
+    Math.abs(metrics.timerCenterError) <= 0.5 &&
+      metrics.timer.top >= metrics.header.bottom + 6 &&
+      !metrics.headerTimerOverlap &&
+      !metrics.profileTimerOverlap,
+    `${label} timer is not centered on its own row below the profile: ${JSON.stringify(metrics)}`
+  );
+  assert(
+    Math.abs(metrics.orb.width - expectedOrbWidth) <= 0.6,
+    `${label} changed the portrait orb size: ${JSON.stringify(metrics)}`
+  );
+  assert(
+    !metrics.timerOrbOverlap &&
+      !metrics.timerStatusOverlap &&
+      !metrics.orbControlsOverlap &&
+      !metrics.statusControlsOverlap,
+    `${label} portrait recording elements overlap: ${JSON.stringify(metrics)}`
+  );
+  assert(
+    metrics.timer.top >= 0 &&
+      metrics.orb.left >= 0 &&
+      metrics.orb.right <= metrics.viewport.width &&
+      metrics.controls.top >= 0 &&
+      metrics.controls.bottom <= metrics.viewport.height,
+    `${label} portrait recording element is clipped: ${JSON.stringify(metrics)}`
+  );
+  assert(
+    metrics.buttons.length === 2 &&
+      metrics.buttons.every((button) =>
+        button.width >= 44 && button.height >= 44
+      ),
+    `${label} portrait recording controls are below 44px: ${JSON.stringify(metrics)}`
+  );
+}
+
+async function runPortraitRecordingFit(browser, viewport) {
+  const page = await browser.newPage({
+    viewport,
+    reducedMotion: "reduce",
+  });
+  const requests = { created: [], chunks: [], stopped: 0, completed: [] };
+  await installBrowserFakes(page);
+  await installRoutes(page, requests, { retryFirst: false });
+  await page.goto("http://care.test/", { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => !document.querySelector("#btn-start").disabled);
+  await page.click("#btn-start");
+  await page.waitForSelector('body[data-session="listening"]');
+  await page.waitForTimeout(80);
+
+  const expectedOrbWidth = viewport.width === 390 ? 273 : 301;
+  const listening = await portraitRecordingMetrics(page);
+  assertPortraitRecordingMetrics(listening, expectedOrbWidth, "listening");
+
+  await page.evaluate(() => setSessionState("paused"));
+  await page.waitForTimeout(80);
+  const paused = await portraitRecordingMetrics(page);
+  assertPortraitRecordingMetrics(paused, expectedOrbWidth, "paused");
+
+  console.log(
+    "portrait recording geometry " +
+      JSON.stringify({ viewport, expectedOrbWidth, listening, paused })
+  );
+  await page.close();
+}
+
 async function landscapeMetrics(page) {
   return page.evaluate(() => {
     const pageNode = document.querySelector("#page-listen");
@@ -799,6 +1237,50 @@ async function landscapeMetrics(page) {
     const profile = document.querySelector("#profile-control").getBoundingClientRect();
     const recorder = document.querySelector("#rec-chip").getBoundingClientRect();
     const orb = document.querySelector("#orb-wrap").getBoundingClientRect();
+    const status = document.querySelector("#analysis-status").getBoundingClientRect();
+    const intersects = (left, right) => !(
+      left.right <= right.left ||
+      left.left >= right.right ||
+      left.bottom <= right.top ||
+      left.top >= right.bottom
+    );
+    const textOverlapsControls = [];
+    const walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_TEXT
+    );
+    while (walker.nextNode()) {
+      const textNode = walker.currentNode;
+      const text = textNode.textContent.trim();
+      const parent = textNode.parentElement;
+      if (
+        !text ||
+        !parent ||
+        parent.closest("#ctl-capsule, [hidden], .sr-only")
+      ) {
+        continue;
+      }
+      const style = getComputedStyle(parent);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        Number(style.opacity) === 0
+      ) {
+        continue;
+      }
+      const range = document.createRange();
+      range.selectNodeContents(textNode);
+      const rect = range.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0 && intersects(rect, controls)) {
+        textOverlapsControls.push({
+          text: text.slice(0, 80),
+          left: Math.round(rect.left),
+          top: Math.round(rect.top),
+          right: Math.round(rect.right),
+          bottom: Math.round(rect.bottom),
+        });
+      }
+    }
     const offenders = Array.from(document.querySelectorAll("body *"))
       .map((node) => {
         const rect = node.getBoundingClientRect();
@@ -847,15 +1329,30 @@ async function landscapeMetrics(page) {
       controlsBottom: Math.round(controls.bottom),
       profileCenter: Math.round(profile.top + profile.height / 2),
       recorderCenter: Math.round(recorder.top + recorder.height / 2),
-      orbWidth: Math.round(orb.width),
+      orb: {
+        left: +orb.left.toFixed(1),
+        top: +orb.top.toFixed(1),
+        right: +orb.right.toFixed(1),
+        bottom: +orb.bottom.toFixed(1),
+        width: +orb.width.toFixed(1),
+      },
+      status: {
+        left: +status.left.toFixed(1),
+        top: +status.top.toFixed(1),
+        right: +status.right.toFixed(1),
+        bottom: +status.bottom.toFixed(1),
+      },
+      orbOverlapsStatus: intersects(orb, status),
+      orbOverlapsControls: intersects(orb, controls),
+      textOverlapsControls,
       offenders,
     };
   });
 }
 
-async function runLandscapeListeningFit(browser) {
+async function runLandscapeListeningFit(browser, viewport) {
   const page = await browser.newPage({
-    viewport: { width: 932, height: 430 },
+    viewport,
     reducedMotion: "reduce",
   });
   const requests = { created: [], chunks: [], stopped: 0, completed: [] };
@@ -879,17 +1376,52 @@ async function runLandscapeListeningFit(browser) {
     `landscape controls are clipped: ${JSON.stringify(plain)}`
   );
   assert(
+    plain.textOverlapsControls.length === 0,
+    `landscape text is behind the recording controls: ${JSON.stringify(plain)}`
+  );
+  assert(
     Math.abs(plain.profileCenter - plain.recorderCenter) <= 4,
     `landscape timer is not aligned with the baby profile: ${JSON.stringify(plain)}`
   );
+  const expectedOrbWidth = viewport.width === 932 ? 275.2 : 249.6;
   assert(
-    plain.orbWidth >= 220,
-    `landscape listening orb remained too small: ${JSON.stringify(plain)}`
+    Math.abs(plain.orb.width - expectedOrbWidth) <= 0.6,
+    `landscape listening orb is not the intended larger size: ${JSON.stringify(plain)}`
+  );
+  assert(
+    plain.orb.left >= 0 &&
+      plain.orb.top >= 0 &&
+      plain.orb.right <= viewport.width &&
+      plain.orb.bottom <= viewport.height,
+    `landscape listening orb is clipped: ${JSON.stringify(plain)}`
+  );
+  assert(
+    !plain.orbOverlapsStatus && !plain.orbOverlapsControls,
+    `landscape listening orb overlaps status or controls: ${JSON.stringify(plain)}`
   );
 
+  await page.evaluate(() => setSessionState("paused"));
+  await page.waitForTimeout(80);
+  const paused = await landscapeMetrics(page);
+  assert(
+    Math.abs(paused.orb.width - expectedOrbWidth) <= 0.6 &&
+      paused.orb.left >= 0 &&
+      paused.orb.top >= 0 &&
+      paused.orb.right <= viewport.width &&
+      paused.orb.bottom <= viewport.height &&
+      !paused.orbOverlapsStatus &&
+      !paused.orbOverlapsControls,
+    `landscape paused orb does not fit safely: ${JSON.stringify(paused)}`
+  );
+  console.log(
+    "landscape orb geometry " +
+      JSON.stringify({ viewport, expectedOrbWidth, listening: plain, paused })
+  );
+  await page.evaluate(() => setSessionState("listening"));
   await page.evaluate((serverDecision) => {
     window.latchDecision(serverDecision);
   }, decision);
+  await page.waitForTimeout(80);
   const latched = await landscapeMetrics(page);
   assert(
     latched.documentScrollHeight <= latched.innerHeight + 1 &&
@@ -901,16 +1433,325 @@ async function runLandscapeListeningFit(browser) {
     latched.controlsTop >= 0 && latched.controlsBottom <= latched.innerHeight,
     `landscape suggestion controls are clipped: ${JSON.stringify(latched)}`
   );
+  assert(
+    latched.textOverlapsControls.length === 0,
+    `landscape suggestion text is behind controls: ${JSON.stringify(latched)}`
+  );
+
+  const rail = await page.evaluate(() => {
+    const node = document.querySelector("#suggestion-rail");
+    const cards = Array.from(node.querySelectorAll(".rail-card"))
+      .filter((card) => getComputedStyle(card).display !== "none");
+    return {
+      clientWidth: node.clientWidth,
+      scrollWidth: node.scrollWidth,
+      snap: getComputedStyle(node).scrollSnapType,
+      cards: cards.length,
+      dots: document.querySelectorAll("#rail-dots button").length,
+    };
+  });
+  assert(
+    rail.scrollWidth > rail.clientWidth &&
+      rail.snap.includes("x") &&
+      rail.cards >= 5 &&
+      rail.dots === rail.cards,
+    `landscape memory rail is incomplete at ${viewport.width}x${viewport.height}: ` +
+      JSON.stringify(rail)
+  );
+
+  await page.focus("#suggestion-rail");
+  await page.keyboard.press("End");
+  await page.waitForTimeout(80);
+  assert(
+    await page.locator("#suggestion-rail").evaluate((node) => node.scrollLeft > 0),
+    `keyboard navigation did not move the memory rail at ${viewport.width}x${viewport.height}`
+  );
+
+  await page.click("#btn-dismiss-suggestion");
+  const dismissed = await page.evaluate(() => ({
+    retainedDecision: state.decision && state.decision.id,
+    visiblePreference: state.suggestionVisible,
+    pageDecision: document.querySelector("#page-listen").dataset.decision,
+    suggestionHidden: document.querySelector("#suggestion-block").hidden,
+    reopenHidden: document.querySelector("#btn-reopen-suggestion").hidden,
+    session: state.session,
+    orb: document.querySelector("#orb").dataset.visualState,
+  }));
+  assert(
+    dismissed.retainedDecision === 88 &&
+      dismissed.visiblePreference === false &&
+      dismissed.pageDecision === "dismissed" &&
+      dismissed.suggestionHidden &&
+      !dismissed.reopenHidden &&
+      dismissed.session === "listening" &&
+      dismissed.orb === "listening",
+    `dismiss lost the grounded result or stopped listening: ${JSON.stringify(dismissed)}`
+  );
+
+  await page.click("#btn-reopen-suggestion");
+  const reopened = await page.evaluate(() => ({
+    retainedDecision: state.decision && state.decision.id,
+    visiblePreference: state.suggestionVisible,
+    pageDecision: document.querySelector("#page-listen").dataset.decision,
+    suggestionHidden: document.querySelector("#suggestion-block").hidden,
+    reopenHidden: document.querySelector("#btn-reopen-suggestion").hidden,
+    session: state.session,
+  }));
+  assert(
+    reopened.retainedDecision === 88 &&
+      reopened.visiblePreference === true &&
+      reopened.pageDecision === "latched" &&
+      !reopened.suggestionHidden &&
+      reopened.reopenHidden &&
+      reopened.session === "listening",
+    `reopen did not restore the retained suggestion: ${JSON.stringify(reopened)}`
+  );
   await page.close();
+}
+
+async function measurePortraitToLandscapeSuggestion(browser, viewport) {
+  const page = await browser.newPage({
+    viewport: { width: 430, height: 932 },
+    reducedMotion: "reduce",
+  });
+  const requests = { created: [], chunks: [], stopped: 0, completed: [] };
+  await installBrowserFakes(page);
+  await installRoutes(page, requests, { retryFirst: false, safeArea: true });
+  await page.goto("http://care.test/", { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => !document.querySelector("#btn-start").disabled);
+  await page.click("#btn-start");
+  await page.waitForSelector('body[data-session="listening"]');
+
+  const expandedDecision = {
+    ...decision,
+    guidance: {
+      ...decision.guidance,
+      headline: "A familiar feeding pattern is emerging",
+      interpretation:
+        "This cry is closest to two earlier evening moments when feeding helped.",
+      recommendation:
+        "Try the feeding routine that helped in the two closest earlier moments.",
+      evidence_summary:
+        "The cry signature, time of day, caregiver notes, and earlier outcomes all contributed.",
+      support_count: 2,
+      incident_ids: [101, 102],
+    },
+    basis: [
+      "The cry signature is closest to two earlier recordings from this baby.",
+      "The current time is within the same evening care window.",
+      "Both earlier caregiver outcomes recorded that feeding helped.",
+    ],
+    scenarios: [
+      decision.scenarios[0],
+      {
+        ...decision.scenarios[0],
+        episode_id: 102,
+        started_at: "2026-07-26T20:18:00-04:00",
+        interventions: [
+          {
+            order: 1,
+            action: "Offered a bottle and held upright",
+            evidence: "Caregiver said the baby settled after feeding",
+          },
+        ],
+        contributions: [
+          "Similar cry signature",
+          "Same evening care window",
+          "Previously recorded as helpful",
+        ],
+        audio_url: "/api/profiles/12/incidents/102/audio",
+      },
+    ],
+  };
+  await page.evaluate((serverDecision) => {
+    window.latchDecision(serverDecision);
+  }, expandedDecision);
+  await page.setViewportSize(viewport);
+  await page.waitForTimeout(120);
+
+  const layout = await page.evaluate(() => {
+    const rect = (selector) => {
+      const box = document.querySelector(selector).getBoundingClientRect();
+      return {
+        top: Math.round(box.top),
+        right: Math.round(box.right),
+        bottom: Math.round(box.bottom),
+        left: Math.round(box.left),
+        width: Math.round(box.width),
+        height: Math.round(box.height),
+      };
+    };
+    const rail = document.querySelector("#suggestion-rail");
+    return {
+      viewport: { width: innerWidth, height: innerHeight },
+      shell: rect("#app-shell"),
+      page: rect("#page-listen"),
+      suggestion: rect("#suggestion-block"),
+      rail: rect("#suggestion-rail"),
+      documentScrollHeight: document.documentElement.scrollHeight,
+      bodyScrollHeight: document.body.scrollHeight,
+      pageClientHeight: document.querySelector("#page-listen").clientHeight,
+      pageScrollHeight: document.querySelector("#page-listen").scrollHeight,
+      railClientWidth: rail.clientWidth,
+      railScrollWidth: rail.scrollWidth,
+      railSnap: getComputedStyle(rail).scrollSnapType,
+      visibleCards: Array.from(rail.querySelectorAll(".rail-card"))
+        .filter((card) => getComputedStyle(card).display !== "none").length,
+    };
+  });
+
+  await page.click("#btn-dismiss-suggestion");
+  const dismissed = await page.evaluate(() => {
+    const button = document.querySelector("#btn-reopen-suggestion");
+    const capsule = document.querySelector("#ctl-capsule");
+    const buttonRect = button.getBoundingClientRect();
+    const capsuleRect = capsule.getBoundingClientRect();
+    const center = {
+      x: buttonRect.left + buttonRect.width / 2,
+      y: buttonRect.top + buttonRect.height / 2,
+    };
+    const hit = document.elementFromPoint(center.x, center.y);
+    const overlap = !(
+      buttonRect.right <= capsuleRect.left ||
+      buttonRect.left >= capsuleRect.right ||
+      buttonRect.bottom <= capsuleRect.top ||
+      buttonRect.top >= capsuleRect.bottom
+    );
+    return {
+      button: {
+        left: Math.round(buttonRect.left),
+        top: Math.round(buttonRect.top),
+        right: Math.round(buttonRect.right),
+        bottom: Math.round(buttonRect.bottom),
+      },
+      capsule: {
+        left: Math.round(capsuleRect.left),
+        top: Math.round(capsuleRect.top),
+        right: Math.round(capsuleRect.right),
+        bottom: Math.round(capsuleRect.bottom),
+      },
+      overlap,
+      hitId: hit && hit.closest("button") ? hit.closest("button").id : "",
+    };
+  });
+  let reopened = false;
+  if (dismissed.hitId === "btn-reopen-suggestion") {
+    const x = (dismissed.button.left + dismissed.button.right) / 2;
+    const y = (dismissed.button.top + dismissed.button.bottom) / 2;
+    await page.mouse.click(x, y);
+    reopened = await page.evaluate(() =>
+      document.querySelector("#page-listen").dataset.decision === "latched" &&
+      !document.querySelector("#suggestion-block").hidden
+    );
+  }
+  await page.close();
+  return { viewport, layout, dismissed, reopened };
 }
 
 const { chromium } = loadPlaywright();
 const browser = await chromium.launch({ headless: true });
 try {
   await runLivePath(browser);
+  await runAmbientMotionPreference(browser);
   await runNoCryPath(browser);
   await runSequentialOutcomePath(browser);
-  await runLandscapeListeningFit(browser);
+  const navbarMeasurements = [
+    await measureNavbarGeometry(browser, { width: 932, height: 430 }, true),
+    await measureNavbarGeometry(browser, { width: 844, height: 390 }, true),
+  ];
+  const portraitNavbar = await measureNavbarGeometry(
+    browser,
+    { width: 430, height: 932 },
+    false
+  );
+  const navbarFailures = [];
+  for (const metrics of navbarMeasurements) {
+    const label = `${metrics.viewport.width}x${metrics.viewport.height}`;
+    const touchTargetsValid = metrics.links.every(
+      (rect) => rect.width >= 44 && rect.height >= 44
+    );
+    const insideSafeArea =
+      metrics.nav.left >= metrics.safe.left - 0.5 &&
+      metrics.nav.right <= metrics.viewport.width - metrics.safe.right + 0.5 &&
+      metrics.viewport.height - metrics.nav.bottom >= metrics.safe.bottom;
+    if (Math.abs(metrics.centerError) > 0.5) {
+      navbarFailures.push(`${label} navbar is not horizontally centered`);
+    }
+    if (
+      metrics.iconCenterOffset < -1.25 ||
+      metrics.iconCenterOffset > -0.75
+    ) {
+      navbarFailures.push(`${label} active icon is not optically lifted by 1px`);
+    }
+    if (!touchTargetsValid || !insideSafeArea) {
+      navbarFailures.push(`${label} navbar violates touch or safe-area bounds`);
+    }
+  }
+  if (
+    Math.abs(portraitNavbar.centerError) > 0.5 ||
+    Math.abs(portraitNavbar.iconCenterOffset) > 0.25 ||
+    portraitNavbar.links.some((rect) => rect.width < 44 || rect.height < 44)
+  ) {
+    navbarFailures.push("portrait navbar geometry changed");
+  }
+  assert(
+    navbarFailures.length === 0,
+    `${navbarFailures.join("; ")}: ${JSON.stringify({
+      landscape: navbarMeasurements,
+      portrait: portraitNavbar,
+    })}`
+  );
+  console.log(
+    "navbar geometry " +
+      JSON.stringify({ landscape: navbarMeasurements, portrait: portraitNavbar })
+  );
+  await runPortraitRecordingFit(browser, { width: 390, height: 844 });
+  await runPortraitRecordingFit(browser, { width: 430, height: 932 });
+  await runLandscapeListeningFit(browser, { width: 932, height: 430 });
+  await runLandscapeListeningFit(browser, { width: 844, height: 390 });
+  const rotatedResults = [];
+  rotatedResults.push(
+    await measurePortraitToLandscapeSuggestion(browser, { width: 932, height: 430 })
+  );
+  rotatedResults.push(
+    await measurePortraitToLandscapeSuggestion(browser, { width: 844, height: 390 })
+  );
+  const rotationFailures = [];
+  for (const result of rotatedResults) {
+    const { layout, dismissed, reopened, viewport } = result;
+    const label = `${viewport.width}x${viewport.height}`;
+    if (
+      layout.shell.bottom > viewport.height + 1 ||
+      layout.page.bottom > viewport.height + 1 ||
+      layout.suggestion.bottom > viewport.height + 1 ||
+      layout.rail.bottom > viewport.height + 1 ||
+      layout.documentScrollHeight > viewport.height + 1 ||
+      layout.bodyScrollHeight > viewport.height + 1 ||
+      layout.pageScrollHeight > layout.pageClientHeight + 1
+    ) {
+      rotationFailures.push(`${label} clips the rotated suggestion`);
+    }
+    if (
+      layout.railScrollWidth <= layout.railClientWidth ||
+      !layout.railSnap.includes("x") ||
+      layout.visibleCards < 6
+    ) {
+      rotationFailures.push(`${label} does not expose the full horizontal memory rail`);
+    }
+    if (
+      dismissed.overlap ||
+      dismissed.hitId !== "btn-reopen-suggestion" ||
+      dismissed.button.top < 0 ||
+      dismissed.button.bottom > viewport.height ||
+      !reopened
+    ) {
+      rotationFailures.push(`${label} does not expose a unique tappable suggestion control`);
+    }
+  }
+  assert(
+    rotationFailures.length === 0,
+    `${rotationFailures.join("; ")}: ${JSON.stringify(rotatedResults)}`
+  );
   await checkResponsiveShell(browser, { width: 932, height: 430 });
   await checkResponsiveShell(browser, { width: 1440, height: 900 });
   console.log("continuous care browser checks passed");

@@ -106,6 +106,44 @@ class ProfileViewTests(unittest.TestCase):
         self.assertTrue(incident["worked"])
         self.assertEqual(12, incident["time"]["hour_local"])
 
+    def test_detail_labels_only_explicit_transcript_sources(self):
+        incident_id = self._episode(
+            6,
+            transcript=(
+                "Audio transcript: I picked her up. "
+                "Typed caregiver follow-up: She calmed after two minutes."
+            ),
+        )
+        incident = profile_views.incident(
+            self.profile["id"],
+            incident_id,
+            self.database,
+        )["incident"]
+        self.assertEqual(
+            [
+                {
+                    "text": "I picked her up.",
+                    "source": "captured_transcript",
+                    "label": "Captured transcript",
+                },
+                {
+                    "text": "She calmed after two minutes.",
+                    "source": "typed_follow_up",
+                    "label": "Caregiver typed",
+                },
+            ],
+            incident["speech"]["segments"],
+        )
+
+        unmarked_id = self._episode(7, transcript="A stored note without a source marker.")
+        unmarked = profile_views.incident(
+            self.profile["id"],
+            unmarked_id,
+            self.database,
+        )["incident"]
+        self.assertEqual("caregiver_record", unmarked["speech"]["segments"][0]["source"])
+        self.assertEqual("Caregiver record", unmarked["speech"]["segments"][0]["label"])
+
     def test_other_profile_and_missing_incident_are_not_found(self):
         incident_id = self._episode(5)
         other = identity.create_profile(

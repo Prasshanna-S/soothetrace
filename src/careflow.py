@@ -6,8 +6,18 @@ import os
 import threading
 
 try:
-    from . import context, fingerprint, guidance, identity, retrieve, session, store
+    from . import (
+        config,
+        context,
+        fingerprint,
+        guidance,
+        identity,
+        retrieve,
+        session,
+        store,
+    )
 except ImportError:
+    import config
     import context
     import fingerprint
     import guidance
@@ -19,6 +29,33 @@ except ImportError:
 
 _COMPLETION_LOCK = threading.Lock()
 _COMPLETIONS_IN_PROGRESS: set[int] = set()
+
+
+def _synthetic_demo_memory(episode: dict) -> bool:
+    episode_context = episode.get("context")
+    return (
+        isinstance(episode_context, dict)
+        and episode_context.get("synthetic_demo_memory") is True
+    )
+
+
+def _controlled_history_filter(
+    profile: dict,
+    subject_id: str,
+    db_path: str | None,
+):
+    named_demo_profile = (
+        bool(config.CARE_DEMO_PROFILE_NAME)
+        and profile.get("display_name") == config.CARE_DEMO_PROFILE_NAME
+        and profile.get("kind") == identity.KIND_INFANT
+    )
+    owns_controlled_memories = named_demo_profile and any(
+        _synthetic_demo_memory(episode)
+        for episode in store.list_episodes(subject_id, db_path)
+    )
+    if owns_controlled_memories:
+        return _synthetic_demo_memory
+    return None
 
 
 def _error(reason: str, status: str = "error") -> dict:
@@ -115,15 +152,36 @@ def _profile_incident_view(
         return _error("context_unavailable")
 
     subject_id = f"profile-{profile_id}"
-    scenarios = retrieve.find_scenarios(
-        subject_id,
-        acoustic,
-        current_context,
-        k=3,
-        db_path=db_path,
-    )
-    history_count = retrieve.episode_count(subject_id, db_path)
-    tally = retrieve.intervention_tally(subject_id, db_path)
+    history_filter = _controlled_history_filter(profile, subject_id, db_path)
+    if history_filter is None:
+        scenarios = retrieve.find_scenarios(
+            subject_id,
+            acoustic,
+            current_context,
+            k=3,
+            db_path=db_path,
+        )
+        history_count = retrieve.episode_count(subject_id, db_path)
+        tally = retrieve.intervention_tally(subject_id, db_path)
+    else:
+        scenarios = retrieve.find_scenarios(
+            subject_id,
+            acoustic,
+            current_context,
+            k=3,
+            db_path=db_path,
+            episode_filter=history_filter,
+        )
+        history_count = retrieve.episode_count(
+            subject_id,
+            db_path,
+            episode_filter=history_filter,
+        )
+        tally = retrieve.intervention_tally(
+            subject_id,
+            db_path,
+            episode_filter=history_filter,
+        )
     guidance_payload = guidance.build_guidance(
         profile_id,
         scenarios,

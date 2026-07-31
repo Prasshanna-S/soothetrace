@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 try:
-    from . import identity, store
+    from . import database, identity, store
 except ImportError:
+    import database
     import identity
     import store
 
@@ -69,6 +70,66 @@ def _time_context(context: dict) -> dict:
     return public
 
 
+def _speech_segments(
+    transcript: str,
+    *,
+    outcome_source: str | None,
+    context: dict,
+) -> list[dict]:
+    """Project stored text with only the provenance its markers support."""
+    if not transcript:
+        return []
+    audio_marker = "Audio transcript:"
+    typed_marker = "Typed caregiver follow-up:"
+    segments = []
+    if audio_marker in transcript:
+        audio_text = transcript.split(audio_marker, 1)[1]
+        if typed_marker in audio_text:
+            audio_text = audio_text.split(typed_marker, 1)[0]
+        audio_text = " ".join(audio_text.split()).strip()[:1000]
+        if audio_text:
+            segments.append(
+                {
+                    "text": audio_text,
+                    "source": "captured_transcript",
+                    "label": "Captured transcript",
+                }
+            )
+    if typed_marker in transcript:
+        typed_text = transcript.split(typed_marker, 1)[1]
+        typed_text = " ".join(typed_text.split()).strip()[:1000]
+        if typed_text:
+            segments.append(
+                {
+                    "text": typed_text,
+                    "source": "typed_follow_up",
+                    "label": "Caregiver typed",
+                }
+            )
+    if segments:
+        return segments
+    synthetic = (
+        outcome_source == "seed"
+        or context.get("synthetic_demo_memory") is True
+    )
+    if synthetic:
+        source = "synthetic_demo"
+        label = "Synthetic demo transcript"
+    elif outcome_source == "caregiver":
+        source = "caregiver_record"
+        label = "Caregiver record"
+    else:
+        source = "stored_record"
+        label = "Stored transcript"
+    return [
+        {
+            "text": " ".join(transcript.split()).strip()[:1000],
+            "source": source,
+            "label": label,
+        }
+    ]
+
+
 def _render_incident(
     profile_id: int,
     episode: dict,
@@ -110,8 +171,23 @@ def _render_incident(
             else None
         ),
     }
+    result["actions"] = result["interventions"]
+    result["context"] = {
+        **result["time"],
+        "tags": result["tags"],
+    }
+    result["audio"] = (
+        {"url": result["audio_url"]} if result["audio_url"] else None
+    )
     if detail:
         result["transcript"] = transcript
+        result["speech"] = {
+            "segments": _speech_segments(
+                transcript,
+                outcome_source=result["outcome_source"],
+                context=context,
+            )
+        }
         supporting = context.get("supporting_incident_ids")
         result["supporting_incident_ids"] = [
             item
@@ -166,6 +242,24 @@ def summary(profile_id: int, db_path: str | None = None) -> dict:
         for item in episodes
     ):
         available.append("previous_outcomes")
+    connection = database.connect(db_path)
+    try:
+        enrollment_rows = connection.execute(
+            "SELECT id,captured_at,duration_s FROM enrollment "
+            "WHERE profile_id=? ORDER BY captured_at,id",
+            (profile_id,),
+        ).fetchall()
+    finally:
+        connection.close()
+    enrollment_summaries = [
+        {
+            "id": row["id"],
+            "captured_at": row["captured_at"],
+            "duration_s": row["duration_s"],
+            "playback_url": f"/api/audio/enrollments/{row['id']}",
+        }
+        for row in enrollment_rows
+    ]
     return {
         "status": "ready",
         "profile": {
@@ -174,12 +268,14 @@ def summary(profile_id: int, db_path: str | None = None) -> dict:
             "kind": profile["kind"],
             "status": profile["status"],
             "enrollment_count": profile.get("enrollments", 0),
+            "enrollments": enrollment_summaries,
             "memory_count": len(episodes),
             "latest_memory_at": (
                 episodes[0].get("started_at") if episodes else None
             ),
             "available_context": available,
         },
+        "training_clips": enrollment_summaries,
     }
 
 
@@ -214,6 +310,9 @@ def incidents(
             for item in page
         ],
         "next_before_id": page[-1]["id"] if has_more and page else None,
+        "next_cursor": (
+            str(page[-1]["id"]) if has_more and page else None
+        ),
     }
 
 

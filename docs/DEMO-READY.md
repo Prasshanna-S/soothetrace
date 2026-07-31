@@ -18,7 +18,7 @@ to reach each other.
 ```bash
 xcode-select -p
 brew install uv ffmpeg node
-git clone https://github.com/Prasshanna-S/interaction-memory.git
+git clone https://github.com/Prasshanna-S/soothetrace.git
 cd interaction-memory
 uv venv .venv --python 3.12
 . .venv/bin/activate
@@ -55,7 +55,7 @@ Close every PowerShell window after Git finishes installing. Open a new PowerShe
 clone and provision the repository:
 
 ```powershell
-git clone https://github.com/Prasshanna-S/interaction-memory.git
+git clone https://github.com/Prasshanna-S/soothetrace.git
 Set-Location ".\interaction-memory"
 .\scripts\setup_windows.ps1 -InstallTools
 ```

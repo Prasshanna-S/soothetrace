@@ -1,22 +1,33 @@
 1
-00:00:00,000 --> 00:00:04,500
-A six-second segment is being checked for an infant-cry-like sound.
+00:00:00,000 --> 00:00:03,000
+Listening begins in complete 3-second recordings.
 
 2
-00:00:04,500 --> 00:00:09,000
-The cry gate fired, and the profile matcher selected Demo Baby.
+00:00:03,000 --> 00:00:09,000
+The first recording contains an infant-cry-like sound.
+The profile evidence points to Demo Baby.
 
 3
-00:00:09,000 --> 00:00:14,000
-The ranking combines this cry pattern with the current time.
-No current caregiver note was supplied.
+00:00:09,000 --> 00:00:15,000
+The app keeps checking for fresh grounded confirmations
+inside Demo Baby's recorded history.
 
 4
-00:00:14,000 --> 00:00:21,000
-The best prior incident was at 6:45 PM.
-Swaddling and white noise were recorded, and the caregiver said the baby settled.
+00:00:15,000 --> 00:00:21,000
+No suggestion can appear before seven recordings
+and at least 20 analyzed seconds.
 
 5
-00:00:21,000 --> 00:00:27,000
-What helped before: white noise.
-This is a memory-based suggestion, not a diagnosis.
+00:00:21,000 --> 00:00:29,000
+Observed latch at 21 seconds.
+What helped before: offered bottle.
+
+6
+00:00:29,000 --> 00:00:38,000
+Two synthetic history incidents support this suggestion.
+Cry pattern and similar time of day were the active factors.
+
+7
+00:00:38,000 --> 00:00:45,000
+This is a recorded-history suggestion, not a diagnosis
+or a claim about why the baby is crying.
