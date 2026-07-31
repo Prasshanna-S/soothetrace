@@ -3781,7 +3781,7 @@ body[data-decision="latched"] #preview-bar {
    ========================================================================== */
 
 /* day groups */
-#history-list .hist-day {
+#page-history #history-list .hist-day {
   margin: 10px 2px 0;
   padding: 0;
   border: 0;
@@ -3793,10 +3793,10 @@ body[data-decision="latched"] #preview-bar {
   text-transform: uppercase;
   color: var(--ink-3);
 }
-#history-list .hist-day:first-child { margin-top: 0; }
+#page-history #history-list .hist-day:first-child { margin-top: 0; }
 
 /* one soft card per moment */
-#history-list .record-card.incident {
+#page-history #history-list .record-card.incident {
   border: 1px solid var(--hair);
   border-radius: 20px;
   background: var(--surface);
@@ -3805,10 +3805,10 @@ body[data-decision="latched"] #preview-bar {
   display: grid;
   gap: 6px;
 }
-#history-list .record-card.incident.seeded { border-color: rgba(140, 42, 22, .28); }
+#page-history #history-list .record-card.incident.seeded { border-color: rgba(140, 42, 22, .28); }
 
 /* the object floats free: no tile, no border behind it */
-#history-list .record-open .glyphbox,
+#page-history #history-list .record-open .glyphbox,
 #page-baby #baby-training .glyphbox {
   width: 44px;
   height: 44px;
@@ -3819,7 +3819,7 @@ body[data-decision="latched"] #preview-bar {
   border: 0 !important;
   border-radius: 0;
 }
-#history-list .record-open .glyphbox img,
+#page-history #history-list .record-open .glyphbox img,
 #page-baby #baby-training .glyphbox img {
   width: 40px;
   height: 40px;
@@ -3900,13 +3900,13 @@ body[data-decision="latched"] #preview-bar {
 /* ---------------- profile page ---------------- */
 
 /* the memory hero: one big number, everything else supports it */
-#baby-summary {
+#page-baby #baby-summary {
   align-items: center;
   overflow: hidden;
   border: 0;
   border-radius: 26px;
 }
-#baby-summary > img {
+#page-baby #baby-summary > img {
   flex: none;
   width: 100px;
   height: 100px;
@@ -3914,19 +3914,19 @@ body[data-decision="latched"] #preview-bar {
   object-fit: contain;
   filter: drop-shadow(0 10px 14px rgba(26, 26, 24, .2));
 }
-#baby-memory-count { margin: 2px 0 0; }
-#baby-memory-count span { display: none; }
-#baby-memory-number {
+#page-baby #baby-memory-count { margin: 2px 0 0; }
+#page-baby #baby-memory-count span { display: none; }
+#page-baby #baby-memory-number {
   font-family: var(--display);
   font-size: 54px;
   font-weight: 700;
   line-height: 1;
   letter-spacing: -0.03em;
 }
-#baby-memory-beads { display: flex; gap: 6px; margin-top: 12px; }
-#baby-memory-beads i { width: 10px; height: 10px; border-radius: 50%;
+#page-baby #baby-memory-beads { display: flex; gap: 6px; margin-top: 12px; }
+#page-baby #baby-memory-beads i { width: 10px; height: 10px; border-radius: 50%;
   background: rgba(255, 255, 255, .55); }
-#baby-memory-beads i.on { background: currentColor; }
+#page-baby #baby-memory-beads i.on { background: currentColor; }
 
 /* section cards hold flat rows, not cards inside cards */
 .training-card { border: 1px solid var(--hair); border-radius: 22px;
@@ -3974,7 +3974,7 @@ body[data-decision="latched"] #preview-bar {
 #page-baby #baby-training .record-copy span { font-size: 12.5px; color: var(--ink-3); }
 
 /* signal chips share the tag grammar */
-#baby-context-list span {
+#page-baby #baby-context-list span {
   padding: 5px 13px;
   border-radius: 999px;
   background: var(--bg);
@@ -3984,16 +3984,16 @@ body[data-decision="latched"] #preview-bar {
 }
 
 /* detail hero stays the C15 anatomy; the pane cards drop their double border */
-#history-detail { border: 1px solid var(--hair); box-shadow: none; }
-#history-detail .record-detail-pane .record-card,
-#history-detail .record-detail-pane .detail-card {
+#page-history #history-detail { border: 1px solid var(--hair); box-shadow: none; }
+#page-history #history-detail .record-detail-pane .record-card,
+#page-history #history-detail .record-detail-pane .detail-card {
   border: 1px solid var(--hair);
   box-shadow: none;
 }
 
 /* final settlement: tab active state, card headings, seeded badge colour */
 #page-history .segs button[aria-selected="true"],
-#history-detail-tabs button[aria-selected="true"],
+#page-history #history-detail-tabs button[aria-selected="true"],
 #page-listen .segs button[aria-selected="true"] {
   background: var(--ink) !important;
   color: #FBF9F4 !important;
@@ -4011,4 +4011,163 @@ body[data-decision="latched"] #preview-bar {
   background: #F3D2CB !important;
   color: #8C2A16 !important;
 }
-#baby-memory-number { font-size: 54px !important; }
+#page-baby #baby-memory-number { font-size: 54px !important; }
+
+
+/* ==========================================================================
+   The record pages speak Listen's language: pastel mega-cards with display
+   type, objects as heroes, soft floating depth instead of hairline boxes.
+   ========================================================================== */
+
+/* card language: borderless, soft float, generous radius */
+#page-history #history-list .record-card.incident,
+.training-card,
+#history-detail,
+#page-history #history-detail .record-detail-pane .record-card,
+#page-history #history-detail .record-detail-pane .detail-card {
+  border: 0 !important;
+  background: rgba(255, 255, 255, .85);
+  box-shadow: 0 1px 2px rgba(26, 26, 24, .04),
+              0 14px 30px -22px rgba(26, 26, 24, .35) !important;
+}
+#page-history #history-list .record-card.incident { border-radius: 22px; padding: 14px 15px; }
+.training-card { border-radius: 26px; }
+#page-history #history-detail { border-radius: 26px; }
+#page-history #history-list .record-card.incident.seeded {
+  box-shadow: 0 0 0 1px rgba(140, 42, 22, .25) inset,
+              0 14px 30px -22px rgba(26, 26, 24, .35) !important;
+}
+
+/* titles pick up the display face */
+#page-history #history-list .record-open strong,
+#page-baby #baby-training .record-copy strong {
+  font-family: var(--display);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+/* ---- the newest moment is the hero: Listen's mega-card ---- */
+#page-history #history-list .record-card.incident.hist-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 28px;
+  padding: 20px 20px 18px;
+  background: linear-gradient(168deg, #D9ECE1 0%, var(--mint) 100%);
+  color: var(--mint-ink);
+}
+#page-history #history-list .hist-hero.seeded {
+  background: linear-gradient(168deg, #F6E3DC 0%, var(--blush) 100%);
+  color: var(--blush-ink);
+}
+#page-history #history-list .hist-hero .hero-kicker {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  opacity: .62;
+}
+#page-history #history-list .hist-hero .record-open { align-items: center; gap: 14px; }
+#page-history #history-list .hist-hero .record-open strong {
+  font-size: 24px;
+  line-height: 1.14;
+  letter-spacing: -0.025em;
+  color: inherit;
+}
+#page-history #history-list .hist-hero .record-open .glyphbox {
+  order: 2;
+  width: 96px;
+  height: 96px;
+}
+#page-history #history-list .hist-hero .record-open .glyphbox img {
+  width: 92px;
+  height: 92px;
+  filter: drop-shadow(0 12px 16px rgba(26, 26, 24, .24));
+}
+#page-history #history-list .hist-hero .record-meta .mono { color: inherit; opacity: .75; }
+#page-history #history-list .hist-hero .record-meta .dim { color: inherit; opacity: .55; }
+#page-history #history-list .hist-hero .settle-word[data-settled="true"] { color: inherit; }
+#page-history #history-list .hist-hero .record-outcome { color: inherit; opacity: .8; }
+#page-history #history-list .hist-hero .record-chevron { color: inherit; opacity: .55; }
+#page-history #history-list .hist-hero .record-tags.chips span {
+  background: rgba(255, 255, 255, .62);
+  color: inherit;
+}
+
+/* compact rows breathe a little more */
+#page-history #history-list .record-card.incident:not(.hist-hero) .record-open .glyphbox {
+  width: 48px; height: 48px;
+}
+#page-history #history-list .record-card.incident:not(.hist-hero) .record-open .glyphbox img {
+  width: 44px; height: 44px;
+}
+#history-list { gap: 11px; }
+
+/* ---- profile page: hero pushed to Listen scale ---- */
+#page-baby #baby-summary {
+  border-radius: 30px !important;
+  padding: 22px 22px 20px;
+  background: linear-gradient(168deg, #D9ECE1 0%, var(--mint) 100%);
+  box-shadow: 0 1px 2px rgba(26, 26, 24, .05),
+              0 16px 34px -20px rgba(31, 87, 72, .45);
+}
+#page-baby #baby-summary[data-ready="false"] {
+  background: linear-gradient(168deg, #FBF3D8 0%, var(--butter) 130%);
+}
+#page-baby #baby-memory-number { font-size: 64px !important; }
+#page-baby #baby-summary > img { width: 118px; height: 118px; }
+#page-baby #baby-memory-beads i { width: 11px; height: 11px; }
+
+/* header avatar, like Listen's chip */
+.head-with-avatar { display: flex; align-items: center; gap: 12px; }
+.head-avatar {
+  width: 46px;
+  height: 46px;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 6px rgba(26, 26, 24, .18));
+}
+
+/* ordinal discs and signal chips take the pastel rotation */
+#page-baby #baby-training li:nth-child(3n+1) .training-ordinal {
+  background: var(--peri); color: var(--peri-ink); }
+#page-baby #baby-training li:nth-child(3n+2) .training-ordinal {
+  background: var(--butter); color: var(--butter-ink); }
+#page-baby #baby-training li:nth-child(3n) .training-ordinal {
+  background: var(--blush); color: var(--blush-ink); }
+#page-baby #baby-context-list span:nth-child(4n+1) { background: #E4E5F8; color: var(--peri-ink); }
+#page-baby #baby-context-list span:nth-child(4n+2) { background: #F7ECC4; color: var(--butter-ink); }
+#page-baby #baby-context-list span:nth-child(4n+3) { background: #E1EFE8; color: var(--mint-ink); }
+#page-baby #baby-context-list span:nth-child(4n)   { background: #F8E9E3; color: var(--blush-ink); }
+
+/* detail hero at display scale */
+#page-history #history-detail .inc-hero { border-radius: 26px; padding: 20px; }
+#page-history #history-detail .inc-action {
+  font-family: var(--display);
+  font-size: 26px !important;
+  letter-spacing: -0.025em;
+}
+#page-history #history-detail .inc-art { width: 96px; height: 96px; }
+#page-history #history-detail .inc-art img { width: 72px; height: 72px; }
+
+/* landscape: the hero spans the full row */
+@media (orientation: landscape) and (max-height: 580px) {
+  #history-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  #page-history #history-list .hist-day { grid-column: 1 / -1; }
+  #page-history #history-list .hist-hero { grid-column: 1 / -1; }
+  #btn-history-more { justify-self: center; }
+}
+
+/* the hero title carries the surface ink explicitly; a release rule pinned
+   strong to a neutral otherwise */
+#page-history #history-list .hist-hero .record-open strong {
+  color: var(--mint-ink) !important;
+}
+#page-history #history-list .hist-hero.seeded .record-open strong {
+  color: var(--blush-ink) !important;
+}
+#page-history #history-list .hist-hero .hero-kicker,
+#page-history #history-list .hist-hero .record-meta,
+#page-history #history-list .hist-hero .record-outcome {
+  color: inherit !important;
+}
