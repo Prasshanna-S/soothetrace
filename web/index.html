@@ -69,8 +69,22 @@
   </defs>
 </svg>
 
+<section id="launch-screen" aria-label="Opening SootheTrace">
+  <div class="launch-mark" aria-hidden="true">
+    <span></span><span></span><span></span>
+  </div>
+  <div class="launch-copy">
+    <p>SootheTrace</p>
+    <small>Care memories, ready when you need them</small>
+  </div>
+</section>
+
 <!-- Ambient nursery layer: faint, fixed, non-interactive. The vibe, without the noise. -->
 <div id="ambient" aria-hidden="true">
+  <img class="ambient-sticker sticker-cuddle" src="/img/action-cuddle.png" alt="">
+  <img class="ambient-sticker sticker-feeding" src="/img/action-feeding.png" alt="">
+  <img class="ambient-sticker sticker-sleeping" src="/img/action-sleeping.png" alt="">
+  <img class="ambient-sticker sticker-walk" src="/img/action-walk.png" alt="">
   <svg class="am am-1" viewBox="0 0 24 24"><use href="#a-cloud"/></svg>
   <svg class="am am-2" viewBox="0 0 24 24"><use href="#i-star"/></svg>
   <svg class="am am-3" viewBox="0 0 24 24"><use href="#a-moon"/></svg>
@@ -84,11 +98,6 @@
 <div id="preview-bar" hidden aria-label="Preview stepper, simulated example data">
   <button type="button" id="preview-next">Next</button>
 </div>
-
-<!-- Live capture chip: the live dot and the wall clock are one object so the two can never
-     disagree, and it is fixed so no scroll position hides an open microphone. -->
-<p id="rec-chip" data-mode="live" hidden aria-hidden="true"><i></i><span
-   id="rec-chip-state">LIVE</span><span id="rec-chip-time" class="mono">00:00</span></p>
 
 <div id="app-shell">
 <main id="pages">
@@ -112,6 +121,8 @@
       </div>
       <p id="health-pill" data-health="checking"><i></i><span
          id="health-text">Checking</span></p>
+      <p id="rec-chip" data-mode="live" hidden aria-hidden="true"><i></i><span
+         id="rec-chip-state">LIVE</span><span id="rec-chip-time" class="mono">00:00</span></p>
     </header>
 
     <p id="error-banner" class="banner banner-bad" role="alert" hidden></p>

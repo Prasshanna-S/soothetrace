@@ -126,6 +126,8 @@ function slotImage(img, slotName, fallbackIconKey) {
 const $ = (id) => document.getElementById(id);
 const ui = {
   body: document.body,
+  launch: $("launch-screen"),
+  pagesRoot: $("pages"),
   pages: { listen: $("page-listen"), history: $("page-history"), baby: $("page-baby"), human: $("page-human") },
   tabs: { listen: $("tab-listen"), history: $("tab-history"), baby: $("tab-baby"), human: $("tab-human") },
   listen: $("page-listen"),
@@ -237,12 +239,12 @@ const show = (node, on) => { if (node) node.hidden = !on; };
    checking palette. Detected and grounded palettes remain server-owned. */
 
 const ORB_STATES = {
-  idle:      { c: ["#E4ECFF", "#9DB4F0", "#A9DCC6", "#E3D3F4"], warp: 2.0, speed: 0.30, sat: 1.04, breath: 6.0, scale: 1.00, turn: 0 },
-  listening: { c: ["#DDE2FF", "#7C88E8", "#9FCDF0", "#C9AFF0"], warp: 2.7, speed: 0.62, sat: 1.20, breath: 3.2, scale: 1.03, turn: 0.42 },
-  checking:  { c: ["#E8E0FF", "#8D8FE8", "#8BCBEA", "#C5B6F4"], warp: 3.2, speed: 0.88, sat: 1.24, breath: 2.5, scale: 1.06, turn: 0.58 },
-  detected:  { c: ["#FFE9C4", "#F3C34E", "#F0A07E", "#FFD2B8"], warp: 3.1, speed: 0.95, sat: 1.22, breath: 2.3, scale: 1.06, turn: 0.52 },
-  grounded:  { c: ["#D5F0E2", "#6FC6A8", "#9BD9E6", "#BCE9C9"], warp: 2.2, speed: 0.42, sat: 1.16, breath: 5.0, scale: 0.99, turn: 0 },
-  paused:    { c: ["#E8EAF1", "#BFC2CE", "#D3D6E0", "#EEF0F6"], warp: 1.5, speed: 0.06, sat: 0.30, breath: 0.0, scale: 0.94, turn: 0 },
+  idle:      { c: ["#E4ECFF", "#9DB4F0", "#A9DCC6", "#E3D3F4"], warp: 2.0, speed: 0.18, sat: 1.04, breath: 6.0, scale: 1.00, turn: 0.04 },
+  listening: { c: ["#DDE2FF", "#7C88E8", "#9FCDF0", "#C9AFF0"], warp: 2.7, speed: 0.24, sat: 1.20, breath: 3.2, scale: 1.03, turn: 0.12 },
+  checking:  { c: ["#E8E0FF", "#8D8FE8", "#8BCBEA", "#C5B6F4"], warp: 3.2, speed: 0.31, sat: 1.24, breath: 2.5, scale: 1.06, turn: 0.16 },
+  detected:  { c: ["#FFE9C4", "#F3C34E", "#F0A07E", "#FFD2B8"], warp: 3.1, speed: 0.34, sat: 1.22, breath: 2.3, scale: 1.06, turn: 0.17 },
+  grounded:  { c: ["#D5F0E2", "#6FC6A8", "#9BD9E6", "#BCE9C9"], warp: 2.2, speed: 0.22, sat: 1.16, breath: 5.0, scale: 0.99, turn: 0.08 },
+  paused:    { c: ["#E8EAF1", "#BFC2CE", "#D3D6E0", "#EEF0F6"], warp: 1.5, speed: 0.03, sat: 0.30, breath: 0.0, scale: 0.94, turn: 0 },
 };
 
 const ORB_VERT = "attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}";
@@ -436,6 +438,7 @@ const state = {
   selectedProfile: null,
   visitor: null,
   historyCursor: null,
+  historyLastDayKey: null,
   historyLoading: false,
   historyRevision: 0,
   historyRequestId: 0,
@@ -541,6 +544,26 @@ function navigate(view) {
   if (view === "human") renderHumanWorkspace();
 }
 window.addEventListener("hashchange", () => navigate(location.hash.replace("#", "") || "listen"));
+
+function initLaunch() {
+  if (!ui.launch) {
+    ui.body.dataset.launched = "true";
+    return;
+  }
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let finished = false;
+  const reveal = () => {
+    if (finished) return;
+    finished = true;
+    ui.body.dataset.launched = "true";
+    ui.launch.setAttribute("aria-hidden", "true");
+    setTimeout(() => { ui.launch.hidden = true; }, reduced ? 90 : 520);
+  };
+  const queueReveal = () => setTimeout(reveal, reduced ? 110 : 720);
+  if (document.readyState === "complete") queueReveal();
+  else window.addEventListener("load", queueReveal, { once: true });
+  setTimeout(reveal, reduced ? 420 : 1800);
+}
 
 /* ==================================================================== health */
 
@@ -693,6 +716,7 @@ function invalidateHistory() {
   state.historyRevision += 1;
   state.historyDetailRequestId += 1;
   state.historyCursor = null;
+  state.historyLastDayKey = null;
   state.historyLoading = false;
   emptyNode(ui.historyList);
   resetHistoryDetail();
@@ -713,7 +737,40 @@ function invalidateBaby() {
 function formatRecordedTime(value) {
   if (!value) return "Time unavailable";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString([], { month: "short", day: "numeric" }) + ", " +
+    date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function recordedDayKey(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "unknown";
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function formatRecordedDay(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Date unavailable";
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const sameDay = (left, right) =>
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate();
+  if (sameDay(date, now)) return "Today";
+  if (sameDay(date, yesterday)) return "Yesterday";
+  return date.toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" });
+}
+
+function formatRecordedClock(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Time unavailable";
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 function appendAudio(parent, audio) {
@@ -770,7 +827,7 @@ function settledState(incident) {
 }
 
 function durationText(value) {
-  return Number.isFinite(value) ? Number(value).toFixed(1) + " seconds" : "";
+  return Number.isFinite(value) ? Number(value).toFixed(1) + " s" : "";
 }
 
 function historyIcon(action, className) {
@@ -802,13 +859,23 @@ function renderHistoryIncident(incident) {
   title.className = "act record-action";
   title.textContent = action;
   const meta = document.createElement("span");
-  meta.className = "meta record-meta";
+  meta.className = "meta record-meta metaline";
   const settled = settledState(incident);
-  const dot = document.createElement("i");
-  dot.className = "settle-dot";
-  dot.dataset.settled = settled.key;
-  meta.appendChild(dot);
-  meta.append(document.createTextNode(formatRecordedTime(incident && incident.started_at)));
+  const time = document.createElement("span");
+  time.className = "mono";
+  time.textContent = formatRecordedClock(incident && incident.started_at);
+  meta.appendChild(time);
+  if (Number.isFinite(incident && incident.duration_s)) {
+    const duration = document.createElement("span");
+    duration.className = "mono dim";
+    duration.textContent = Math.round(Number(incident.duration_s)) + " s";
+    meta.appendChild(duration);
+  }
+  const settledWord = document.createElement("span");
+  settledWord.className = "settle-word";
+  settledWord.dataset.settled = settled.key;
+  settledWord.textContent = settled.label;
+  meta.appendChild(settledWord);
   const badge = document.createElement("span");
   badge.className = "badge " + provenance.className;
   badge.textContent = provenance.label;
@@ -872,6 +939,14 @@ async function loadHistory(reset) {
     for (const incident of incidents) {
       const incidentId = incident && incident.id != null ? String(incident.id) : "";
       if (incidentId && renderedIds.has(incidentId)) continue;
+      const dayKey = recordedDayKey(incident && incident.started_at);
+      if (dayKey !== state.historyLastDayKey) {
+        const day = document.createElement("li");
+        day.className = "hist-day";
+        day.textContent = formatRecordedDay(incident && incident.started_at);
+        ui.historyList.appendChild(day);
+        state.historyLastDayKey = dayKey;
+      }
       ui.historyList.appendChild(renderHistoryIncident(incident));
       if (incidentId) renderedIds.add(incidentId);
     }
@@ -1135,7 +1210,7 @@ function renderTrainingClip(clip, index) {
   name.textContent = "Training recording " + (index + 1);
   const time = document.createElement("span");
   const length = Number.isFinite(clip && clip.duration_s)
-    ? " · " + Number(clip.duration_s).toFixed(1) + " seconds" : "";
+    ? " · " + Number(clip.duration_s).toFixed(1) + " s" : "";
   time.textContent = formatRecordedTime(clip && clip.captured_at) + length;
   body.append(name, time);
   item.append(ordinal, body);
@@ -2769,6 +2844,80 @@ function initSettled() {
   });
 }
 
+const SECTION_ORDER = ["listen", "history", "baby"];
+const SECTION_SWIPE_IGNORE = [
+  "button",
+  "a",
+  "input",
+  "textarea",
+  "select",
+  "label",
+  "audio",
+  "summary",
+  "details",
+  "[role='tablist']",
+  "#suggestion-rail",
+  "#ctl-capsule",
+  "#tabbar",
+].join(",");
+let sectionSwipe = null;
+
+function startsInHorizontalScroller(target) {
+  let node = target instanceof Element ? target : null;
+  while (node && node !== ui.pagesRoot) {
+    if (node.matches && node.matches(SECTION_SWIPE_IGNORE)) return true;
+    if (node instanceof HTMLElement) {
+      const style = getComputedStyle(node);
+      if (
+        (style.overflowX === "auto" || style.overflowX === "scroll") &&
+        node.scrollWidth > node.clientWidth + 4
+      ) return true;
+    }
+    node = node.parentElement;
+  }
+  return false;
+}
+
+function beginSectionSwipe(event) {
+  if (!event.isPrimary || event.pointerType === "mouse") return;
+  if (!SECTION_ORDER.includes(state.view)) return;
+  if (startsInHorizontalScroller(event.target)) return;
+  if (event.clientX < 24 || event.clientX > window.innerWidth - 24) return;
+  sectionSwipe = {
+    pointerId: event.pointerId,
+    view: state.view,
+    x: event.clientX,
+    y: event.clientY,
+    at: performance.now(),
+  };
+}
+
+function finishSectionSwipe(event) {
+  if (!sectionSwipe || sectionSwipe.pointerId !== event.pointerId) return;
+  const start = sectionSwipe;
+  sectionSwipe = null;
+  if (state.view !== start.view) return;
+  const dx = event.clientX - start.x;
+  const dy = event.clientY - start.y;
+  const elapsed = performance.now() - start.at;
+  const threshold = Math.max(56, window.innerWidth * .11);
+  if (
+    elapsed > 900 ||
+    Math.abs(dx) < threshold ||
+    Math.abs(dx) < Math.abs(dy) * 1.35
+  ) return;
+  const current = SECTION_ORDER.indexOf(start.view);
+  const next = current + (dx < 0 ? 1 : -1);
+  if (next < 0 || next >= SECTION_ORDER.length) return;
+  location.hash = SECTION_ORDER[next];
+}
+
+if (ui.pagesRoot) {
+  ui.pagesRoot.addEventListener("pointerdown", beginSectionSwipe, { passive: true });
+  ui.pagesRoot.addEventListener("pointerup", finishSectionSwipe, { passive: true });
+  ui.pagesRoot.addEventListener("pointercancel", () => { sectionSwipe = null; }, { passive: true });
+}
+
 const LAND_MQ = window.matchMedia("(orientation: landscape) and (max-height: 580px)");
 let navPeekTimer = null;
 ui.suggestionRail.addEventListener("scroll", () => {
@@ -2875,6 +3024,7 @@ ui.profilePicker.addEventListener("change", () => {
   );
 });
 
+initLaunch();
 initChips();
 initStaticIcons();
 initSettled();

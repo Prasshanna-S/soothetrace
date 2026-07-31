@@ -430,13 +430,15 @@ try {
   await page.waitForFunction(
     () => document.querySelector("#page-history")?.dataset.state === "ready"
   );
-  let historyRows = await page.locator("#history-list > li").allTextContents();
+  let historyRows = await page.locator("#history-list > .record-card").allTextContents();
+  const historyDayHeadings = await page.locator("#history-list > .hist-day").allTextContents();
   assert(
     historyRows.length === 2 &&
       historyRows[0].includes("Held baby upright") &&
       historyRows[0].includes("The baby settled.") &&
       historyRows[1].includes("White noise") &&
-      historyRows[1].includes("Synthetic demo memory"),
+      historyRows[1].includes("Synthetic demo memory") &&
+      historyDayHeadings.length === 2,
     `History did not render the real active API shape: ${JSON.stringify(historyRows)}`
   );
 
@@ -468,7 +470,7 @@ try {
   await page.waitForFunction(
     () => document.querySelector("#page-history")?.dataset.state === "ready"
   );
-  await page.locator("#history-list > li").filter({
+  await page.locator("#history-list > .record-card").filter({
     hasText: "Held baby upright",
   }).click();
   await page.waitForFunction(
@@ -545,11 +547,11 @@ try {
   await page.click("#history-detail-close");
   assert(
     await page.locator("#page-history").isVisible() &&
-      await page.locator("#history-list > li").count() === 2,
+      await page.locator("#history-list > .record-card").count() === 2,
     "Closing incident detail did not restore the existing History list"
   );
 
-  await page.locator("#history-list > li").filter({
+  await page.locator("#history-list > .record-card").filter({
     hasText: "White noise",
   }).click();
   await page.waitForFunction(

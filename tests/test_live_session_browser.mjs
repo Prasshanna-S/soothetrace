@@ -34,7 +34,6 @@ async function ambientMetrics(page) {
   return page.evaluate(() => {
     const ambient = document.querySelector("#ambient");
     const style = getComputedStyle(ambient);
-    const artStyle = getComputedStyle(ambient, "::after");
     return {
       opacity: style.opacity,
       visibility: style.visibility,
@@ -42,11 +41,17 @@ async function ambientMetrics(page) {
         .map((node) => getComputedStyle(node).animationName),
       animationPlayStates: Array.from(document.querySelectorAll("#ambient .am"))
         .map((node) => getComputedStyle(node).animationPlayState),
-      art: {
-        backgroundImage: artStyle.backgroundImage,
-        animationName: artStyle.animationName,
-        animationPlayState: artStyle.animationPlayState,
-      },
+      stickers: Array.from(document.querySelectorAll("#ambient .ambient-sticker"))
+        .map((node) => {
+          const stickerStyle = getComputedStyle(node);
+          return {
+            source: node.getAttribute("src"),
+            opacity: Number(stickerStyle.opacity),
+            animationName: stickerStyle.animationName,
+            animationDuration: stickerStyle.animationDuration,
+            animationPlayState: stickerStyle.animationPlayState,
+          };
+        }),
     };
   });
 }
@@ -460,8 +465,12 @@ async function runLivePath(browser) {
     idleAmbient.opacity === "1" &&
       idleAmbient.visibility === "visible" &&
       idleAmbient.animationNames.every((name) => name === "none") &&
-      idleAmbient.art.backgroundImage.includes("/img/action-") &&
-      idleAmbient.art.animationName === "none",
+      idleAmbient.stickers.length === 4 &&
+      idleAmbient.stickers.every((sticker) =>
+        sticker.source.includes("/img/action-") &&
+        sticker.opacity <= 0.1 &&
+        sticker.animationName === "none"
+      ),
     `reduced-motion idle ambient was not visible and static: ${JSON.stringify(idleAmbient)}`
   );
   const inactiveAmbients = await page.evaluate(() => {
@@ -864,9 +873,14 @@ async function runAmbientMotionPreference(browser) {
       ambient.animationNames.length === 5 &&
       ambient.animationNames.every((name) => name !== "none") &&
       ambient.animationPlayStates.every((state) => state === "running") &&
-      ambient.art.backgroundImage.includes("/img/action-") &&
-      ambient.art.animationName !== "none" &&
-      ambient.art.animationPlayState === "running",
+      ambient.stickers.length === 4 &&
+      ambient.stickers.every((sticker) =>
+        sticker.source.includes("/img/action-") &&
+        sticker.opacity <= 0.1 &&
+        sticker.animationName !== "none" &&
+        sticker.animationPlayState === "running"
+      ) &&
+      new Set(ambient.stickers.map((sticker) => sticker.animationDuration)).size > 1,
     `idle ambient did not float when motion was allowed: ${JSON.stringify(ambient)}`
   );
   await page.evaluate(() => setSessionState("listening"));
@@ -879,7 +893,7 @@ async function runAmbientMotionPreference(browser) {
     Number(active.opacity) <= 0.01 &&
       active.visibility === "hidden" &&
       active.animationPlayStates.every((state) => state === "paused") &&
-      active.art.animationPlayState === "paused",
+      active.stickers.every((sticker) => sticker.animationPlayState === "paused"),
     `active recording did not hide and pause ambient motion: ${JSON.stringify(active)}`
   );
   await page.close();
@@ -1166,8 +1180,8 @@ function assertPortraitRecordingMetrics(metrics, expectedOrbWidth, label) {
   );
   assert(
     Math.abs(metrics.timerCenterError) <= 0.5 &&
-      metrics.timer.top >= metrics.header.bottom + 6 &&
-      !metrics.headerTimerOverlap &&
+      metrics.timer.top >= metrics.profile.bottom + 6 &&
+      metrics.timer.bottom <= metrics.header.bottom + 0.5 &&
       !metrics.profileTimerOverlap,
     `${label} timer is not centered on its own row below the profile: ${JSON.stringify(metrics)}`
   );
@@ -1383,7 +1397,7 @@ async function runLandscapeListeningFit(browser, viewport) {
     Math.abs(plain.profileCenter - plain.recorderCenter) <= 4,
     `landscape timer is not aligned with the baby profile: ${JSON.stringify(plain)}`
   );
-  const expectedOrbWidth = viewport.width === 932 ? 275.2 : 249.6;
+  const expectedOrbWidth = viewport.width === 932 ? 279.5 : 253.5;
   assert(
     Math.abs(plain.orb.width - expectedOrbWidth) <= 0.6,
     `landscape listening orb is not the intended larger size: ${JSON.stringify(plain)}`

@@ -35,10 +35,22 @@ having to search through recordings or remember every detail.
 - Demo Baby can retrieve one of three distinct care suggestions from six
   clearly synthetic incidents.
 - A suggestion can be dismissed and reopened without stopping the recording.
+- Every fresh app load opens with a short SootheTrace splash, then reveals the
+  interface with a gentle entrance animation.
+- The interface is built for portrait, short landscape, and desktop. Portrait
+  gives the active profile a full-width header with the recording timer
+  directly below it. Short landscape keeps the orb, controls, History, and
+  suggestion cards inside the visible screen.
+- Visitors can tap the navigation bar or swipe between Listen, History, and
+  Baby. Controls, audio players, and horizontal card rails keep their own
+  gestures.
+- Soft nursery illustrations move slowly while the app is idle and disappear
+  immediately while recording so the listening state remains clear.
 - Landscape mode presents the suggestion, reasoning, and prior incidents as a
   horizontally swipeable card rail.
-- History can show prior incidents, source-labelled stored transcripts, actions,
-  outcomes, and playable managed audio when available.
+- History groups incidents by day and can show recorded time, duration, outcome,
+  evidence source, caregiver transcript, action, notes, tags, and playable
+  managed audio when available.
 - Human Baby runs a separate open-session experiment for adult cry imitations.
 - The same browser and Python service can run locally or behind one hosted HTTPS
   origin.
@@ -146,7 +158,7 @@ returns to the recording view, and one tap reopens it while recording continues.
 
 | Layer | Current implementation |
 |---|---|
-| Browser client | Framework-free HTML, CSS, and JavaScript in `web/`; MediaRecorder microphone capture; upload support; responsive portrait, landscape, and desktop views |
+| Browser client | Framework-free HTML, CSS, and JavaScript in `web/`; MediaRecorder microphone capture; upload support; responsive portrait, short-landscape, and desktop layouts; splash transition; tab and guarded swipe navigation; evidence-rich History |
 | HTTP boundary | `src/http_api.py`; static files and JSON API from one origin; allowlisted public responses; health, readiness, profile, history, care-session, live-session, and audio routes |
 | Audio ingest | FFmpeg decode; bounded accepted formats; canonical 16 kHz mono PCM WAV; fixed linear RMS identity copy |
 | Cry gate | AudioSet AST model through Transformers; project thresholds and infant-over-generic dominance rule |
@@ -234,6 +246,21 @@ before listening. Without `IM_MODEL_DIR`, the cry gate reuses the platform's
 standard Hugging Face cache. An explicit `IM_MODEL_DIR` always wins and is the
 right choice for persistent hosted storage.
 
+### Try the interface
+
+After the readiness check completes:
+
+1. Open the app at [http://127.0.0.1:8000](http://127.0.0.1:8000).
+2. Select Demo Baby and start listening.
+3. Play one of the labeled sources in
+   [`demo_assets/baby_audio/warning-demo`](demo_assets/baby_audio/warning-demo/README.md).
+4. Use the bottom navigation or swipe between Listen, History, and Baby.
+5. Open the live processing view at
+   [http://127.0.0.1:8000/backend.html](http://127.0.0.1:8000/backend.html).
+
+The first app load includes a brief splash screen. The microphone flow remains
+disabled until the service reports that its required models are ready.
+
 ### Use the phone microphone
 
 Mobile browsers require a trusted HTTPS origin for microphone capture.
@@ -256,6 +283,20 @@ cry-imitation fixtures and their consent and evaluation notes are under
 Repetition makes a file longer, but it does not create independent evidence.
 Keep the playback device, volume, distance, room, phone position, and microphone
 unchanged during a controlled rehearsal.
+
+### Presentation media
+
+[`demo_assets/presentation`](demo_assets/presentation/README.md) contains a
+silent 24-second recording of the real WebGL orb moving through the listening,
+cry-checking, profile-comparison, context-matching, and suggestion-ready states.
+
+- [`soothetrace-orb-status-clean.mp4`](demo_assets/presentation/soothetrace-orb-status-clean.mp4)
+  is the reliable 1920 by 1080 version for slides, browsers, and video editors.
+- [`soothetrace-orb-status-alpha.mov`](demo_assets/presentation/soothetrace-orb-status-alpha.mov)
+  is the 1080 by 1080 ProRes 4444 master with transparency.
+
+The presentation README documents how to rebuild and verify both files from the
+current application source.
 
 ## Tests
 
@@ -349,6 +390,7 @@ src/speech.py         Optional transcription and evidence extraction
 src/store.py          SQLite persistence
 scripts/              Local and hosted bootstrap commands
 demo_assets/          Publicly documented rehearsal fixtures
+demo_assets/presentation/  Rebuildable orb presentation clips
 docs/                 Architecture, evaluation, privacy, and demo notes
 ```
 
