@@ -3107,3 +3107,228 @@ body[data-decision="latched"] #preview-bar {
     grid-row: 2;
   }
 }
+
+
+/* ==========================================================================
+   C15 responsive care console polish. Layout and presentation only: capture,
+   APIs, thresholds, latching, matching and the orb shader are untouched.
+   Late in the sheet on purpose, so these rules settle the merged cascade.
+   ========================================================================== */
+
+/* record rows: icon, copy, chevron on ONE line. The merged sheet had the
+   .incident flex system and the .record-card grid system fighting, which
+   stacked every row and let a blanket nowrap-ellipsis garble the badges. */
+.record-card.incident { display: grid; gap: 4px; }
+#page-history #history-list .record-open,
+#page-baby #baby-training .record-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+#page-history #history-list .record-open strong,
+#page-baby #baby-training .record-open strong {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  font-size: 15px;
+  line-height: 1.3;
+}
+#page-history #history-list .record-open span,
+#page-baby #baby-training .record-open span {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+.record-open .record-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+}
+.record-copy .record-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.record-copy .record-outcome {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  font-style: normal;
+  color: var(--ink-2);
+}
+.record-chevron {
+  flex: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink-3);
+}
+#page-history #history-list .glyphbox,
+#page-baby #baby-training .glyphbox {
+  width: 46px;
+  height: 46px;
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+#page-history #history-list .glyphbox img,
+#page-baby #baby-training .glyphbox img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
+#page-history #history-list .record-tags {
+  margin: 0 0 0 58px;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* the recorded-moment hero: copy left, object at rest on the right, badges in
+   a wrapping row. The art was overlapping the words. */
+#history-detail .inc-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  overflow: hidden;
+}
+#history-detail .inc-art {
+  position: static;
+  order: 2;
+  flex: none;
+  width: 88px;
+  height: 88px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, .72);
+  border-radius: 50%;
+}
+#history-detail .inc-art img {
+  width: 62px;
+  height: 62px;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 8px rgba(26, 26, 24, .2));
+}
+#history-detail .inc-hero-copy { flex: 1 1 auto; min-width: 0; }
+#history-detail .inc-action {
+  margin: 2px 0 0;
+  font-size: 23px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+#history-detail .inc-outcome { margin: 7px 0 0; font-size: 13.5px; opacity: .82; }
+#history-detail .inc-meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 10px 0 0;
+}
+#history-detail .inc-meta-line .badge {
+  background: rgba(255, 255, 255, .72);
+  color: inherit;
+  white-space: nowrap;
+}
+
+/* tab strips settle on the approved active state */
+.segs button[aria-selected="true"] {
+  background: var(--ink);
+  color: #FBF9F4;
+  box-shadow: none;
+}
+
+/* the profile page: one big number, the label lives in the kicker, the art
+   stays inside its card */
+#baby-summary { align-items: center; overflow: hidden; }
+#baby-summary > img {
+  flex: none;
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 14px rgba(26, 26, 24, .2));
+}
+#baby-memory-count { margin: 2px 0 0; }
+#baby-memory-count span { display: none; }
+#baby-memory-number {
+  font-family: var(--display);
+  font-size: 52px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+/* quieter page status lines */
+.page-status { margin: 0; font-size: 13px; color: var(--ink-3); }
+
+/* training rows: ordinal, copy, audio in one line (audio drops below) */
+#baby-training .training-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+}
+#baby-training .training-row audio { grid-column: 1 / 3; }
+#baby-training .training-ordinal {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+#baby-training .record-copy strong { font-size: 14.5px; }
+#baby-training .record-copy span { font-size: 12.5px; color: var(--ink-3); }
+
+/* the summary art keeps a margin inside its card */
+#baby-summary > img { margin-right: 6px; }
+
+/* history tags sit under the row copy, left aligned */
+#page-history #history-list .record-tags {
+  justify-self: start;
+  text-align: left;
+  font-size: 12px;
+}
+
+/* active tab wins over the release's lighter pill */
+.segs [role="tab"][aria-selected="true"],
+#history-detail-tabs button[aria-selected="true"] {
+  background: var(--ink);
+  color: #FBF9F4;
+  box-shadow: none;
+}
+
+/* the release pinned the ordinal into column 2 of a three column template,
+   which stacked every training row; place both children explicitly */
+#page-baby #baby-training li.training-row {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+#page-baby #baby-training li.training-row .training-ordinal {
+  grid-column: 1;
+  grid-row: 1;
+}
+#page-baby #baby-training li.training-row .record-copy {
+  grid-column: 2;
+  grid-row: 1;
+}
+#page-baby #baby-training li.training-row audio {
+  grid-column: 1 / 3;
+  grid-row: 2;
+}
+
+/* tags never float over the icon, any orientation */
+#page-history #history-list li .record-tags {
+  position: static !important;
+  float: none !important;
+  margin: 2px 0 0 58px !important;
+  text-align: left !important;
+  max-width: none;
+}

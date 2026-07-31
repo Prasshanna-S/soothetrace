@@ -713,7 +713,9 @@ function invalidateBaby() {
 function formatRecordedTime(value) {
   if (!value) return "Time unavailable";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString([], { month: "short", day: "numeric" }) + ", " +
+    date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 function appendAudio(parent, audio) {
@@ -770,7 +772,7 @@ function settledState(incident) {
 }
 
 function durationText(value) {
-  return Number.isFinite(value) ? Number(value).toFixed(1) + " seconds" : "";
+  return Number.isFinite(value) ? Number(value).toFixed(1) + " s" : "";
 }
 
 function historyIcon(action, className) {
@@ -1135,7 +1137,7 @@ function renderTrainingClip(clip, index) {
   name.textContent = "Training recording " + (index + 1);
   const time = document.createElement("span");
   const length = Number.isFinite(clip && clip.duration_s)
-    ? " · " + Number(clip.duration_s).toFixed(1) + " seconds" : "";
+    ? " · " + Number(clip.duration_s).toFixed(1) + " s" : "";
   time.textContent = formatRecordedTime(clip && clip.captured_at) + length;
   body.append(name, time);
   item.append(ordinal, body);
