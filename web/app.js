@@ -239,19 +239,19 @@ const show = (node, on) => { if (node) node.hidden = !on; };
    checking palette. Detected and grounded palettes remain server-owned. */
 
 const ORB_STATES = {
-  idle:      { c: ["#E4ECFF", "#9DB4F0", "#A9DCC6", "#E3D3F4"], warp: 2.0, speed: 0.18, sat: 1.04, breath: 6.0, scale: 1.00, turn: 0.04 },
-  listening: { c: ["#DDE2FF", "#7C88E8", "#9FCDF0", "#C9AFF0"], warp: 2.7, speed: 0.24, sat: 1.20, breath: 3.2, scale: 1.03, turn: 0.12 },
-  checking:  { c: ["#E8E0FF", "#8D8FE8", "#8BCBEA", "#C5B6F4"], warp: 3.2, speed: 0.31, sat: 1.24, breath: 2.5, scale: 1.06, turn: 0.16 },
-  detected:  { c: ["#FFE9C4", "#F3C34E", "#F0A07E", "#FFD2B8"], warp: 3.1, speed: 0.34, sat: 1.22, breath: 2.3, scale: 1.06, turn: 0.17 },
-  grounded:  { c: ["#D5F0E2", "#6FC6A8", "#9BD9E6", "#BCE9C9"], warp: 2.2, speed: 0.22, sat: 1.16, breath: 5.0, scale: 0.99, turn: 0.08 },
-  paused:    { c: ["#E8EAF1", "#BFC2CE", "#D3D6E0", "#EEF0F6"], warp: 1.5, speed: 0.03, sat: 0.30, breath: 0.0, scale: 0.94, turn: 0 },
+  idle:      { c: ["#E4ECFF", "#9DB4F0", "#A9DCC6", "#E3D3F4"], warp: 2.0, speed: 0.20, sat: 1.04, breath: 4.8, scale: 1.00, turn: -0.08, pulse: 0.045, levelPulse: 0, levelLift: 0 },
+  listening: { c: ["#DDE2FF", "#7C88E8", "#9FCDF0", "#C9AFF0"], warp: 2.7, speed: 0.34, sat: 1.20, breath: 3.2, scale: 1.03, turn: -0.62, pulse: 0.040, levelPulse: 0.040, levelLift: 0.050 },
+  checking:  { c: ["#E8E0FF", "#8D8FE8", "#8BCBEA", "#C5B6F4"], warp: 3.2, speed: 0.38, sat: 1.24, breath: 2.7, scale: 1.05, turn: -0.70, pulse: 0.050, levelPulse: 0.045, levelLift: 0.055 },
+  detected:  { c: ["#FFE9C4", "#F3C34E", "#F0A07E", "#FFD2B8"], warp: 3.1, speed: 0.42, sat: 1.22, breath: 2.4, scale: 1.06, turn: -0.78, pulse: 0.055, levelPulse: 0.050, levelLift: 0.065 },
+  grounded:  { c: ["#D5F0E2", "#6FC6A8", "#9BD9E6", "#BCE9C9"], warp: 2.2, speed: 0.28, sat: 1.16, breath: 4.0, scale: 1.00, turn: -0.36, pulse: 0.035, levelPulse: 0.025, levelLift: 0.030 },
+  paused:    { c: ["#E8EAF1", "#BFC2CE", "#D3D6E0", "#EEF0F6"], warp: 1.5, speed: 0.03, sat: 0.30, breath: 0.0, scale: 0.94, turn: 0, pulse: 0, levelPulse: 0, levelLift: 0 },
 };
 
 const ORB_VERT = "attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}";
 const ORB_FRAG = [
   "precision highp float;",
   "uniform vec2 uRes;uniform float uTime;uniform float uWarp;uniform float uSat;",
-  "uniform float uTurn;",
+  "uniform float uPhase;uniform float uTurn;",
   "uniform vec3 uC1;uniform vec3 uC2;uniform vec3 uC3;uniform vec3 uC4;",
   "vec3 s2l(vec3 c){return pow(max(c,0.0),vec3(2.2));}",
   "vec3 l2s(vec3 c){return pow(max(c,0.0),vec3(1.0/2.2));}",
@@ -287,7 +287,7 @@ const ORB_FRAG = [
   " float k=clamp(r/R,0.0,1.0);float z=sqrt(max(1.0-k*k,0.0));",
   " vec3 N=normalize(vec3(uv/R,z+0.0001));",
   " vec2 sp=uv/R;float bend=0.24*pow(1.0-z,1.6);",
-  " vec2 sphere=sp+N.xy*bend;float phase=t*uTurn;",
+  " vec2 sphere=sp+N.xy*bend;float phase=uPhase;",
   " vec2 flowA=rot2(phase*0.74)*sphere;",
   " vec2 flowB=rot2(-phase*0.31)*sphere;",
   " vec2 tangent=vec2(-sphere.y,sphere.x);",
@@ -347,16 +347,18 @@ function createOrb(canvas) {
   gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
   const U = {};
   for (const n of [
-    "uRes", "uTime", "uWarp", "uSat", "uTurn", "uC1", "uC2", "uC3", "uC4",
+    "uRes", "uTime", "uWarp", "uSat", "uPhase", "uTurn", "uC1", "uC2", "uC3", "uC4",
   ]) {
     U[n] = gl.getUniformLocation(prog, n);
   }
   const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
   const st = ORB_STATES.idle;
   const cur = { c: st.c.map(hex), warp: st.warp, speed: st.speed, sat: st.sat,
-                breath: st.breath, scale: st.scale, turn: st.turn };
+                breath: st.breath, scale: st.scale, turn: st.turn, pulse: st.pulse,
+                levelPulse: st.levelPulse, levelLift: st.levelLift };
   let tgt = JSON.parse(JSON.stringify(cur));
   let clock = 0;
+  let phase = 0;
   let level = 0;          // smoothed microphone RMS, breath depth only
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -373,29 +375,37 @@ function createOrb(canvas) {
   let last = performance.now();
   function frame(now) {
     if (document.hidden) { last = now; requestAnimationFrame(frame); return; }
-    const dt = reduce ? 0.0001 : Math.min(0.05, (now - last) / 1000);
+    const dt = Math.min(0.05, (now - last) / 1000);
+    const motionDt = reduce ? 0 : dt;
     last = now;
     const e = Math.min(1, dt * 2.2);
     for (let i = 0; i < 4; i++) {
       for (let j = 0; j < 3; j++) cur.c[i][j] += (tgt.c[i][j] - cur.c[i][j]) * e;
     }
-    for (const k of ["warp", "speed", "sat", "breath", "scale", "turn"]) {
+    for (const k of [
+      "warp", "speed", "sat", "breath", "scale", "turn", "pulse", "levelPulse", "levelLift",
+    ]) {
       cur[k] += (tgt[k] - cur[k]) * e;
     }
-    clock += dt * cur.speed;
+    clock += motionDt * cur.speed;
+    phase += motionDt * cur.speed * cur.turn;
     resize();
     let pulse = 1;
     if (cur.breath > 0.05) {
-      const depth = 0.018 + level * 0.020;
-      const energyLift = level * 0.070;
-      pulse = 1 + energyLift +
-        depth * Math.sin((now / 1000) * (2 * Math.PI / cur.breath));
+      const depth = cur.pulse + level * cur.levelPulse;
+      const energyLift = level * cur.levelLift;
+      pulse = reduce
+        ? 1
+        : 1 + energyLift +
+          depth * Math.sin((now / 1000) * (2 * Math.PI / cur.breath));
     }
-    canvas.style.transform = "scale(" + (cur.scale * pulse).toFixed(4) + ")";
+    canvas.style.transform = "scale(" + (reduce ? 1 : cur.scale * pulse).toFixed(4) + ")";
+    canvas.dataset.flowAngle = (-phase * 0.74).toFixed(6);
     gl.uniform2f(U.uRes, canvas.width, canvas.height);
     gl.uniform1f(U.uTime, clock);
     gl.uniform1f(U.uWarp, cur.warp);
     gl.uniform1f(U.uSat, cur.sat);
+    gl.uniform1f(U.uPhase, phase);
     gl.uniform1f(U.uTurn, reduce ? 0 : cur.turn);
     gl.uniform3fv(U.uC1, cur.c[0]);
     gl.uniform3fv(U.uC2, cur.c[1]);
@@ -411,7 +421,8 @@ function createOrb(canvas) {
       const s = ORB_STATES[name];
       if (!s) return;
       tgt = { c: s.c.map(hex), warp: s.warp, speed: s.speed, sat: s.sat,
-              breath: s.breath, scale: s.scale, turn: s.turn };
+              breath: s.breath, scale: s.scale, turn: s.turn, pulse: s.pulse,
+              levelPulse: s.levelPulse, levelLift: s.levelLift };
     },
     setLevel(v) {
       level = Math.max(0, Math.min(1, v));

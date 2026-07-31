@@ -210,6 +210,7 @@ body:not([data-launched="true"]) #tabbar {
 #ambient {
   position: fixed;
   inset: 0;
+  clip-path: inset(0 max(0px, calc((100vw - var(--col)) / 2)));
   pointer-events: none;
   z-index: 0;
   color: #D4D7E5;
@@ -237,55 +238,22 @@ body[data-session="paused"] #ambient {
 #ambient .ambient-sticker {
   position: fixed;
   object-fit: contain;
-  opacity: .035;
-  filter: saturate(.42) blur(.35px) drop-shadow(0 4px 8px rgba(45, 47, 68, .035));
+  opacity: .052;
+  filter: saturate(.55) blur(.3px) drop-shadow(0 4px 8px rgba(45, 47, 68, .04));
   transform-origin: center;
   will-change: transform;
 }
 
-.sticker-cuddle {
-  width: clamp(70px, 10vw, 116px);
-  left: 7%;
-  top: 72%;
-  --sticker-x: 11px;
-  --sticker-y: -9px;
-  --sticker-turn: 2deg;
-  --sticker-duration: 31s;
-  --sticker-delay: -14s;
-}
-
-.sticker-feeding {
-  width: clamp(58px, 8vw, 94px);
-  right: 7%;
-  top: 20%;
-  --sticker-x: -9px;
-  --sticker-y: 12px;
-  --sticker-turn: -2.5deg;
-  --sticker-duration: 37s;
-  --sticker-delay: -23s;
-}
-
-.sticker-sleeping {
-  width: clamp(72px, 10vw, 120px);
-  right: 12%;
-  bottom: 11%;
-  --sticker-x: -12px;
-  --sticker-y: -8px;
-  --sticker-turn: 1.5deg;
-  --sticker-duration: 34s;
-  --sticker-delay: -7s;
-}
-
-.sticker-walk {
-  width: clamp(54px, 7vw, 86px);
-  left: 13%;
-  top: 17%;
-  --sticker-x: 8px;
-  --sticker-y: 11px;
-  --sticker-turn: -1.5deg;
-  --sticker-duration: 40s;
-  --sticker-delay: -31s;
-}
+.sticker-duck { width: clamp(58px, 9vw, 106px); left: 5%; top: 69%; --x1: 15px; --y1: -9px; --x2: -8px; --y2: -17px; --x3: 20px; --y3: 7px; --x4: -13px; --y4: 12px; --x5: 8px; --y5: -15px; --turn: 3deg; --sticker-duration: 24s; --sticker-delay: -15s; }
+.sticker-teddy { width: clamp(60px, 9vw, 110px); right: 4%; top: 16%; --x1: -13px; --y1: 12px; --x2: 11px; --y2: 19px; --x3: -18px; --y3: -6px; --x4: 9px; --y4: -16px; --x5: -6px; --y5: 13px; --turn: -3deg; --sticker-duration: 27s; --sticker-delay: -22s; }
+.sticker-stroller { width: clamp(74px, 11vw, 126px); right: 7%; bottom: 9%; --x1: -17px; --y1: -11px; --x2: 10px; --y2: -18px; --x3: 17px; --y3: 10px; --x4: -11px; --y4: 16px; --x5: 7px; --y5: -14px; --turn: 2.5deg; --sticker-duration: 30s; --sticker-delay: -8s; }
+.sticker-crib { width: clamp(68px, 10vw, 118px); left: 10%; top: 13%; --x1: 10px; --y1: 14px; --x2: -15px; --y2: 8px; --x3: 18px; --y3: -13px; --x4: -8px; --y4: -17px; --x5: 13px; --y5: 6px; --turn: -2.4deg; --sticker-duration: 33s; --sticker-delay: -29s; }
+.sticker-rattle { width: clamp(48px, 7vw, 78px); right: 15%; top: 42%; --x1: -11px; --y1: 13px; --x2: 14px; --y2: 8px; --x3: -17px; --y3: -9px; --x4: 12px; --y4: -13px; --x5: -6px; --y5: 15px; --turn: 4deg; --sticker-duration: 35s; --sticker-delay: -19s; }
+.sticker-stack { width: clamp(56px, 8vw, 92px); left: 18%; bottom: 19%; --x1: 13px; --y1: -15px; --x2: -11px; --y2: -7px; --x3: 17px; --y3: 11px; --x4: -15px; --y4: 14px; --x5: 7px; --y5: -11px; --turn: -3.5deg; --sticker-duration: 37s; --sticker-delay: -4s; }
+.sticker-bathtub { width: clamp(65px, 9vw, 105px); right: 20%; top: 6%; --x1: -14px; --y1: 8px; --x2: 8px; --y2: 16px; --x3: 15px; --y3: -9px; --x4: -12px; --y4: -15px; --x5: 11px; --y5: 4px; --turn: 2deg; --sticker-duration: 39s; --sticker-delay: -33s; }
+.sticker-mittens { width: clamp(46px, 7vw, 74px); left: 4%; top: 38%; --x1: 12px; --y1: 11px; --x2: -8px; --y2: 17px; --x3: 16px; --y3: -8px; --x4: -14px; --y4: -12px; --x5: 6px; --y5: 14px; --turn: -4deg; --sticker-duration: 41s; --sticker-delay: -25s; }
+.sticker-bib { width: clamp(48px, 7vw, 80px); right: 5%; top: 60%; --x1: -16px; --y1: -8px; --x2: 12px; --y2: -15px; --x3: 8px; --y3: 14px; --x4: -14px; --y4: 11px; --x5: 10px; --y5: -12px; --turn: 3.3deg; --sticker-duration: 43s; --sticker-delay: -36s; }
+.sticker-onesie { width: clamp(50px, 8vw, 84px); left: 29%; top: 79%; --x1: 9px; --y1: -16px; --x2: -15px; --y2: -5px; --x3: 17px; --y3: 9px; --x4: -10px; --y4: 15px; --x5: 14px; --y5: -8px; --turn: -2.8deg; --sticker-duration: 29s; --sticker-delay: -12s; }
 
 body[data-session="requesting"] #ambient .ambient-sticker,
 body[data-session="listening"] #ambient .ambient-sticker,
@@ -294,12 +262,12 @@ body[data-session="paused"] #ambient .ambient-sticker {
 }
 
 @keyframes ambient-sticker-drift {
-  0%, 100% { transform: translate3d(0, 0, 0); }
-  50% {
-    transform:
-      translate3d(var(--sticker-x), var(--sticker-y), 0)
-      rotate(var(--sticker-turn));
-  }
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0); }
+  18% { transform: translate3d(var(--x1), var(--y1), 0) rotate(var(--turn)); }
+  39% { transform: translate3d(var(--x2), var(--y2), 0) rotate(calc(var(--turn) * -.5)); }
+  63% { transform: translate3d(var(--x3), var(--y3), 0) rotate(calc(var(--turn) * .8)); }
+  82% { transform: translate3d(var(--x4), var(--y4), 0) rotate(calc(var(--turn) * -.7)); }
+  92% { transform: translate3d(var(--x5), var(--y5), 0) rotate(calc(var(--turn) * .45)); }
 }
 
 /* --------------------------------------------------------------- shell --- */
