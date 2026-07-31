@@ -11,6 +11,21 @@ translation, diagnosis, confidence score, or claim about why a baby is crying.
 SootheTrace is a proof of concept, not a medical device, emergency service, or
 unattended monitor.
 
+## Inspiration
+
+Anyone who knows Prasshanna knows how much he loves his nephew. His nephew is even the wallpaper on
+his phone. Watching him grow toward his second birthday has brought the whole family a lot of joy,
+but the road there has not always been easy.
+
+There were endless nights of crying. Prasshanna would see his sister exhausted after trying one
+thing after another to settle the baby. Sometimes she was too tired even to answer a call. The
+family slowly learned what might help, but those small lessons were easy to forget during the next
+stressful night.
+
+That experience inspired a family-specific memory aid. During another difficult
+night, the caregiver can see what helped in a similar earlier situation without
+having to search through recordings or remember every detail.
+
 ## What is working
 
 - A phone or desktop browser can record microphone audio continuously in
