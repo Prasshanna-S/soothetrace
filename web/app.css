@@ -632,6 +632,12 @@ h2 {
   text-align: center;
   transition: opacity .25s ease;
 }
+#analysis-status-text {
+  display: block;
+  width: 100%;
+  margin: 0;
+  text-align: inherit;
+}
 
 /* hands free: the orb docks top right as a quiet status light and the
    guidance owns the page */
@@ -1405,12 +1411,15 @@ body[data-decision="latched"] #preview-bar {
   #page-listen[data-state="paused"][data-decision="none"] #analysis-status,
   #page-listen[data-state="listening"][data-decision="dismissed"] #analysis-status,
   #page-listen[data-state="paused"][data-decision="dismissed"] #analysis-status {
-    position: fixed;
-    left: calc(75.61vw - var(--sar) + 18px);
-    top: auto;
-    bottom: calc(50% - 11.5px);
-    width: min(330px, calc(50vw - var(--sar) - 20px));
-    transform: translateX(-50%);
+    position: static;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    height: 44px;
+    min-height: 44px;
+    max-height: 44px;
+    width: min(100%, 330px);
+    transform: translate(-1px, -43px);
     line-height: 1.35;
   }
 
@@ -1418,7 +1427,7 @@ body[data-decision="latched"] #preview-bar {
      replaces the consent line and Pause/Stop replace Start listening. */
   body[data-session="listening"]:not([data-decision="latched"]) #ctl-capsule,
   body[data-session="paused"]:not([data-decision="latched"]) #ctl-capsule {
-    left: calc(75.61vw - var(--sar) + 18px);
+    left: var(--live-action-x, calc(75.61vw - var(--sar) + 18px));
     top: calc(50% + 47.9px);
     bottom: auto;
     transform: translate(-50%, -50%);

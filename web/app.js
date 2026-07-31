@@ -140,7 +140,8 @@ const ui = {
   connRetry: $("btn-conn-retry"),
   orb: $("orb"),
   orbWrap: $("orb-wrap"),
-  analysis: $("analysis-status"),
+  analysis: $("analysis-status-text"),
+  analysisBox: $("analysis-status"),
   reopenSuggestion: $("btn-reopen-suggestion"),
   suggestion: $("suggestion-block"),
   suggestionToolbar: $("suggestion-toolbar"),
@@ -249,6 +250,45 @@ function syncAmbientDensity() {
 
 syncAmbientDensity();
 window.addEventListener("resize", syncAmbientDensity);
+
+let liveActionAlignRaf = null;
+let liveActionAlignTimer = null;
+
+function syncLandscapeActionAlignment() {
+  const compactLandscape = window.matchMedia(
+    "(orientation: landscape) and (max-height: 580px)"
+  ).matches;
+  const ordinaryListening = (
+    (state.session === "listening" || state.session === "paused") &&
+    ui.body.dataset.decision !== "latched"
+  );
+  if (!compactLandscape || !ordinaryListening) {
+    ui.body.style.removeProperty("--live-action-x");
+    return;
+  }
+  const statusRect = ui.analysisBox.getBoundingClientRect();
+  if (statusRect.width > 0) {
+    ui.body.style.setProperty(
+      "--live-action-x",
+      `${statusRect.left + statusRect.width / 2}px`
+    );
+  }
+}
+
+function scheduleLandscapeActionAlignment() {
+  cancelAnimationFrame(liveActionAlignRaf);
+  clearTimeout(liveActionAlignTimer);
+  liveActionAlignRaf = requestAnimationFrame(() => {
+    liveActionAlignRaf = null;
+    syncLandscapeActionAlignment();
+  });
+  liveActionAlignTimer = setTimeout(() => {
+    liveActionAlignTimer = null;
+    syncLandscapeActionAlignment();
+  }, 180);
+}
+
+window.addEventListener("resize", scheduleLandscapeActionAlignment);
 
 /* ====================================================================== orb
    A domain warped noise field on a lit glass sphere, mixed in OKLab so the
@@ -2111,6 +2151,7 @@ function syncSuggestionPresentation() {
   ui.dismissSuggestion.setAttribute("aria-expanded", visible ? "true" : "false");
   ui.reopenSuggestion.setAttribute("aria-expanded", visible ? "true" : "false");
   if (!visible) setSuggestionEvidence(false);
+  scheduleLandscapeActionAlignment();
   return visible;
 }
 
@@ -2146,6 +2187,7 @@ function setSessionState(name) {
   if (name === "idle") orbState("idle");
   else if (name === "listening") orbState(suggestionPresented ? "grounded" : "listening");
   else if (name === "paused") orbState("paused");
+  scheduleLandscapeActionAlignment();
 }
 
 function setAnalysis(text, ttlMs) {
@@ -3062,7 +3104,10 @@ ui.dismissSuggestion.addEventListener("click", dismissGroundedSuggestion);
 ui.reopenSuggestion.addEventListener("click", reopenGroundedSuggestion);
 ui.suggestionEvidence.addEventListener("click", () => {
   setSuggestionEvidence(true);
-  requestAnimationFrame(() => ui.closeSuggestionEvidence.focus());
+  ui.closeSuggestionEvidence.focus({ preventScroll: true });
+  requestAnimationFrame(() =>
+    ui.closeSuggestionEvidence.focus({ preventScroll: true })
+  );
 });
 ui.closeSuggestionEvidence.addEventListener("click", () => {
   setSuggestionEvidence(false);

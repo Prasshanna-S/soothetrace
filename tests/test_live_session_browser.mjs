@@ -576,14 +576,16 @@ async function runLivePath(browser) {
     const node = document.querySelector("#analysis-status");
     return {
       visibleLabels: labels.length,
-      text: node.textContent,
+      text: node.textContent.trim(),
       opacity: getComputedStyle(node).opacity,
       childElements: node.childElementCount,
+      childId: node.firstElementChild?.id || "",
     };
   });
   assert(
     phaseStatus.visibleLabels === 1 &&
-      phaseStatus.childElements === 0 &&
+      phaseStatus.childElements === 1 &&
+      phaseStatus.childId === "analysis-status-text" &&
       phaseStatus.text === "Still listening" &&
       phaseStatus.opacity !== "0",
     `phase status did not replace synchronously: ${JSON.stringify(phaseStatus)}`
@@ -1595,11 +1597,13 @@ async function runLandscapeListeningFit(browser, viewport) {
   const wrappedStatus = await page.evaluate(() => {
     const status = document.querySelector("#analysis-status");
     const controls = document.querySelector("#ctl-capsule");
-    status.textContent =
-      "Infant cry detected. Comparing this moment with earlier memories.";
+    setAnalysis(
+      "Infant cry detected. Comparing this moment with earlier memories.",
+      0
+    );
     const statusBox = status.getBoundingClientRect();
     const controlsBox = controls.getBoundingClientRect();
-    status.textContent = "Listening";
+    setAnalysis("Listening", 0);
     return {
       statusCenterX: +(statusBox.left + statusBox.width / 2).toFixed(1),
       controlsCenterX:
