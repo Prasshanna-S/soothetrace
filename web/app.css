@@ -3188,6 +3188,10 @@ body[data-decision="latched"] #preview-bar {
     margin-inline: 0;
   }
 
+  #page-history #history-list > .hist-hero {
+    grid-column: 1 / -1;
+  }
+
   #page-history:has(#history-detail:not([hidden])) > #history-list,
   #page-history[data-state="detail"] > #history-list {
     grid-column: 1;
@@ -3897,9 +3901,9 @@ body[data-decision="latched"] #preview-bar {
 #page-baby #baby-memory-beads i.on { background: currentColor; }
 
 /* section cards hold flat rows, not cards inside cards */
-.training-card { border: 1px solid var(--hair); border-radius: 22px;
+#page-baby .training-card { border: 1px solid var(--hair); border-radius: 22px;
   box-shadow: none; }
-.training-card > h2 {
+#page-baby .training-card > h2 {
   margin: 2px 0 0;
   font-size: 14.5px;
   font-weight: 600;
@@ -3989,7 +3993,7 @@ body[data-decision="latched"] #preview-bar {
 
 /* card language: borderless, soft float, generous radius */
 #page-history #history-list .record-card.incident,
-.training-card,
+#page-baby .training-card,
 #history-detail,
 #page-history #history-detail .record-detail-pane .record-card,
 #page-history #history-detail .record-detail-pane .detail-card {
@@ -3999,7 +4003,7 @@ body[data-decision="latched"] #preview-bar {
               0 14px 30px -22px rgba(26, 26, 24, .35) !important;
 }
 #page-history #history-list .record-card.incident { border-radius: 22px; padding: 14px 15px; }
-.training-card { border-radius: 26px; }
+#page-baby .training-card { border-radius: 26px; }
 #page-history #history-detail { border-radius: 26px; }
 #page-history #history-list .record-card.incident.seeded {
   box-shadow: 0 0 0 1px rgba(140, 42, 22, .25) inset,

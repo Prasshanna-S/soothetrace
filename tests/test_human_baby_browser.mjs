@@ -155,6 +155,27 @@ try {
 
   await page.selectOption("#profile-picker", "human-baby");
   await page.waitForSelector("#page-human:not([hidden])");
+  await page.waitForSelector("#human-workspace .training-card");
+  const humanCardStyles = await page.locator("#human-workspace .training-card")
+    .evaluateAll((cards) => cards.map((card) => {
+      const style = getComputedStyle(card);
+      return {
+        borderTopWidth: style.borderTopWidth,
+        borderRadius: style.borderRadius,
+        backgroundColor: style.backgroundColor,
+        boxShadow: style.boxShadow,
+      };
+    }));
+  assert(
+    humanCardStyles.length === 2 &&
+      humanCardStyles.every((style) =>
+        style.borderTopWidth === "1px" &&
+        style.borderRadius === "18px" &&
+        style.backgroundColor === "rgba(255, 255, 255, 0.72)" &&
+        style.boxShadow.includes("6px 18px")
+      ),
+    `record-page card styling leaked into Human Baby: ${JSON.stringify(humanCardStyles)}`
+  );
   await page.click("#btn-new-human-session");
   await page.waitForFunction(() => !document.querySelector("#human-file").disabled);
   await page.setInputFiles("#human-file", {

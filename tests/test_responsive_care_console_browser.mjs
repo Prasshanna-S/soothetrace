@@ -505,7 +505,12 @@ try {
     return {
       list: { left: list.left, right: list.right, width: list.width },
       headings,
-      firstCard: { left: firstCard.left, top: firstCard.top },
+      firstCard: {
+        left: firstCard.left,
+        right: firstCard.right,
+        top: firstCard.top,
+        width: firstCard.width,
+      },
       firstHeadingBottom: document.querySelector("#history-list .hist-day")
         .getBoundingClientRect().bottom,
     };
@@ -516,8 +521,10 @@ try {
       Math.abs(heading.right - desktopHistory.list.right) <= 1
     ) &&
       Math.abs(desktopHistory.firstCard.left - desktopHistory.list.left) <= 1 &&
+      Math.abs(desktopHistory.firstCard.right - desktopHistory.list.right) <= 1 &&
+      Math.abs(desktopHistory.firstCard.width - desktopHistory.list.width) <= 1 &&
       desktopHistory.firstCard.top >= desktopHistory.firstHeadingBottom,
-    `desktop History day groups break the card grid: ${JSON.stringify(desktopHistory)}`
+    `desktop History hero or day groups break the card grid: ${JSON.stringify(desktopHistory)}`
   );
 
   await page.setViewportSize({ width: 844, height: 390 });
