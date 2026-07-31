@@ -855,62 +855,100 @@ function historyIcon(action, className) {
 }
 
 function renderHistoryIncident(incident) {
+  const fragment = document.createDocumentFragment();
+
+  /* day group labels come from the DOM itself, so pagination keeps working:
+     a new label appears only when this incident's day differs from the last
+     rendered row's day */
+  const dayKey = recordedDayKey(incident && incident.started_at);
+  const lastRow = ui.historyList.lastElementChild;
+  if (!lastRow || lastRow.dataset.dayKey !== dayKey) {
+    const dayHeader = document.createElement("li");
+    dayHeader.className = "hist-day";
+    dayHeader.dataset.dayKey = dayKey;
+    dayHeader.textContent = formatRecordedDay(incident && incident.started_at);
+    fragment.appendChild(dayHeader);
+  }
+
   const row = document.createElement("li");
   const provenance = incidentProvenance(incident);
   row.className = "record-card incident hist-item" +
     (provenance.synthetic ? " seeded" : "");
+  row.dataset.dayKey = dayKey;
   if (incident && incident.id != null) row.dataset.incidentId = String(incident.id);
+
   const open = document.createElement("button");
   open.type = "button";
   open.className = "record-open";
   const action = incidentAction(incident);
+
   const body = document.createElement("span");
   body.className = "body record-copy";
   const title = document.createElement("strong");
   title.className = "act record-action";
   title.textContent = action;
+
+  /* one quiet meta line: time, duration, then the outcome as a worded state.
+     No dots, no repeated "not recorded" prose. */
   const meta = document.createElement("span");
-  meta.className = "meta record-meta metaline";
-  const settled = settledState(incident);
-  const time = document.createElement("span");
-  time.className = "mono";
-  time.textContent = formatRecordedClock(incident && incident.started_at);
-  meta.appendChild(time);
-  if (Number.isFinite(incident && incident.duration_s)) {
-    const duration = document.createElement("span");
-    duration.className = "mono dim";
-    duration.textContent = Math.round(Number(incident.duration_s)) + " s";
-    meta.appendChild(duration);
+  meta.className = "meta record-meta";
+  const clock = document.createElement("span");
+  clock.className = "mono";
+  clock.textContent = formatRecordedClock(incident && incident.started_at);
+  meta.appendChild(clock);
+  const duration = durationText(incident && incident.duration_s);
+  if (duration) {
+    const durationEl = document.createElement("span");
+    durationEl.className = "mono dim";
+    durationEl.textContent = duration;
+    meta.appendChild(durationEl);
   }
-  const settledWord = document.createElement("span");
-  settledWord.className = "settle-word";
-  settledWord.dataset.settled = settled.key;
-  settledWord.textContent = settled.label;
-  meta.appendChild(settledWord);
-  const badge = document.createElement("span");
-  badge.className = "badge " + provenance.className;
-  badge.textContent = provenance.label;
-  meta.appendChild(badge);
-  const outcome = document.createElement("span");
-  outcome.className = "quote record-outcome";
-  outcome.textContent = incidentOutcome(incident);
-  body.append(title, meta, outcome);
+  const settled = settledState(incident);
+  const settledEl = document.createElement("span");
+  settledEl.className = "settle-word";
+  settledEl.dataset.settled = settled.key;
+  settledEl.textContent = settled.key === "null" ? "No outcome" : settled.label;
+  meta.appendChild(settledEl);
+  /* a badge appears only when it carries information the row does not */
+  if (provenance.synthetic || provenance.className === "bd-inf") {
+    const badge = document.createElement("span");
+    badge.className = "badge " + provenance.className;
+    badge.textContent = provenance.synthetic ? "seeded" : "inferred";
+    meta.appendChild(badge);
+  }
+
+  body.append(title, meta);
+
+  const outcomeText = incidentOutcome(incident);
+  if (outcomeText && outcomeText !== "No outcome recorded") {
+    const outcome = document.createElement("span");
+    outcome.className = "quote record-outcome";
+    outcome.textContent = outcomeText;
+    body.appendChild(outcome);
+  }
+
   const chevron = document.createElement("span");
   chevron.className = "chev record-chevron";
   chevron.setAttribute("aria-hidden", "true");
-  chevron.textContent = "›";
+  chevron.textContent = "\u203A";
   open.append(historyIcon(action), body, chevron);
   open.addEventListener("click", () => { void loadHistoryDetail(incident && incident.id); });
   row.appendChild(open);
+
   const tags = incident && incident.context && Array.isArray(incident.context.tags)
     ? incident.context.tags : [];
   if (tags.length) {
     const tagLine = document.createElement("p");
-    tagLine.className = "record-tags";
-    tagLine.textContent = tags.join(", ");
+    tagLine.className = "record-tags chips";
+    for (const tag of tags) {
+      const chipEl = document.createElement("span");
+      chipEl.textContent = tag;
+      tagLine.appendChild(chipEl);
+    }
     row.appendChild(tagLine);
   }
-  return row;
+  fragment.appendChild(row);
+  return fragment;
 }
 
 async function loadHistory(reset) {
@@ -1218,7 +1256,7 @@ function renderTrainingClip(clip, index) {
   const body = document.createElement("div");
   body.className = "body record-copy";
   const name = document.createElement("strong");
-  name.textContent = "Training recording " + (index + 1);
+  name.textContent = "Clip " + (index + 1);
   const time = document.createElement("span");
   const length = Number.isFinite(clip && clip.duration_s)
     ? " · " + Number(clip.duration_s).toFixed(1) + " s" : "";

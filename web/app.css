@@ -3739,3 +3739,244 @@ body[data-decision="latched"] #preview-bar {
     display: none;
   }
 }
+
+
+/* ==========================================================================
+   Record pages redesign. History and the profile page rethought as calm,
+   single-purpose surfaces: one soft card per moment, objects free floating,
+   one meta line, day group labels, and no border inside a border.
+   Late in the sheet on purpose so the merged cascade settles here.
+   ========================================================================== */
+
+/* day groups */
+#history-list .hist-day {
+  margin: 10px 2px 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+#history-list .hist-day:first-child { margin-top: 0; }
+
+/* one soft card per moment */
+#history-list .record-card.incident {
+  border: 1px solid var(--hair);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: none;
+  padding: 13px 14px;
+  display: grid;
+  gap: 6px;
+}
+#history-list .record-card.incident.seeded { border-color: rgba(140, 42, 22, .28); }
+
+/* the object floats free: no tile, no border behind it */
+#history-list .record-open .glyphbox,
+#page-baby #baby-training .glyphbox {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: none !important;
+  border: 0 !important;
+  border-radius: 0;
+}
+#history-list .record-open .glyphbox img,
+#page-baby #baby-training .glyphbox img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 5px rgba(26, 26, 24, .16));
+}
+
+/* row anatomy: object, copy, chevron on one centered line */
+#page-history #history-list .record-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+#page-history #history-list .record-open::before { display: none; }
+#page-history #history-list .record-open strong {
+  display: block;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  font-size: 15px;
+  line-height: 1.3;
+  font-weight: 650;
+}
+#page-history #history-list .record-open .record-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+}
+#page-history #history-list .record-open .record-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  margin-top: 3px;
+  white-space: normal;
+  overflow: visible;
+}
+#page-history #history-list .record-meta .mono { font-size: 12px; color: var(--ink-2); }
+#page-history #history-list .record-meta .dim { color: var(--ink-3); }
+.settle-word { font-size: 12px; font-weight: 600; }
+.settle-word[data-settled="true"]  { color: #35806A; }
+.settle-word[data-settled="false"] { color: var(--ink-2); }
+.settle-word[data-settled="null"]  { color: var(--ink-3); font-weight: 500; }
+#page-history #history-list .record-outcome {
+  display: block;
+  margin-top: 3px;
+  font-size: 12.5px;
+  font-style: normal;
+  color: var(--ink-2);
+  white-space: normal;
+  overflow: visible;
+}
+#page-history #history-list .record-chevron {
+  flex: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink-3);
+}
+
+/* tags as quiet chips under the row */
+#page-history #history-list .record-tags.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 0 56px !important;
+  position: static !important;
+}
+#page-history #history-list .record-tags.chips span {
+  padding: 3px 11px;
+  border-radius: 999px;
+  background: var(--bg);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+/* ---------------- profile page ---------------- */
+
+/* the memory hero: one big number, everything else supports it */
+#baby-summary {
+  align-items: center;
+  overflow: hidden;
+  border: 0;
+  border-radius: 26px;
+}
+#baby-summary > img {
+  flex: none;
+  width: 100px;
+  height: 100px;
+  margin-right: 4px;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 14px rgba(26, 26, 24, .2));
+}
+#baby-memory-count { margin: 2px 0 0; }
+#baby-memory-count span { display: none; }
+#baby-memory-number {
+  font-family: var(--display);
+  font-size: 54px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+#baby-memory-beads { display: flex; gap: 6px; margin-top: 12px; }
+#baby-memory-beads i { width: 10px; height: 10px; border-radius: 50%;
+  background: rgba(255, 255, 255, .55); }
+#baby-memory-beads i.on { background: currentColor; }
+
+/* section cards hold flat rows, not cards inside cards */
+.training-card { border: 1px solid var(--hair); border-radius: 22px;
+  box-shadow: none; }
+.training-card > h2 {
+  margin: 2px 0 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  letter-spacing: -0.005em;
+}
+#page-baby #baby-training .record-card {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--hair);
+}
+#page-baby #baby-training .record-card:last-child { border-bottom: 0; }
+#page-baby #baby-training li.training-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+}
+#page-baby #baby-training li.training-row .training-ordinal {
+  grid-column: 1;
+  grid-row: 1;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+#page-baby #baby-training li.training-row .record-copy { grid-column: 2; grid-row: 1; }
+#page-baby #baby-training li.training-row audio { grid-column: 1 / 3; grid-row: 2; }
+#page-baby #baby-training .record-copy strong { font-size: 14.5px; }
+#page-baby #baby-training .record-copy span { font-size: 12.5px; color: var(--ink-3); }
+
+/* signal chips share the tag grammar */
+#baby-context-list span {
+  padding: 5px 13px;
+  border-radius: 999px;
+  background: var(--bg);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+/* detail hero stays the C15 anatomy; the pane cards drop their double border */
+#history-detail { border: 1px solid var(--hair); box-shadow: none; }
+#history-detail .record-detail-pane .record-card,
+#history-detail .record-detail-pane .detail-card {
+  border: 1px solid var(--hair);
+  box-shadow: none;
+}
+
+/* final settlement: tab active state, card headings, seeded badge colour */
+#page-history .segs button[aria-selected="true"],
+#history-detail-tabs button[aria-selected="true"],
+#page-listen .segs button[aria-selected="true"] {
+  background: var(--ink) !important;
+  color: #FBF9F4 !important;
+  box-shadow: none !important;
+}
+#page-baby .training-card > h2,
+#page-history .training-card > h2 {
+  margin: 2px 0 0 !important;
+  font-size: 14.5px !important;
+  font-weight: 600 !important;
+  color: var(--ink-2) !important;
+  letter-spacing: -0.005em !important;
+}
+.badge.bd-seed {
+  background: #F3D2CB !important;
+  color: #8C2A16 !important;
+}
+#baby-memory-number { font-size: 54px !important; }
