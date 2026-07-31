@@ -1402,9 +1402,9 @@ const recordUi = {
 const READY_MEMORIES = 6;      // six or more usable memories means ready for recall
 const CARE_EVENT_ICONS = { feeding: "feeding", sleep: "sleeping", diaper: "diaper",
                            soothing: "cuddle", note: "notes" };
-const CARE_EVENT_TINTS = { feeding: "var(--butter)", sleep: "var(--peri)",
-                           diaper: "var(--blush)", soothing: "var(--mint)",
-                           note: "var(--bg-2)" };
+const CARE_EVENT_TINTS = { feeding: "#F7ECC4", sleep: "#E4E5F8",
+                           diaper: "#F8E9E3", soothing: "#E1EFE8",
+                           note: "#EDEEF4" };
 
 function setPageState(section, name) { section.dataset.state = name; }
 
@@ -1428,6 +1428,25 @@ function babyState(name) {
 
 let historyPayload = null;
 
+function formatDay(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const same = (a, b) => a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (same(d, today)) return "Today";
+  if (same(d, yesterday)) return "Yesterday";
+  return d.toLocaleDateString([], { month: "long", day: "numeric" });
+}
+
+function formatTime(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
 function renderHistory(payload) {
   historyPayload = payload;
   const profile = payload.profile || {};
@@ -1435,7 +1454,16 @@ function renderHistory(payload) {
   recordUi.historyList.textContent = "";
   const incidents = payload.incidents || [];
   if (!incidents.length) { historyState("empty"); return; }
+  let lastDay = null;
   for (const entry of incidents) {
+    const day = formatDay(entry.started_at);
+    if (day !== lastDay) {
+      lastDay = day;
+      const header = document.createElement("li");
+      header.className = "hist-day";
+      header.textContent = day;
+      recordUi.historyList.appendChild(header);
+    }
     recordUi.historyList.appendChild(renderHistoryEntry(entry));
   }
   historyState("ready");
@@ -1462,35 +1490,42 @@ function renderHistoryEntry(entry) {
 
   const body = document.createElement("div");
   body.className = "body";
-  const actline = document.createElement("div");
-  actline.className = "actline";
   const act = document.createElement("p");
   act.className = "act";
   act.textContent = firstAction;
-  actline.appendChild(act);
   const meta = document.createElement("p");
-  meta.className = "meta whenline";
-  const dot = document.createElement("i");
-  dot.className = "settle-dot";
-  const settled = entry.outcome ? entry.outcome.settled : null;
-  dot.dataset.settled = settled === true ? "true" : settled === false ? "false" : "null";
-  meta.appendChild(dot);
-  meta.append(formatWhen(entry.started_at) +
-    (typeof entry.duration_s === "number" ? " . " + entry.duration_s.toFixed(1) + " s" : ""));
-  const badge = document.createElement("span");
-  badge.className = "badge " + (provenance.synthetic ? "bd-seed" :
-    (entry.outcome && entry.outcome.source === "inferred") ? "bd-inf" : "bd-care");
-  badge.textContent = provenance.synthetic ? "seeded" :
-    (entry.outcome && entry.outcome.source) || "caregiver";
-  meta.appendChild(badge);
-  body.appendChild(actline);
-  body.appendChild(meta);
-  if (entry.outcome && entry.outcome.text) {
-    const line = document.createElement("p");
-    line.className = "meta";
-    line.textContent = entry.outcome.text;
-    body.appendChild(line);
+  meta.className = "meta metaline";
+  const time = document.createElement("span");
+  time.className = "mono";
+  time.textContent = formatTime(entry.started_at);
+  meta.appendChild(time);
+  if (typeof entry.duration_s === "number") {
+    const dur = document.createElement("span");
+    dur.className = "mono dim";
+    dur.textContent = entry.duration_s.toFixed(0) + " s";
+    meta.appendChild(dur);
   }
+  const settled = entry.outcome ? entry.outcome.settled : null;
+  const word = document.createElement("span");
+  word.className = "settle-word";
+  word.dataset.settled = settled === true ? "true" :
+    settled === false ? "false" : "null";
+  word.textContent = settled === true ? "Settled" :
+    settled === false ? "Still crying" : "Not recorded";
+  meta.appendChild(word);
+  if (provenance.synthetic) {
+    const badge = document.createElement("span");
+    badge.className = "badge bd-seed";
+    badge.textContent = "seeded";
+    meta.appendChild(badge);
+  } else if (entry.outcome && entry.outcome.source === "inferred") {
+    const badge = document.createElement("span");
+    badge.className = "badge bd-inf";
+    badge.textContent = "inferred";
+    meta.appendChild(badge);
+  }
+  body.appendChild(act);
+  body.appendChild(meta);
 
   const chev = document.createElement("span");
   chev.className = "chev";
@@ -1658,10 +1693,11 @@ function renderBaby(payload) {
   setText(recordUi.clipsKicker,
     "Training clips, " + clips.length + " independent");
   recordUi.clips.textContent = "";
+  recordUi.clips.className = "clip-card";
   show(recordUi.clipsEmpty, clips.length === 0);
   clips.forEach((clip, index) => {
     const li = document.createElement("li");
-    li.className = "incident clip-row";
+    li.className = "clip-row";
     const ordinal = document.createElement("span");
     ordinal.className = "clip-ordinal";
     ordinal.textContent = String(index + 1);
@@ -1671,9 +1707,17 @@ function renderBaby(payload) {
     title.className = "act";
     title.textContent = "Clip " + (index + 1);
     const meta = document.createElement("p");
-    meta.className = "meta";
-    meta.textContent = formatWhen(clip.captured_at) +
-      (typeof clip.duration_s === "number" ? " . " + clip.duration_s.toFixed(1) + " s" : "");
+    meta.className = "meta metaline";
+    const at = document.createElement("span");
+    at.className = "mono";
+    at.textContent = formatTime(clip.captured_at);
+    meta.appendChild(at);
+    if (typeof clip.duration_s === "number") {
+      const dur = document.createElement("span");
+      dur.className = "mono dim";
+      dur.textContent = clip.duration_s.toFixed(1) + " s";
+      meta.appendChild(dur);
+    }
     body.appendChild(title);
     body.appendChild(meta);
     const play = document.createElement("button");
@@ -1710,7 +1754,7 @@ function renderCareTile(event) {
   label.textContent = event.label ||
     (event.kind ? event.kind.charAt(0).toUpperCase() + event.kind.slice(1) : "Note");
   const time = document.createElement("small");
-  time.textContent = event.at ? formatWhen(event.at) : "";
+  time.textContent = event.at ? formatTime(event.at) : "";
   foot.appendChild(label);
   foot.appendChild(document.createElement("br"));
   foot.appendChild(time);
