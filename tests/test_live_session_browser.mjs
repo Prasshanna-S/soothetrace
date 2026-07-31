@@ -44,6 +44,7 @@ async function ambientMetrics(page) {
           return {
             source: node.getAttribute("src"),
             opacity: Number(stickerStyle.opacity),
+            transform: stickerStyle.transform,
             animationName: stickerStyle.animationName,
             animationDuration: stickerStyle.animationDuration,
             animationPlayState: stickerStyle.animationPlayState,
@@ -504,13 +505,14 @@ async function runLivePath(browser) {
     idleAmbient.opacity === "1" &&
       idleAmbient.visibility === "visible" &&
       idleAmbient.lineArtCount === 0 &&
-      idleAmbient.stickers.length === 4 &&
+      idleAmbient.stickers.length >= 10 &&
       idleAmbient.stickers.every((sticker) =>
-        sticker.source.includes("/img/action-") &&
-        sticker.opacity <= 0.1 &&
+        sticker.source.includes("/img/lib/") &&
+        sticker.opacity >= 0.04 && sticker.opacity <= 0.07 &&
         sticker.animationName === "none"
       ),
-    `reduced-motion idle ambient was not visible and static: ${JSON.stringify(idleAmbient)}`
+    "reduced-motion idle background was not a static low-opacity 3D nursery image field: " +
+      JSON.stringify(idleAmbient)
   );
   await page.evaluate(() => setSessionState("listening"));
   const reducedOrbMotion = await sampleOrbMotion(page, 700);
@@ -546,16 +548,23 @@ async function runLivePath(browser) {
     for (const name of ["requesting", "paused"]) {
       setSessionState(name);
       const style = getComputedStyle(document.querySelector("#ambient"));
-      result[name] = { opacity: style.opacity, visibility: style.visibility };
+      result[name] = {
+        opacity: style.opacity,
+        visibility: style.visibility,
+        stickerAnimationStates: Array.from(document.querySelectorAll(
+          "#ambient .ambient-sticker"
+        )).map((node) => getComputedStyle(node).animationPlayState),
+      };
     }
     setSessionState("idle");
     return result;
   });
   assert(
     Object.values(inactiveAmbients).every((value) =>
-      value.opacity === "0" && value.visibility === "hidden"
+      value.opacity === "0" && value.visibility === "hidden" &&
+      value.stickerAnimationStates.every((playState) => playState === "paused")
     ),
-    `an inactive recording state left ambient art visible: ${JSON.stringify(inactiveAmbients)}`
+    `an inactive recording state left the background visible or moving: ${JSON.stringify(inactiveAmbients)}`
   );
   assert(await page.locator(".profile-label").count() === 0,
     "visible Listening for title was not removed");
@@ -971,15 +980,29 @@ async function runAmbientMotionPreference(browser) {
     ambient.opacity === "1" &&
       ambient.visibility === "visible" &&
       ambient.lineArtCount === 0 &&
-      ambient.stickers.length === 4 &&
+      ambient.stickers.length >= 10 &&
       ambient.stickers.every((sticker) =>
-        sticker.source.includes("/img/action-") &&
-        sticker.opacity <= 0.1 &&
+        sticker.source.includes("/img/lib/") &&
+        sticker.opacity >= 0.04 && sticker.opacity <= 0.07 &&
         sticker.animationName !== "none" &&
         sticker.animationPlayState === "running"
       ) &&
-      new Set(ambient.stickers.map((sticker) => sticker.animationDuration)).size > 1,
-    `idle ambient did not float when motion was allowed: ${JSON.stringify(ambient)}`
+      new Set(ambient.stickers.map((sticker) => sticker.animationDuration)).size >= 4,
+    `idle background did not render the full 3D nursery field: ${JSON.stringify(ambient)}`
+  );
+  await page.waitForTimeout(700);
+  const ambientLater = await ambientMetrics(page);
+  const independentlyMovingImages = ambient.stickers.slice(0, 10).filter((sticker, index) =>
+    sticker.transform !== ambientLater.stickers[index]?.transform
+  ).length;
+  assert(
+    ambientLater.stickers.length >= 10 && independentlyMovingImages >= 8,
+    "idle 3D nursery images did not independently move over 700ms: " +
+      JSON.stringify({
+        before: ambient.stickers.slice(0, 10),
+        after: ambientLater.stickers.slice(0, 10),
+        independentlyMovingImages,
+      })
   );
   await page.evaluate(() => setSessionState("listening"));
   await page.waitForFunction(() => {
