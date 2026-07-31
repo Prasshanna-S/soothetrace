@@ -4191,6 +4191,20 @@ body[data-decision="latched"] #preview-bar {
   font-weight: 500;
 }
 
+@media (orientation: landscape) and (max-height: 580px) {
+  #page-history:has(#history-detail:not([hidden])) > #history-list,
+  #page-history[data-state="detail"] > #history-list {
+    display: none !important;
+    pointer-events: none;
+  }
+
+  #page-history:has(#history-detail:not([hidden])) > #history-detail,
+  #page-history[data-state="detail"] > #history-detail {
+    position: relative;
+    z-index: 2;
+  }
+}
+
 #page-baby #baby-training li.training-row .record-copy {
   margin-inline-end: 1px;
 }
