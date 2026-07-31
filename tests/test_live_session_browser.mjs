@@ -53,6 +53,48 @@ async function ambientMetrics(page) {
   });
 }
 
+async function sampleOrbMotion(page, durationMs) {
+  return page.evaluate(async (duration) => {
+    const canvas = document.querySelector("#orb");
+    const samples = [];
+    const startedAt = performance.now();
+    const parseScale = (transform) => {
+      const match = /^scale\(([^)]+)\)$/.exec(transform);
+      return match ? Number(match[1]) : Number.NaN;
+    };
+    await new Promise((resolve) => {
+      const sample = () => {
+        samples.push({
+          at: performance.now(),
+          scale: parseScale(canvas.style.transform),
+          flowAngle: Number(canvas.dataset.flowAngle),
+        });
+        if (performance.now() - startedAt >= duration) resolve();
+        else requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+    return {
+      hasWebGL: Boolean(canvas && canvas.getContext("webgl")),
+      samples,
+    };
+  }, durationMs);
+}
+
+function flowRateRadiansPerSecond(samples) {
+  let total = 0;
+  let smallestDelta = Number.POSITIVE_INFINITY;
+  for (let index = 1; index < samples.length; index += 1) {
+    let delta = samples[index].flowAngle - samples[index - 1].flowAngle;
+    while (delta <= -Math.PI) delta += Math.PI * 2;
+    while (delta > Math.PI) delta -= Math.PI * 2;
+    total += delta;
+    smallestDelta = Math.min(smallestDelta, delta);
+  }
+  const elapsedSeconds = (samples.at(-1).at - samples[0].at) / 1000;
+  return { total, elapsedSeconds, rate: total / elapsedSeconds, smallestDelta };
+}
+
 const profile = {
   id: 12,
   display_name: "Demo Baby",
@@ -470,6 +512,35 @@ async function runLivePath(browser) {
       ),
     `reduced-motion idle ambient was not visible and static: ${JSON.stringify(idleAmbient)}`
   );
+  await page.evaluate(() => setSessionState("listening"));
+  const reducedOrbMotion = await sampleOrbMotion(page, 700);
+  const reducedScales = reducedOrbMotion.samples.map((sample) => sample.scale)
+    .filter(Number.isFinite);
+  const reducedFlowSamples = reducedOrbMotion.samples.filter((sample) =>
+    Number.isFinite(sample.flowAngle)
+  );
+  const reducedFlow = reducedFlowSamples.length > 1
+    ? flowRateRadiansPerSecond(reducedFlowSamples)
+    : null;
+  const reducedScaleRange = reducedScales.length > 1
+    ? Math.max(...reducedScales) - Math.min(...reducedScales)
+    : Number.POSITIVE_INFINITY;
+  assert(
+    reducedOrbMotion.hasWebGL &&
+      reducedScales.length === reducedOrbMotion.samples.length &&
+      reducedFlowSamples.length === reducedOrbMotion.samples.length &&
+      reducedFlow &&
+      reducedScaleRange <= 0.004 &&
+      Math.abs(reducedFlow.rate) <= 0.01,
+    "reduced motion did not exempt the listening orb from large breathing and " +
+      "internal rotation: " + JSON.stringify({
+        hasWebGL: reducedOrbMotion.hasWebGL,
+        samples: reducedOrbMotion.samples.length,
+        scaleRange: reducedScaleRange,
+        flow: reducedFlow,
+      })
+  );
+  await page.evaluate(() => setSessionState("idle"));
   const inactiveAmbients = await page.evaluate(() => {
     const result = {};
     for (const name of ["requesting", "paused"]) {
@@ -887,9 +958,9 @@ async function runAmbientMotionPreference(browser) {
   );
   assert(
     idleOrbScales.length > 1 &&
-      idleScaleRange >= 0.028 &&
-      idleScaleJump <= 0.012,
-    `idle orb breathing is too subtle or jumps between frames: ${JSON.stringify({
+      idleScaleRange >= 0.040 &&
+      idleScaleJump <= 0.008,
+    `idle orb breathing is not dramatic and smooth: ${JSON.stringify({
       samples: idleOrbScales.length,
       range: idleScaleRange,
       largestJump: idleScaleJump,
@@ -915,6 +986,29 @@ async function runAmbientMotionPreference(browser) {
     const style = getComputedStyle(document.querySelector("#ambient"));
     return Number(style.opacity) <= 0.01 && style.visibility === "hidden";
   });
+  await page.waitForTimeout(400);
+  const listeningOrbMotion = await sampleOrbMotion(page, 1000);
+  const listeningFlowSamples = listeningOrbMotion.samples.filter((sample) =>
+    Number.isFinite(sample.flowAngle)
+  );
+  const listeningFlow = listeningFlowSamples.length > 1
+    ? flowRateRadiansPerSecond(listeningFlowSamples)
+    : null;
+  assert(
+    listeningOrbMotion.hasWebGL &&
+      listeningFlowSamples.length === listeningOrbMotion.samples.length &&
+      listeningFlow &&
+      listeningFlow.total > 0 &&
+      listeningFlow.smallestDelta >= -0.001 &&
+      listeningFlow.rate >= 0.13,
+    "listening orb's primary WebGL field did not advance counter-clockwise " +
+      "at an obvious rate (data-flow-angle is radians, positive counter-clockwise): " +
+      JSON.stringify({
+        hasWebGL: listeningOrbMotion.hasWebGL,
+        samples: listeningOrbMotion.samples.length,
+        flow: listeningFlow,
+      })
+  );
   const active = await ambientMetrics(page);
   assert(
     Number(active.opacity) <= 0.01 &&
