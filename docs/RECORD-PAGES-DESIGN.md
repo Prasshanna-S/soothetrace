@@ -13,7 +13,11 @@ Structure, top to bottom:
 
 1. Header: profile name as the kicker, History as the title, a one-line count status.
 2. Day group labels: Today, Yesterday, then full dates. Uppercase, quiet, no box.
-3. One soft card per recorded moment:
+3. The newest moment renders as the page hero: the same pastel mega-card grammar as the
+   Listen suggestion card, with display-size title, the action object large at the right,
+   and white chips. A synthetic newest moment takes the blush variant. Every later moment
+   is a compact floating row.
+4. One soft card per recorded moment:
    - the action object floats free at the left, no tile, no border behind it;
    - the action phrase is the title and never truncates into ellipsis;
    - ONE meta line: time, duration, then the outcome as a worded state
@@ -53,5 +57,7 @@ Purpose: who this profile is and how ready its memory is.
 - No similarity bands, scores, or confidence numbers anywhere.
 - Synthetic data is impossible to miss but never shouts twice: a tinted border plus one
   badge, not repeated prose.
-- The pages compose for portrait and short landscape; nothing scrolls horizontally.
+- Cards float on soft shadow, never on hairline borders; radius 22 and up.
+- The pages compose for portrait and short landscape; the History hero spans the full
+  width in landscape and nothing scrolls horizontally.
 - The sticker-wall background stays at whisper opacity and never competes with content.

@@ -872,7 +872,9 @@ function renderHistoryIncident(incident) {
 
   const row = document.createElement("li");
   const provenance = incidentProvenance(incident);
+  const isHero = !ui.historyList.querySelector(".record-card");
   row.className = "record-card incident hist-item" +
+    (isHero ? " hist-hero" : "") +
     (provenance.synthetic ? " seeded" : "");
   row.dataset.dayKey = dayKey;
   if (incident && incident.id != null) row.dataset.incidentId = String(incident.id);
@@ -884,6 +886,12 @@ function renderHistoryIncident(incident) {
 
   const body = document.createElement("span");
   body.className = "body record-copy";
+  if (isHero) {
+    const heroKicker = document.createElement("span");
+    heroKicker.className = "hero-kicker";
+    heroKicker.textContent = "Most recent";
+    body.appendChild(heroKicker);
+  }
   const title = document.createElement("strong");
   title.className = "act record-action";
   title.textContent = action;
