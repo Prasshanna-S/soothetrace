@@ -4019,7 +4019,7 @@ body[data-decision="latched"] #preview-bar {
   position: relative;
   overflow: hidden;
   border-radius: 28px;
-  padding: 20px 20px 18px;
+  padding: 16px 20px;
   background: linear-gradient(168deg, #D9ECE1 0%, var(--mint) 100%);
   color: var(--mint-ink);
 }
@@ -4058,7 +4058,7 @@ body[data-decision="latched"] #preview-bar {
 #page-history #history-list .hist-hero .settle-word[data-settled="true"] { color: inherit; }
 #page-history #history-list .hist-hero .record-outcome { color: inherit; opacity: .8; }
 #page-history #history-list .hist-hero .record-chevron { color: inherit; opacity: .55; }
-#page-history #history-list .hist-hero .record-tags.chips span {
+#page-history #history-list .hist-hero .record-footer .record-tags.chips > span {
   background: rgba(255, 255, 255, .62);
   color: inherit;
 }
@@ -4120,9 +4120,11 @@ body[data-decision="latched"] #preview-bar {
 
 /* landscape: the hero spans the full row */
 @media (orientation: landscape) and (max-height: 580px) {
-  #history-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  #page-history #history-list .hist-day { grid-column: 1 / -1; }
-  #page-history #history-list .hist-hero { grid-column: 1 / -1; }
+  #page-history #history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
   #btn-history-more { justify-self: center; }
 }
 
@@ -4138,4 +4140,53 @@ body[data-decision="latched"] #preview-bar {
 #page-history #history-list .hist-hero .record-meta,
 #page-history #history-list .hist-hero .record-outcome {
   color: inherit !important;
+}
+
+/* iPhone integration contracts retain the quiet portrait density while the
+   wider phone canvas keeps the full nursery field. */
+@media (max-width: 400px) and (orientation: portrait) {
+  #ambient .ambient-core-sticker { opacity: .035; }
+}
+
+#page-listen #profile-control .avatar img { transform: translateY(-2px); }
+
+#page-history #history-list .record-card.incident {
+  padding: 16px 15px;
+}
+
+#page-history #history-list .hist-day {
+  margin-inline: 0;
+}
+
+#page-history #history-list .record-card.incident.seeded {
+  min-height: 151px;
+}
+
+#page-history #history-list .record-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 8px;
+}
+
+#page-history #history-list .record-footer .record-tags.chips {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 !important;
+}
+
+#page-history #history-list .record-footer .record-tags.chips > span {
+  padding: 3px 11px;
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--ink-2);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+#page-baby #baby-training li.training-row .record-copy {
+  margin-inline-end: 1px;
 }

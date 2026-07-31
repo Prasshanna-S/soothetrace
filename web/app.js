@@ -233,6 +233,19 @@ const ui = {
 const setText = (node, value) => { if (node) node.textContent = value == null ? "" : String(value); };
 const show = (node, on) => { if (node) node.hidden = !on; };
 
+function syncAmbientDensity() {
+  const compactPortrait = window.matchMedia(
+    "(max-width: 400px) and (orientation: portrait)"
+  ).matches;
+  for (const sticker of document.querySelectorAll("#ambient .ambient-wide-sticker")) {
+    sticker.hidden = compactPortrait;
+    sticker.classList.toggle("ambient-sticker", !compactPortrait);
+  }
+}
+
+syncAmbientDensity();
+window.addEventListener("resize", syncAmbientDensity);
+
 /* ====================================================================== orb
    A domain warped noise field on a lit glass sphere, mixed in OKLab so the
    pastels stay clean where hues meet. Microphone activity may enter the neutral
@@ -855,28 +868,12 @@ function historyIcon(action, className) {
 }
 
 function renderHistoryIncident(incident) {
-  const fragment = document.createDocumentFragment();
-
-  /* day group labels come from the DOM itself, so pagination keeps working:
-     a new label appears only when this incident's day differs from the last
-     rendered row's day */
-  const dayKey = recordedDayKey(incident && incident.started_at);
-  const lastRow = ui.historyList.lastElementChild;
-  if (!lastRow || lastRow.dataset.dayKey !== dayKey) {
-    const dayHeader = document.createElement("li");
-    dayHeader.className = "hist-day";
-    dayHeader.dataset.dayKey = dayKey;
-    dayHeader.textContent = formatRecordedDay(incident && incident.started_at);
-    fragment.appendChild(dayHeader);
-  }
-
   const row = document.createElement("li");
   const provenance = incidentProvenance(incident);
   const isHero = !ui.historyList.querySelector(".record-card");
   row.className = "record-card incident hist-item" +
     (isHero ? " hist-hero" : "") +
     (provenance.synthetic ? " seeded" : "");
-  row.dataset.dayKey = dayKey;
   if (incident && incident.id != null) row.dataset.incidentId = String(incident.id);
 
   const open = document.createElement("button");
@@ -917,13 +914,6 @@ function renderHistoryIncident(incident) {
   settledEl.dataset.settled = settled.key;
   settledEl.textContent = settled.key === "null" ? "No outcome" : settled.label;
   meta.appendChild(settledEl);
-  /* a badge appears only when it carries information the row does not */
-  if (provenance.synthetic || provenance.className === "bd-inf") {
-    const badge = document.createElement("span");
-    badge.className = "badge " + provenance.className;
-    badge.textContent = provenance.synthetic ? "seeded" : "inferred";
-    meta.appendChild(badge);
-  }
 
   body.append(title, meta);
 
@@ -935,6 +925,23 @@ function renderHistoryIncident(incident) {
     body.appendChild(outcome);
   }
 
+  const footer = document.createElement("span");
+  footer.className = "record-footer";
+  const badge = document.createElement("span");
+  badge.className = "badge " + provenance.className;
+  badge.textContent = provenance.label;
+  const tagLine = document.createElement("span");
+  tagLine.className = "record-tags chips";
+  const tags = incident && incident.context && Array.isArray(incident.context.tags)
+    ? incident.context.tags : [];
+  for (const tag of tags) {
+    const chipEl = document.createElement("span");
+    chipEl.textContent = tag;
+    tagLine.appendChild(chipEl);
+  }
+  footer.append(badge, tagLine);
+  body.appendChild(footer);
+
   const chevron = document.createElement("span");
   chevron.className = "chev record-chevron";
   chevron.setAttribute("aria-hidden", "true");
@@ -942,21 +949,7 @@ function renderHistoryIncident(incident) {
   open.append(historyIcon(action), body, chevron);
   open.addEventListener("click", () => { void loadHistoryDetail(incident && incident.id); });
   row.appendChild(open);
-
-  const tags = incident && incident.context && Array.isArray(incident.context.tags)
-    ? incident.context.tags : [];
-  if (tags.length) {
-    const tagLine = document.createElement("p");
-    tagLine.className = "record-tags chips";
-    for (const tag of tags) {
-      const chipEl = document.createElement("span");
-      chipEl.textContent = tag;
-      tagLine.appendChild(chipEl);
-    }
-    row.appendChild(tagLine);
-  }
-  fragment.appendChild(row);
-  return fragment;
+  return row;
 }
 
 async function loadHistory(reset) {
