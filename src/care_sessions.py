@@ -3,14 +3,25 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
 try:
-    from . import careflow, config, context, cry_gate, identity, session, store
+    from . import (
+        audio_duplicate,
+        careflow,
+        config,
+        context,
+        cry_gate,
+        identity,
+        session,
+        store,
+    )
 except ImportError:
+    import audio_duplicate
     import careflow
     import config
     import context
@@ -37,6 +48,13 @@ _CHUNK_INFERENCE_CLAIMS_LOCK = threading.Lock()
 _CHUNK_INFERENCE_CLAIMS: dict[tuple[str, int, int], threading.Event] = {}
 _SESSION_MUTATION_LOCKS_LOCK = threading.Lock()
 _SESSION_MUTATION_LOCKS: dict[tuple[str, int], threading.Lock] = {}
+_CAREGIVER_EVIDENCE_SOURCES = {
+    "synthetic_demo",
+    "captured_transcript",
+    "typed_follow_up",
+    "caregiver_record",
+}
+_CAREGIVER_EVIDENCE_MAX_CHARS = 220
 
 
 def _now() -> str:
@@ -165,6 +183,22 @@ def _public_intervention(value) -> dict | None:
     }
 
 
+def _public_caregiver_evidence(value) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    source = value.get("source")
+    text = value.get("text")
+    if (
+        source not in _CAREGIVER_EVIDENCE_SOURCES
+        or not isinstance(text, str)
+    ):
+        return None
+    text = " ".join(text.split()).strip()[:_CAREGIVER_EVIDENCE_MAX_CHARS]
+    if not text:
+        return None
+    return {"text": text, "source": source}
+
+
 def _public_audio_url(value, profile_id: int, episode_id: int) -> str | None:
     del value
     if not _is_integer(profile_id) or not _is_integer(episode_id):
@@ -192,6 +226,11 @@ def _public_scenario(value, profile_id: int) -> dict | None:
         public["worked"] = worked
     if isinstance(value.get("contributions"), list):
         public["contributions"] = _string_list(value["contributions"])
+    caregiver_evidence = _public_caregiver_evidence(
+        value.get("caregiver_evidence")
+    )
+    if caregiver_evidence is not None:
+        public["caregiver_evidence"] = caregiver_evidence
     audio_url = _public_audio_url(
         value.get("audio_url"),
         profile_id,
@@ -662,11 +701,16 @@ _CHUNK_STATUSES = {
     "matched_no_guidance",
     "guidance_latched",
     "matched_guidance_already_latched",
+    "repeated_source_not_confirmation",
 }
 
-_DEMO_DECISION_REQUIRED_CRY_SEGMENTS = 4
-_DEMO_REQUIRED_ADDITIONAL_CONFIRMATIONS = 3
+_DEMO_DECISION_REQUIRED_CRY_SEGMENTS = 6
+_DEMO_REQUIRED_ADDITIONAL_CONFIRMATIONS = 5
+_DEMO_MINIMUM_SEGMENTS_BEFORE_DECISION = 7
+_DEMO_MINIMUM_ANALYZED_AUDIO_SECONDS = 20.0
 _DEMO_CANDIDATE_STATE_KEY = "_demo_candidate_confirmation"
+_DEMO_SOURCE_DIGEST_KEY = "_demo_source_digest"
+_DEMO_DUPLICATE_SIGNATURE_KEY = "_demo_duplicate_signature"
 
 _CRY_PUBLIC_KEYS = {
     "status",
@@ -728,11 +772,26 @@ def _public_decision_progress(value) -> dict:
         "required_consistent_grounded_segments",
         "additional_confirmations",
         "required_additional_confirmations",
+        "segments_seen",
+        "minimum_segments_before_decision",
     ):
         if _is_integer(value.get(field)):
             public[field] = value[field]
     if isinstance(value.get("decision_eligible"), bool):
         public["decision_eligible"] = value["decision_eligible"]
+    for field in (
+        "analyzed_audio_seconds",
+        "minimum_analyzed_audio_seconds",
+    ):
+        item = value.get(field)
+        if (
+            isinstance(item, (int, float))
+            and not isinstance(item, bool)
+            and math.isfinite(item)
+        ):
+            public[field] = item
+    if value.get("repeated_source") is True:
+        public["repeated_source"] = True
     if isinstance(value.get("label"), str):
         public["label"] = value["label"]
     return public
@@ -912,6 +971,68 @@ def _latest_demo_candidate_state(
     return {}
 
 
+def _prior_demo_evidence(
+    connection: sqlite3.Connection,
+    session_id: int,
+) -> tuple[set[str], list[list[float]]]:
+    digests = set()
+    signatures = []
+    rows = connection.execute(
+        "SELECT result_json FROM care_session_chunk "
+        "WHERE session_id=? ORDER BY sequence",
+        (session_id,),
+    ).fetchall()
+    for row in rows:
+        try:
+            stored = json.loads(row["result_json"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(stored, dict):
+            continue
+        digest = stored.get(_DEMO_SOURCE_DIGEST_KEY)
+        if isinstance(digest, str) and digest:
+            digests.add(digest)
+        signature = stored.get(_DEMO_DUPLICATE_SIGNATURE_KEY)
+        if (
+            isinstance(signature, list)
+            and len(signature) == audio_duplicate.DIMENSION
+        ):
+            signatures.append(signature)
+    return digests, signatures
+
+
+def _prior_analyzed_audio_seconds(
+    connection: sqlite3.Connection,
+    session_id: int,
+) -> float:
+    total = 0.0
+    rows = connection.execute(
+        "SELECT result_json FROM care_session_chunk "
+        "WHERE session_id=? ORDER BY sequence",
+        (session_id,),
+    ).fetchall()
+    for row in rows:
+        try:
+            stored = json.loads(row["result_json"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        duration = (
+            ((stored.get("chunk") or {}).get("cry_presence") or {}).get(
+                "analyzed_duration_s"
+            )
+            if isinstance(stored, dict)
+            else None
+        )
+        if (
+            isinstance(duration, (int, float))
+            and not isinstance(duration, bool)
+            and math.isfinite(duration)
+            and duration > 0
+        ):
+            total += float(duration)
+    return total
+
+
 def _grounded_candidate_token(profile: dict, analysis: dict) -> str | None:
     if not analysis.get("grounded"):
         return None
@@ -931,9 +1052,12 @@ def _grounded_candidate_token(profile: dict, analysis: dict) -> str | None:
 def _demo_decision_evidence(
     connection: sqlite3.Connection,
     session_id: int,
+    sequence: int,
     profile: dict,
     analysis: dict,
-) -> tuple[dict, dict]:
+    source_digest: str | None,
+    duplicate_signature: list[float] | None,
+) -> tuple[dict, dict, bool]:
     if (
         not config.CARE_DEMO_PROFILE_NAME
         or profile.get("display_name") != config.CARE_DEMO_PROFILE_NAME
@@ -941,10 +1065,29 @@ def _demo_decision_evidence(
         or not analysis.get("selected_match")
         or analysis.get("cry_presence", {}).get("status") != "infant_cry_detected"
     ):
-        return {}, {}
+        return {}, {}, False
     previous = _latest_demo_candidate_state(connection, session_id)
     candidate_token = _grounded_candidate_token(profile, analysis)
-    if candidate_token is None:
+    prior_digests, prior_signatures = _prior_demo_evidence(
+        connection,
+        session_id,
+    )
+    repeated_source = (
+        isinstance(source_digest, str)
+        and source_digest in prior_digests
+    ) or (
+        duplicate_signature is not None
+        and any(
+            audio_duplicate.is_near_duplicate(
+                duplicate_signature,
+                earlier,
+            )
+            for earlier in prior_signatures
+        )
+    )
+    if repeated_source:
+        state = previous
+    elif candidate_token is None:
         state = previous
     elif candidate_token == previous.get("candidate_token"):
         state = {
@@ -962,13 +1105,45 @@ def _demo_decision_evidence(
 
     confirmations = state.get("additional_confirmations", 0)
     consistent_segments = 1 + confirmations if state else 0
+    current_duration = analysis.get("cry_presence", {}).get(
+        "analyzed_duration_s",
+        0.0,
+    )
+    if (
+        not isinstance(current_duration, (int, float))
+        or isinstance(current_duration, bool)
+        or not math.isfinite(current_duration)
+        or current_duration < 0
+    ):
+        current_duration = 0.0
+    analyzed_audio_seconds = round(
+        _prior_analyzed_audio_seconds(connection, session_id)
+        + float(current_duration),
+        3,
+    )
     eligible = (
-        candidate_token is not None
+        not repeated_source
+        and candidate_token is not None
         and candidate_token == state.get("candidate_token")
         and confirmations >= _DEMO_REQUIRED_ADDITIONAL_CONFIRMATIONS
+        and sequence >= _DEMO_MINIMUM_SEGMENTS_BEFORE_DECISION
+        and analyzed_audio_seconds >= _DEMO_MINIMUM_ANALYZED_AUDIO_SECONDS
     )
-    if eligible:
-        label = "Infant cry detected. Match confirmed 3 of 3"
+    if repeated_source:
+        label = (
+            "Infant cry detected. Repeated source heard. "
+            "Waiting for a fresh segment"
+        )
+    elif eligible:
+        label = "Infant cry detected. Suggestion is ready"
+    elif (
+        state
+        and confirmations >= _DEMO_REQUIRED_ADDITIONAL_CONFIRMATIONS
+    ):
+        label = (
+            "Infant cry detected. Evidence is consistent. "
+            "Completing 20 seconds of listening"
+        )
     elif state:
         label = (
             "Infant cry detected. Match held. Confirming "
@@ -985,10 +1160,20 @@ def _demo_decision_evidence(
         "required_additional_confirmations": (
             _DEMO_REQUIRED_ADDITIONAL_CONFIRMATIONS
         ),
+        "segments_seen": sequence,
+        "minimum_segments_before_decision": (
+            _DEMO_MINIMUM_SEGMENTS_BEFORE_DECISION
+        ),
+        "analyzed_audio_seconds": analyzed_audio_seconds,
+        "minimum_analyzed_audio_seconds": (
+            _DEMO_MINIMUM_ANALYZED_AUDIO_SECONDS
+        ),
         "decision_eligible": eligible,
         "label": label,
     }
-    return progress, state
+    if repeated_source:
+        progress["repeated_source"] = True
+    return progress, state, repeated_source
 
 
 def _latched_decision(
@@ -1162,6 +1347,11 @@ def _submit_claimed_chunk(
         and isinstance(identity_path, str)
         and Path(identity_path).is_file()
     )
+    duplicate_signature = (
+        audio_duplicate.signature(canonical_path)
+        if ready
+        else None
+    )
     analysis = {
         "status": "invalid",
         "reason_codes": [
@@ -1295,16 +1485,28 @@ def _submit_claimed_chunk(
             return _error("invalid_care_session_transition")
 
         final_status = analysis["status"]
-        decision_progress, demo_candidate_state = _demo_decision_evidence(
+        (
+            decision_progress,
+            demo_candidate_state,
+            repeated_source,
+        ) = _demo_decision_evidence(
             connection,
             session_id,
+            sequence,
             profile,
             analysis,
+            digest,
+            duplicate_signature,
         )
         latch_guidance = False
         if analysis["selected_match"] and analysis["grounded"]:
             if current["decision_json"]:
                 final_status = "matched_guidance_already_latched"
+            elif repeated_source:
+                final_status = "repeated_source_not_confirmation"
+                analysis["reason_codes"] = [
+                    "repeated_source_not_confirmation"
+                ]
             elif (
                 decision_progress
                 and not decision_progress["decision_eligible"]
@@ -1389,6 +1591,10 @@ def _submit_claimed_chunk(
         stored_result = dict(result)
         if demo_candidate_state:
             stored_result[_DEMO_CANDIDATE_STATE_KEY] = demo_candidate_state
+        if isinstance(digest, str):
+            stored_result[_DEMO_SOURCE_DIGEST_KEY] = digest
+        if duplicate_signature is not None:
+            stored_result[_DEMO_DUPLICATE_SIGNATURE_KEY] = duplicate_signature
         connection.execute(
             "UPDATE care_session_chunk SET result_json=? WHERE id=?",
             (json.dumps(stored_result), chunk_id),

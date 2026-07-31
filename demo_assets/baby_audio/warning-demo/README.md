@@ -1,89 +1,84 @@
 # Demo Baby Three-Recording Showcase
 
-This folder contains three 45-second playback files for three separate recording
-sessions:
+This folder contains the three long-form playback files used for the controlled
+`Demo Baby` showcase:
 
-1. `demo-baby-x4-extended-playback.wav`
-2. `demo-baby-x7-extended-playback.wav`
-3. `demo-baby-x8-extended-playback.wav`
+1. [X4, bottle](demo-baby-x4-extended-playback.wav)
+2. [X7, upright](demo-baby-x7-extended-playback.wav)
+3. [X8, white noise](demo-baby-x8-extended-playback.wav)
 
-X4, X7, and X8 are three distinct 15-second recordings from the fixed-rig Baby X
-trial. Each playback file repeats its one source recording three times so the
-presenter has enough time to start the phone session. Repetition makes the file
-longer, but it does not create extra evidence.
+X4 and X8 are 45 seconds long. X7 is 46.5 seconds long. X4, X7, and X8 began
+as three distinct 15-second fixed-rig recordings from the Baby X trial. Each
+long-form file repeats its source three times so the presenter has time to
+start the phone session and let the production confirmation gate finish. X7
+has two 0.75-second quiet separators between copies so complete 3-second
+recordings do not keep using the same fixed source alignment. Repetition
+extends playback time. It does not create independent evidence.
 
-The `enrollment` folder contains three earlier, independent Baby X captures for
-`Demo Baby` and three Baby Y captures for `Learning Baby`. The bootstrap uses
-those six files to prepare the two profiles. The three X4, X7, and X8 showcase
-files remain separate queries, so the demo is not matching a file against
-itself.
+The `enrollment` folder contains three earlier Baby X captures for `Demo Baby`
+and three Baby Y captures for `Learning Baby`. The demo bootstrap uses those six
+recordings to prepare two ready profiles. X4, X7, and X8 are not enrolled for
+identity. Identity matching for `Demo Baby` uses X1, X2, and X3 instead.
 
-X7 and X8 were held out from the X1 through X6 acceptance comparison. X4 was one
-of the stored trial examples. These are controlled demonstration fixtures, not
-population accuracy evidence.
+Separately, the demo bootstrap copies the first 15 seconds of each X4, X7, and
+X8 showcase asset to seed two clearly labeled synthetic retrieval memories per
+pattern. This deliberate care-memory setup lets the showcase surface three
+different history-based suggestions. It does not make the showcase assets
+identity enrollments.
 
-## Quick rehearsal
+These files are controlled proof-of-concept fixtures. They do not establish
+population accuracy.
 
-1. Select `Demo Baby`.
-2. Start a new listening session.
-3. Start one playback file from its beginning.
-4. Keep the playback device, volume, distance, room, phone position, and phone
-   microphone unchanged.
-5. Let four accepted six-second cry segments process. The first possible
-   suggestion is therefore about 24 seconds after recording starts.
-6. Stop the session after the guidance card latches.
-7. Complete or discard the follow-up, then start a fresh session for the next
-   file.
+See [PROVENANCE.md](PROVENANCE.md) before redistributing the audio.
 
-Do not switch devices or move the speaker between files. Room replay can change
-the acoustic scores even when the file itself is unchanged.
+## Current production gate
 
-## Verified six-second result
+The browser creates complete 3-second recordings while one microphone stream
+continues. Every accepted recording goes through managed ingest, the AudioSet
+AST infant-cry gate, infant identity, profile-only history retrieval, context
+ranking, and grounded guidance.
 
-The first six seconds of each source were reduced with one constant gain to
-about minus 39 dB RMS, then run through the real ingest, AST infant-cry gate,
-infant identity, profile-only history retrieval, context ranking, guidance, and
-care-session latch on disposable copies of the seeded live demo database.
+A suggestion can appear only when all of these conditions are true:
 
-| File | Cry gate | Profile result | One-chunk result |
-| --- | --- | --- | --- |
-| X4 | Infant cry detected | Demo Baby, strong | Guidance latched |
-| X7 | Infant cry detected | Demo Baby, weak accepted match | Guidance latched |
-| X8 | Infant cry detected | Demo Baby, strong | Guidance latched |
+- The infant-cry gate is positive.
+- The selected identity is `Demo Baby`.
+- The same grounded history suggestion is seen in one candidate recording and
+  five additional grounded confirmations.
+- At least seven recordings have been processed.
+- At least 20 seconds of audio have been analyzed.
+- The current recording is not blocked by the exact and near-duplicate guard.
 
-X5 and X6 were tested and excluded because their six-second probes did not pass
-identity acceptance. The exact debug measurements, checksums, and exclusions
-are in [`showcase-manifest.json`](showcase-manifest.json).
+The duplicate guard keeps a replayed or acoustically near-identical chunk from
+counting as a fresh confirmation. The three repetitions inside a long-form file
+must not be described as three independent observations.
 
-## What the calculation actually used
+The phone can show local sound activity before the first server result. With
+3-second chunks, the first server-confirmed infant-cry result is based on the
+first 3 seconds of audio. Network and processing time can make the visible
+result appear later than the audio timeline below.
 
-The verified run happened during the 3 PM hour with no current caregiver tag or
-care event. That means the ranker used:
+## Verified long-form result
 
-- Cry-pattern similarity at an active weight of 0.7647.
-- Time-of-day similarity at an active weight of 0.2353.
-- No current caregiver-note component. Missing notes were omitted, and the
-  remaining weights were renormalized.
-- Only Demo Baby's prior incidents after profile matching.
+On July 30, 2026, all three files ran through the unchanged production pipeline
+on a disposable database prepared by `scripts/prepare_care_demo.py`.
 
-All three recordings selected synthetic demo incident 4, recorded at 6:45 PM.
-That incident says the caregiver swaddled the baby, turned on white noise, and
-reported that the baby settled. White noise was the final recorded action, so
-the latched suggestion was:
+| File | Cry-positive recordings | First cry on audio timeline | Suggestion latch | Grounded suggestion |
+| --- | ---: | ---: | ---: | --- |
+| X4 | 7 of 7 | 3 seconds | 21 seconds | `What helped before: offered bottle.` |
+| X7 | 10 of 10 | 3 seconds | 30 seconds | `What helped before: held baby upright.` |
+| X8 | 7 of 7 | 3 seconds | 21 seconds | `What helped before: turned on white noise.` |
 
-> What helped before: turned on white noise.
+X7 needed more time because four recordings did not select the profile. The
+system kept listening and produced its grounded suggestion after six distinct
+grounded matches.
 
-The output is a memory-based suggestion. It is not a diagnosis, a claim about
-why the baby is crying, or medical advice.
+The exact machine-readable record is in
+[showcase-manifest.json](showcase-manifest.json).
 
-## Validated three-output memory arrangement
+## What the suggestion uses
 
-A second spike tested whether the same three files can support three distinct
-recommendations without inventing a cause. It used a disposable database and
-did not change the production database.
-
-The disposable Demo Baby profile contained six clearly synthetic afternoon
-memories:
+The demo bootstrap creates six clearly labeled synthetic history incidents for
+`Demo Baby`:
 
 - Two X4-pattern incidents where a bottle was offered and the caregiver
   reported that the baby settled.
@@ -92,59 +87,67 @@ memories:
 - Two X8-pattern incidents where white noise was used and the caregiver
   reported that the baby settled.
 
-Each leading six-second quiet probe then ran through the real cry gate,
-identity, retrieval, guidance, and care-session latch:
+The verified run used two active ranking factors:
 
-| Query | Result | Evidence |
-| --- | --- | --- |
-| X4 | `What helped before: offered bottle.` | 2 similar recorded incidents |
-| X7 | `What helped before: held baby upright.` | 2 similar recorded incidents |
-| X8 | `What helped before: turned on white noise.` | 2 similar recorded incidents |
+- Cry-pattern similarity inside the selected profile.
+- Similar time of day. The fresh acceptance database stored local hour 20 for
+  the current context and all six synthetic history incidents.
 
-All three queries latched in one chunk, so this spike passed 3 out of 3. The
-calculation used cry-pattern similarity and similar time of day. Current notes
-were empty in this test. Exact results are in
-[`showcase-manifest.json`](showcase-manifest.json).
+No current caregiver note, tag, or care event was supplied, so those components
+were omitted. In a real product, available caregiver notes, care events, time,
+and other recorded context can add evidence. Missing context must not be
+invented.
 
-This proves that distinct recorded histories can lead to distinct grounded
-suggestions. It does not prove that the cry reveals hunger, reflux, discomfort,
-or any other cause. The current default live seed still gives the common
-white-noise story described above until the validated six-memory arrangement is
-installed by the demo bootstrap.
+The result is a suggestion from recorded history. It is not a diagnosis, a
+claim about why the baby is crying, or medical advice.
+
+## Quick rehearsal
+
+1. Prepare the demo database with `scripts/prepare_care_demo.py`.
+2. Select `Demo Baby`.
+3. Start a new listening session.
+4. Start one playback file from its beginning.
+5. Keep the playback device, volume, distance, room, phone position, and phone
+   microphone unchanged.
+6. Wait for the grounded suggestion card.
+7. Stop and complete or discard the session.
+8. Start a fresh session before playing the next file.
+
+Use the full 46.5-second X7 file. Its observed latch point is 30 seconds. Do not
+move the speaker or change volume between files because room replay can change
+the acoustic result.
 
 ## Spoken evidence scripts
 
 ### Video 1, X4
 
-This is the first of three distinct recordings in the controlled Baby X trial.
-The infant-cry gate detected a cry-like infant sound, and the profile matcher
-selected Demo Baby. The memory ranker then combined the cry pattern with the
-current time. The best prior incident was at 6:45 PM, when swaddling followed by
-white noise was recorded and the caregiver said the baby settled. The app
-suggests the last helpful step, white noise. This is a suggestion from this
-baby's recorded history, not a diagnosis.
+This is X4, the first controlled query for Demo Baby. The infant-cry gate fires
+on the first 3-second recording. The system keeps listening while the same
+profile and grounded memory remain consistent. After at least 20 seconds, it
+uses cry-pattern similarity and similar time of day to select two synthetic
+history incidents where a bottle was offered and the caregiver recorded that
+the baby settled. The app suggests what helped before. It does not diagnose a
+cause.
 
 ### Video 2, X7
 
 This is a different held-out recording from the same controlled Baby X trial.
-It includes caregiver speech, but the infant-cry gate still fired and the
-profile matcher selected Demo Baby. The same profile-only memory calculation
-used cry-pattern similarity and time of day. It found the 6:45 PM incident where
-white noise was the last action before the caregiver reported that the baby
-settled. The suggestion is based on that prior record, not on a claimed cause.
+The infant-cry gate remains positive even though caregiver speech is present.
+Some identity recordings are not accepted, so the system continues listening.
+At 30 seconds, six fresh
+grounded matches support two synthetic history incidents where the baby was
+held upright and then settled. The output is a history-based suggestion, not a
+claim about why the baby is crying.
 
 ### Video 3, X8
 
-This is another held-out recording from the controlled Baby X trial, without
-caregiver speech. The infant-cry gate fired and the profile matcher produced a
-strong Demo Baby match. The ranker compared only this profile's prior incidents
-and included the current time. It selected the 6:45 PM incident where the
-caregiver recorded swaddling and white noise, followed by a settled outcome.
-The app suggests what helped before, while leaving the decision with the
-caregiver.
+This is another held-out recording from the controlled Baby X trial. The cry
+gate fires on the first 3-second recording. After the confirmation and
+20-second listening gates are satisfied, the ranker selects two synthetic
+history incidents where white noise was used and the caregiver recorded a
+settled outcome. The caregiver remains in control of what to try.
 
-Ready-to-overlay subtitle files are under [`captions`](captions/).
-The current-runtime captions describe the existing common white-noise result.
-The [`captions/distinct-output`](captions/distinct-output/) set describes the
-validated three-output spike and must only be used with that six-memory demo
-arrangement.
+Detailed subtitle overlays are in [captions](captions/). Shorter overlays are in
+[captions/distinct-output](captions/distinct-output/). Both sets describe the
+current three-output bootstrap and use the observed 21, 30, and 21-second latch
+points.

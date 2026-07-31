@@ -5,14 +5,17 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import math
+import os
 import shutil
 import sqlite3
 import ssl
 import threading
 import wave
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 try:
     from . import (
@@ -21,11 +24,14 @@ try:
         careflow,
         config,
         cry_gate,
+        database,
         demo_diagnostics,
         encoders,
         identity,
         live_sessions,
+        profile_views,
         store,
+        visitor_sessions,
     )
 except ImportError:
     import audio_ingest
@@ -33,15 +39,44 @@ except ImportError:
     import careflow
     import config
     import cry_gate
+    import database
     import demo_diagnostics
     import encoders
     import identity
     import live_sessions
+    import profile_views
     import store
+    import visitor_sessions
 
 
 MAX_JSON_BYTES = 64 * 1024
 _INFERENCE_LOCK = threading.Lock()
+_CAREGIVER_EVIDENCE_SOURCES = {
+    "synthetic_demo",
+    "captured_transcript",
+    "typed_follow_up",
+    "caregiver_record",
+}
+_CAREGIVER_EVIDENCE_MAX_CHARS = 220
+_STATIC_IMAGE_NAMES = frozenset(
+    {
+        "avatar-baby.png",
+        "moment-saved.png",
+        "page-baby.png",
+        "page-history.png",
+        "action-bath.png",
+        "action-cuddle.png",
+        "action-diaper.png",
+        "action-feeding.png",
+        "action-medication.png",
+        "action-notes.png",
+        "action-play.png",
+        "action-sleeping.png",
+        "action-temp.png",
+        "action-tummy.png",
+        "action-walk.png",
+    }
+)
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -361,8 +396,15 @@ def _safe_managed_file(path: str | None, data_root: Path) -> Path | None:
         candidate = Path(path).resolve(strict=True)
     except (OSError, RuntimeError):
         return None
-    managed_root = (data_root / "managed").resolve()
-    if candidate == managed_root or managed_root not in candidate.parents:
+    try:
+        relative = candidate.relative_to(data_root.resolve())
+    except ValueError:
+        return None
+    parts = relative.parts
+    if not parts or (
+        "managed" not in parts
+        and parts[0] != "demo-bootstrap"
+    ):
         return None
     return candidate if candidate.is_file() else None
 
@@ -419,6 +461,22 @@ def _public_care_intervention(value) -> dict | None:
     }
 
 
+def _public_caregiver_evidence(value) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    source = value.get("source")
+    text = value.get("text")
+    if (
+        source not in _CAREGIVER_EVIDENCE_SOURCES
+        or not isinstance(text, str)
+    ):
+        return None
+    text = " ".join(text.split()).strip()[:_CAREGIVER_EVIDENCE_MAX_CHARS]
+    if not text:
+        return None
+    return {"text": text, "source": source}
+
+
 def _public_care_scenario(value, profile_id: int) -> dict | None:
     if not isinstance(value, dict) or type(value.get("episode_id")) is not int:
         return None
@@ -443,6 +501,11 @@ def _public_care_scenario(value, profile_id: int) -> dict | None:
         public["contributions"] = [
             item for item in value["contributions"] if isinstance(item, str)
         ]
+    caregiver_evidence = _public_caregiver_evidence(
+        value.get("caregiver_evidence")
+    )
+    if caregiver_evidence is not None:
+        public["caregiver_evidence"] = caregiver_evidence
     public["audio_url"] = (
         f"/api/profiles/{profile_id}/incidents/{episode_id}/audio"
     )
@@ -543,6 +606,39 @@ def _public_cry_presence(value) -> dict:
     return public
 
 
+def _public_decision_progress(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    public = {}
+    for field in (
+        "consistent_grounded_segments",
+        "required_consistent_grounded_segments",
+        "additional_confirmations",
+        "required_additional_confirmations",
+        "segments_seen",
+        "minimum_segments_before_decision",
+    ):
+        if type(value.get(field)) is int:
+            public[field] = value[field]
+    for field in (
+        "analyzed_audio_seconds",
+        "minimum_analyzed_audio_seconds",
+    ):
+        item = value.get(field)
+        if (
+            isinstance(item, (int, float))
+            and not isinstance(item, bool)
+            and math.isfinite(item)
+        ):
+            public[field] = item
+    for field in ("decision_eligible", "repeated_source"):
+        if isinstance(value.get(field), bool):
+            public[field] = value[field]
+    if isinstance(value.get("label"), str):
+        public["label"] = value["label"]
+    return public
+
+
 def _public_care_chunk(value) -> dict:
     if not isinstance(value, dict):
         return {}
@@ -560,6 +656,11 @@ def _public_care_chunk(value) -> dict:
     cry_presence = _public_cry_presence(value.get("cry_presence"))
     if cry_presence:
         public["cry_presence"] = cry_presence
+    decision_progress = _public_decision_progress(
+        value.get("decision_progress")
+    )
+    if decision_progress:
+        public["decision_progress"] = decision_progress
     return public
 
 
@@ -694,17 +795,112 @@ def _handler_factory(
     db_path: str | None,
     encoder_status: dict[str, bool] | None = None,
     cry_detector_status: bool | None = None,
+    *,
+    hosted_mode: bool = False,
+    visitor_manager: visitor_sessions.VisitorSessionManager | None = None,
+    secure_cookie: bool = False,
 ):
+    cleanup_lock = threading.Lock()
+    cleanup_counter = {"requests": 0}
+
     class ProductHandler(BaseHTTPRequestHandler):
-        server_version = "InteractionMemory/0.1"
+        server_version = "SootheTrace/0.2"
+        _visitor_context = None
+        _pending_session_cookie = None
+        _clear_session_cookie = False
 
         def log_message(self, format, *args):
             return
+
+        def _cookie_token(self) -> str | None:
+            raw = self.headers.get("Cookie", "")
+            if not raw:
+                return None
+            cookie = SimpleCookie()
+            try:
+                cookie.load(raw)
+            except Exception:
+                return None
+            morsel = cookie.get("soothetrace_session")
+            return morsel.value if morsel is not None else None
+
+        def _visitor(self):
+            if not hosted_mode:
+                return None
+            if self._visitor_context is not None:
+                return self._visitor_context
+            if visitor_manager is None:
+                raise RuntimeError("hosted visitor manager is unavailable")
+            context = visitor_manager.resolve(self._cookie_token())
+            self._visitor_context = context
+            if context.is_new:
+                self._pending_session_cookie = context.token
+            with cleanup_lock:
+                cleanup_counter["requests"] += 1
+                should_cleanup = cleanup_counter["requests"] % 50 == 0
+            if should_cleanup:
+                visitor_manager.cleanup_expired()
+            return context
+
+        def _db_path(self) -> str | None:
+            context = self._visitor()
+            return str(context.database_path) if context is not None else db_path
+
+        def _storage_root(self) -> Path:
+            context = self._visitor()
+            return context.audio_root if context is not None else data_root
+
+        def _require_consent(self) -> bool:
+            context = self._visitor()
+            if context is None or context.consented:
+                return True
+            self._error(403, "recording_consent_required")
+            return False
+
+        def _same_origin(self) -> bool:
+            if not hosted_mode:
+                return True
+            origin = self.headers.get("Origin")
+            if not origin:
+                return True
+            parsed = urlparse(origin)
+            host = self.headers.get("Host", "")
+            expected_scheme = (
+                self.headers.get("X-Forwarded-Proto", "https")
+                .split(",", 1)[0]
+                .strip()
+                .casefold()
+            )
+            return (
+                parsed.scheme.casefold() == expected_scheme
+                and parsed.netloc.casefold() == host.casefold()
+            )
 
         def _headers(self):
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header(
+                "Permissions-Policy",
+                "microphone=(self), camera=(), geolocation=()",
+            )
+            if self._pending_session_cookie:
+                secure = "; Secure" if secure_cookie else ""
+                self.send_header(
+                    "Set-Cookie",
+                    "soothetrace_session="
+                    f"{self._pending_session_cookie}; Path=/; Max-Age=3600; "
+                    f"HttpOnly; SameSite=Lax{secure}",
+                )
+                self._pending_session_cookie = None
+            elif self._clear_session_cookie:
+                secure = "; Secure" if secure_cookie else ""
+                self.send_header(
+                    "Set-Cookie",
+                    "soothetrace_session=; Path=/; Max-Age=0; "
+                    f"HttpOnly; SameSite=Lax{secure}",
+                )
+                self._clear_session_cookie = False
 
         def _json(self, status: int, payload: dict):
             body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -744,16 +940,24 @@ def _handler_factory(
             return payload
 
         def _static(self, path: str) -> bool:
-            name = {
-                "/": "index.html",
-                "/index.html": "index.html",
-                "/app.js": "app.js",
-                "/app.css": "app.css",
-                "/manifest.webmanifest": "manifest.webmanifest",
-                "/backend.html": "backend.html",
-                "/backend.js": "backend.js",
-                "/backend.css": "backend.css",
-            }.get(path)
+            if path.startswith("/img/"):
+                image_name = path.removeprefix("/img/")
+                name = (
+                    f"img/{image_name}"
+                    if image_name in _STATIC_IMAGE_NAMES
+                    else None
+                )
+            else:
+                name = {
+                    "/": "index.html",
+                    "/index.html": "index.html",
+                    "/app.js": "app.js",
+                    "/app.css": "app.css",
+                    "/manifest.webmanifest": "manifest.webmanifest",
+                    "/backend.html": "backend.html",
+                    "/backend.js": "backend.js",
+                    "/backend.css": "backend.css",
+                }.get(path)
             if name is None:
                 return False
             asset = (static_root / name).resolve()
@@ -766,6 +970,7 @@ def _handler_factory(
                 ".js": "text/javascript; charset=utf-8",
                 ".css": "text/css; charset=utf-8",
                 ".webmanifest": "application/manifest+json",
+                ".png": "image/png",
             }.get(asset.suffix, "application/octet-stream")
             self.send_response(200)
             self.send_header("Content-Type", content_type)
@@ -792,12 +997,15 @@ def _handler_factory(
                 self._error(404, "not_found")
                 return
             if parts[2] == "episodes":
-                episode = store.get_episode(record_id, db_path)
+                episode = store.get_episode(record_id, self._db_path())
                 stored_path = episode.get("audio_path") if episode else None
             elif parts[2] == "enrollments":
-                stored_path = _enrollment_audio(record_id, db_path)
+                stored_path = _enrollment_audio(record_id, self._db_path())
             elif parts[2] == "live-observations":
-                stored_path = live_sessions.observation_audio_path(record_id, db_path)
+                stored_path = live_sessions.observation_audio_path(
+                    record_id,
+                    self._db_path(),
+                )
             else:
                 self._error(404, "not_found")
                 return
@@ -817,7 +1025,7 @@ def _handler_factory(
             self.wfile.write(body)
 
         def _play_profile_incident_audio(self, profile_id: int, incident_id: int):
-            episode = store.get_episode(incident_id, db_path)
+            episode = store.get_episode(incident_id, self._db_path())
             stored_path = (
                 episode.get("audio_path")
                 if episode
@@ -838,9 +1046,66 @@ def _handler_factory(
             self.wfile.write(body)
 
         def do_GET(self):
-            path = urlparse(self.path).path
+            parsed_request = urlparse(self.path)
+            path = parsed_request.path
+            if path == "/livez":
+                self._json(200, {"status": "alive"})
+                return
+            if path == "/readyz":
+                readiness_db = db_path or config.DB_PATH
+                store.init_db(readiness_db)
+                warmed = encoder_status if encoder_status is not None else {
+                    name: name in set(encoders.available())
+                    for name in identity.ENCODER_FOR_KIND.values()
+                }
+                baseline = store.get_baseline(
+                    config.POPULATION_KEY,
+                    readiness_db,
+                )
+                infant_encoder = identity.encoder_for(identity.KIND_INFANT)
+                human_encoder = identity.encoder_for(identity.KIND_IMITATION)
+                infant_ready = bool(warmed.get(infant_encoder)) and (
+                    not encoders.needs_baseline(infant_encoder)
+                    or bool(baseline)
+                )
+                ready = (
+                    shutil.which("ffmpeg") is not None
+                    and Path(readiness_db).is_file()
+                    and infant_ready
+                    and bool(warmed.get(human_encoder))
+                    and cry_detector_status is True
+                )
+                self._json(
+                    200 if ready else 503,
+                    {"status": "ready" if ready else "not_ready"},
+                )
+                return
+            if path == "/api/visitor-session":
+                context = self._visitor()
+                if context is None:
+                    self._json(
+                        200,
+                        {
+                            "visitor_session": {
+                                "status": "local",
+                                "consented": True,
+                                "retention_seconds": None,
+                            }
+                        },
+                    )
+                else:
+                    self._json(
+                        200,
+                        {
+                            "visitor_session": context.public(
+                                visitor_manager.ttl_seconds
+                            )
+                        },
+                    )
+                return
             if path == "/api/health":
-                store.init_db(db_path)
+                request_db = self._db_path()
+                store.init_db(request_db)
                 if encoder_status is None:
                     available_encoders = set(encoders.available())
                     warmed = {
@@ -849,9 +1114,9 @@ def _handler_factory(
                     }
                 else:
                     warmed = encoder_status
-                baseline = store.get_baseline(config.POPULATION_KEY, db_path)
+                baseline = store.get_baseline(config.POPULATION_KEY, request_db)
                 ffmpeg = shutil.which("ffmpeg") is not None
-                database = Path(db_path or config.DB_PATH).is_file()
+                database = Path(request_db or config.DB_PATH).is_file()
                 infant = bool(warmed.get(identity.encoder_for(identity.KIND_INFANT)))
                 imitation = bool(warmed.get(identity.encoder_for(identity.KIND_IMITATION)))
                 infant_requires_baseline = encoders.needs_baseline(
@@ -895,15 +1160,95 @@ def _handler_factory(
                 )
                 return
             if path == "/api/demo-diagnostics":
-                self._json(200, demo_diagnostics.snapshot(db_path))
+                self._json(200, demo_diagnostics.snapshot(self._db_path()))
                 return
             if path == "/api/profiles":
                 self._json(
                     200,
-                    {"profiles": [_profile_public(p) for p in identity.list_profiles(db_path)]},
+                    {
+                        "profiles": [
+                            _profile_public(p)
+                            for p in identity.list_profiles(self._db_path())
+                        ]
+                    },
                 )
                 return
             parts = path.strip("/").split("/")
+            if len(parts) == 3 and parts[:2] == ["api", "profiles"]:
+                try:
+                    profile_id = int(parts[2])
+                except ValueError:
+                    self._error(404, "profile_not_found")
+                    return
+                result = profile_views.summary(profile_id, self._db_path())
+                if result.get("status") == "error":
+                    self._error(404, result.get("reason", "profile_not_found"))
+                    return
+                self._json(
+                    200,
+                    {
+                        "profile": result["profile"],
+                        "training_clips": result.get("training_clips", []),
+                    },
+                )
+                return
+            if (
+                len(parts) == 4
+                and parts[:2] == ["api", "profiles"]
+                and parts[3] == "incidents"
+            ):
+                try:
+                    profile_id = int(parts[2])
+                except ValueError:
+                    self._error(404, "profile_not_found")
+                    return
+                query = parse_qs(parsed_request.query)
+                raw_cursor = (
+                    query.get("cursor", query.get("before_id", [None]))[0]
+                )
+                try:
+                    before_id = int(raw_cursor) if raw_cursor else None
+                except ValueError:
+                    self._error(400, "invalid_history_cursor")
+                    return
+                raw_limit = query.get("limit", [None])[0]
+                try:
+                    limit = int(raw_limit) if raw_limit else profile_views.DEFAULT_PAGE_SIZE
+                except ValueError:
+                    self._error(400, "invalid_history_limit")
+                    return
+                result = profile_views.incidents(
+                    profile_id,
+                    self._db_path(),
+                    limit=limit,
+                    before_id=before_id,
+                )
+                if result.get("status") == "error":
+                    self._error(404, result.get("reason", "profile_not_found"))
+                    return
+                self._json(200, result)
+                return
+            if (
+                len(parts) == 5
+                and parts[:2] == ["api", "profiles"]
+                and parts[3] == "incidents"
+            ):
+                try:
+                    profile_id = int(parts[2])
+                    incident_id = int(parts[4])
+                except ValueError:
+                    self._error(404, "incident_not_found")
+                    return
+                result = profile_views.incident(
+                    profile_id,
+                    incident_id,
+                    self._db_path(),
+                )
+                if result.get("status") == "error":
+                    self._error(404, result.get("reason", "incident_not_found"))
+                    return
+                self._json(200, result)
+                return
             if (
                 len(parts) == 3
                 and parts[:2] == ["api", "care-sessions"]
@@ -916,7 +1261,7 @@ def _handler_factory(
                 if session_id <= 0:
                     self._error(404, "care_session_not_found")
                     return
-                result = care_sessions.get(session_id, db_path)
+                result = care_sessions.get(session_id, self._db_path())
                 if result.get("status") == "error":
                     self._error(
                         _care_error_status(result.get("reason", "")),
@@ -948,7 +1293,7 @@ def _handler_factory(
                 except ValueError:
                     self._error(404, "live_session_not_found")
                     return
-                session = live_sessions.get(session_id, db_path)
+                session = live_sessions.get(session_id, self._db_path())
                 if not session:
                     self._error(404, "live_session_not_found")
                     return
@@ -970,7 +1315,7 @@ def _handler_factory(
                     "capture_device_name": self.headers.get("X-Capture-Device", ""),
                     "user_agent": self.headers.get("User-Agent", ""),
                 },
-                storage_root=data_root,
+                storage_root=self._storage_root(),
             )
 
         def _profile_create(self):
@@ -984,7 +1329,7 @@ def _handler_factory(
             ):
                 self._error(400, "invalid_profile")
                 return
-            profile = identity.create_profile(name, kind, db_path)
+            profile = identity.create_profile(name, kind, self._db_path())
             if not profile:
                 self._error(500, "profile_create_failed")
                 return
@@ -993,7 +1338,9 @@ def _handler_factory(
         def _live_session_create(self):
             payload = self._json_body()
             kind = payload.get("kind", identity.KIND_IMITATION)
-            session = live_sessions.create(kind, db_path)
+            if kind == "human_baby":
+                kind = identity.KIND_IMITATION
+            session = live_sessions.create(kind, self._db_path())
             if not session:
                 self._error(400, "invalid_live_session")
                 return
@@ -1019,7 +1366,7 @@ def _handler_factory(
             ):
                 self._error(400, "invalid_care_session_profile")
                 return
-            result = care_sessions.create(profile_id, tags, db_path)
+            result = care_sessions.create(profile_id, tags, self._db_path())
             if result.get("status") == "error":
                 reason = result.get("reason", "care_session_storage_error")
                 self._error(_care_error_status(reason), reason)
@@ -1033,7 +1380,7 @@ def _handler_factory(
                 "resume": care_sessions.resume,
                 "stop": care_sessions.stop,
             }[operation]
-            result = function(session_id, db_path)
+            result = function(session_id, self._db_path())
             if result.get("status") == "error":
                 reason = result.get("reason", "care_session_storage_error")
                 self._error(_care_error_status(reason), reason)
@@ -1056,16 +1403,16 @@ def _handler_factory(
                     session_id,
                     sequence,
                     ingested,
-                    db_path,
+                    self._db_path(),
                 )
             owned = _care_chunk_owns_ingest(
                 session_id,
                 sequence,
                 ingested.get("source_path"),
-                db_path,
+                self._db_path(),
             )
             if not owned:
-                _cleanup_unsaved_ingest(ingested, data_root)
+                _cleanup_unsaved_ingest(ingested, self._storage_root())
             if result.get("status") == "error":
                 reason = result.get("reason", "care_session_storage_error")
                 self._error(_care_error_status(reason), reason)
@@ -1086,7 +1433,7 @@ def _handler_factory(
                     payload.get("settled"),
                     payload.get("notes"),
                     payload.get("tags"),
-                    db_path,
+                    self._db_path(),
                 )
             if result.get("status") == "error":
                 reason = result.get("reason", "care_session_storage_error")
@@ -1099,7 +1446,7 @@ def _handler_factory(
             self._json(200, public)
 
         def _live_session_observe(self, session_id: int):
-            session = live_sessions.get(session_id, db_path)
+            session = live_sessions.get(session_id, self._db_path())
             if not session:
                 self._error(404, "live_session_not_found")
                 return
@@ -1135,7 +1482,7 @@ def _handler_factory(
                     session_id,
                     ingested["identity_path"],
                     capture_metadata=capture_metadata,
-                    db_path=db_path,
+                    db_path=self._db_path(),
                 )
             if not result:
                 self._error(500, "live_observation_failed")
@@ -1150,14 +1497,14 @@ def _handler_factory(
             self._json(response_status, _public_live_result(result))
 
         def _live_session_complete(self, session_id: int):
-            session = live_sessions.complete(session_id, db_path)
+            session = live_sessions.complete(session_id, self._db_path())
             if not session:
                 self._error(404, "live_session_not_found")
                 return
             self._json(200, {"session": _public_live_session(session)})
 
         def _profile_enroll(self, profile_id: int):
-            profile = identity.get_profile(profile_id, db_path)
+            profile = identity.get_profile(profile_id, self._db_path())
             if not profile:
                 self._error(404, "profile_not_found")
                 return
@@ -1171,7 +1518,7 @@ def _handler_factory(
                     ingested["identity_path"],
                     capture_device_name=self.headers.get("X-Capture-Device"),
                     source_type=profile.get("kind"),
-                    db_path=db_path,
+                    db_path=self._db_path(),
                 )
             status = 201 if result.get("status") == "enrolled" else 422
             self._json(status, result)
@@ -1181,7 +1528,7 @@ def _handler_factory(
             attempt = identity.begin_identity_attempt(
                 payload.get("kind"),
                 candidate_profile_ids=payload.get("candidate_profile_ids"),
-                db_path=db_path,
+                db_path=self._db_path(),
             )
             if "error" in attempt:
                 self._error(400, attempt["error"])
@@ -1227,12 +1574,15 @@ def _handler_factory(
                     attempt_id,
                     ingested["identity_path"],
                     capture_metadata=metadata,
-                    db_path=db_path,
+                    db_path=self._db_path(),
                 )
             if "error" in result:
                 self._error(409, result["error"])
                 return
-            self._json(200, {"identity": _public_identity(result, db_path)})
+            self._json(
+                200,
+                {"identity": _public_identity(result, self._db_path())},
+            )
 
         def _incident_complete(self, attempt_id: int):
             payload = self._json_body()
@@ -1252,7 +1602,7 @@ def _handler_factory(
                     attempt_id,
                     answer,
                     explicit_tags=tags,
-                    db_path=db_path,
+                    db_path=self._db_path(),
                 )
             if result.get("status") == "blocked":
                 self._json(409, result)
@@ -1276,7 +1626,7 @@ def _handler_factory(
                 result = careflow.preview_incident(
                     attempt_id,
                     explicit_tags=tags,
-                    db_path=db_path,
+                    db_path=self._db_path(),
                 )
             if result.get("status") == "blocked":
                 self._json(409, result)
@@ -1289,6 +1639,40 @@ def _handler_factory(
             path = urlparse(self.path).path
             parts = path.strip("/").split("/")
             try:
+                if not self._same_origin():
+                    self._error(403, "cross_origin_request_rejected")
+                    return
+                if path == "/api/visitor-session/consent":
+                    self._json_body()
+                    context = self._visitor()
+                    if context is None:
+                        self._json(
+                            200,
+                            {
+                                "visitor_session": {
+                                    "status": "local",
+                                    "consented": True,
+                                    "retention_seconds": None,
+                                }
+                            },
+                        )
+                        return
+                    consented = visitor_manager.consent(context.token)
+                    if consented is None:
+                        self._error(404, "visitor_session_not_found")
+                        return
+                    self._visitor_context = consented
+                    self._json(
+                        200,
+                        {
+                            "visitor_session": consented.public(
+                                visitor_manager.ttl_seconds
+                            )
+                        },
+                    )
+                    return
+                if not self._require_consent():
+                    return
                 if path == "/api/live-sessions":
                     self._live_session_create()
                     return
@@ -1324,7 +1708,7 @@ def _handler_factory(
                 if (
                     len(parts) == 4
                     and parts[:2] == ["api", "live-sessions"]
-                    and parts[3] in {"observations", "complete"}
+                    and parts[3] in {"observations", "complete", "finish"}
                 ):
                     try:
                         session_id = int(parts[2])
@@ -1375,6 +1759,20 @@ def _handler_factory(
         def do_DELETE(self):
             path = urlparse(self.path).path
             parts = path.strip("/").split("/")
+            if not self._same_origin():
+                self._error(403, "cross_origin_request_rejected")
+                return
+            if path == "/api/visitor-session":
+                context = self._visitor()
+                if context is not None and visitor_manager is not None:
+                    visitor_manager.delete(context.token)
+                    self._visitor_context = None
+                    self._pending_session_cookie = None
+                    self._clear_session_cookie = True
+                self._json(200, {"status": "deleted"})
+                return
+            if not self._require_consent():
+                return
             if len(parts) == 3 and parts[:2] == ["api", "care-sessions"]:
                 try:
                     session_id = int(parts[2])
@@ -1384,7 +1782,11 @@ def _handler_factory(
                 if session_id <= 0:
                     self._error(404, "care_session_not_found")
                     return
-                result = care_sessions.discard(session_id, data_root, db_path)
+                result = care_sessions.discard(
+                    session_id,
+                    self._storage_root(),
+                    self._db_path(),
+                )
                 if result.get("status") == "error":
                     reason = result.get("reason", "care_session_storage_error")
                     self._error(_care_error_status(reason), reason)
@@ -1399,10 +1801,10 @@ def _handler_factory(
             except ValueError:
                 self._error(404, "not_found")
                 return
-            if not identity.get_profile(profile_id, db_path):
+            if not identity.get_profile(profile_id, self._db_path()):
                 self._error(404, "profile_not_found")
                 return
-            result = identity.delete_profile(profile_id, db_path)
+            result = identity.delete_profile(profile_id, self._db_path())
             if not result.get("deleted"):
                 self._error(500, "profile_delete_failed")
                 return
@@ -1418,12 +1820,24 @@ def build_http_server(
     db_path: str | None = None,
     encoder_status: dict[str, bool] | None = None,
     cry_detector_status: bool | None = None,
+    *,
+    hosted_mode: bool = False,
+    secure_cookie: bool = False,
+    visitor_manager: visitor_sessions.VisitorSessionManager | None = None,
 ):
     """Build the local product server. TLS wrapping is performed by the launcher."""
     audio_root = Path(data_root).resolve()
     web_root = Path(static_root).resolve()
     audio_root.mkdir(parents=True, exist_ok=True)
     store.init_db(db_path)
+    manager = visitor_manager
+    if hosted_mode and manager is None:
+        manager = visitor_sessions.VisitorSessionManager(
+            template_db=db_path or config.DB_PATH,
+            registry_db=config.VISITOR_REGISTRY_PATH,
+            visitor_root=config.VISITOR_ROOT,
+            audio_root=audio_root,
+        )
     return ThreadingHTTPServer(
         address,
         _handler_factory(
@@ -1432,16 +1846,23 @@ def build_http_server(
             db_path,
             encoder_status,
             cry_detector_status,
+            hosted_mode=hosted_mode,
+            visitor_manager=manager,
+            secure_cookie=secure_cookie,
         ),
     )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Serve the SootheTrace phone client over trusted local HTTPS."
+        description="Serve the SootheTrace browser client and inference API."
     )
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8443)
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("PORT", "8443")),
+    )
     parser.add_argument("--data-root", default=config.AUDIO_DIR)
     parser.add_argument("--static-root", default="web")
     parser.add_argument("--db", default=config.DB_PATH)
@@ -1450,10 +1871,24 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="serve plain HTTP for a laptop-only localhost demo",
     )
+    parser.add_argument(
+        "--behind-tls-proxy",
+        action="store_true",
+        help=(
+            "serve container HTTP on a public interface when a trusted host "
+            "terminates HTTPS"
+        ),
+    )
     parser.add_argument("--cert")
     parser.add_argument("--key")
     args = parser.parse_args(argv)
-    if not args.http and (not args.cert or not args.key):
+    if args.http and args.behind_tls_proxy:
+        parser.error("--http and --behind-tls-proxy are mutually exclusive")
+    if (
+        not args.http
+        and not args.behind_tls_proxy
+        and (not args.cert or not args.key)
+    ):
         parser.error("--cert and --key are required unless --http is used")
     if args.http and not _is_loopback_host(args.host):
         parser.error("--http is allowed only with a loopback host such as 127.0.0.1")
@@ -1468,13 +1903,15 @@ def main(argv: list[str] | None = None) -> int:
         db_path=args.db,
         encoder_status=warmed,
         cry_detector_status=cry_detector_ready,
+        hosted_mode=args.behind_tls_proxy,
+        secure_cookie=args.behind_tls_proxy,
     )
-    if not args.http:
+    if not args.http and not args.behind_tls_proxy:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(args.cert, args.key)
         server.socket = context.wrap_socket(server.socket, server_side=True)
 
-    scheme = "http" if args.http else "https"
+    scheme = "https" if args.behind_tls_proxy or not args.http else "http"
     print(
         f"SootheTrace ready at {scheme}://{args.host}:{args.port} "
         f"with encoders {warmed}",

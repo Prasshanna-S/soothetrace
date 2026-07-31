@@ -1,22 +1,32 @@
 1
-00:00:00,000 --> 00:00:05,000
-This is a different held-out Baby X recording, with caregiver speech present.
+00:00:00,000 --> 00:00:03,000
+Listening begins in complete 3-second recordings.
 
 2
-00:00:05,000 --> 00:00:10,000
-The infant-cry gate fired, and the profile matcher still selected Demo Baby.
+00:00:03,000 --> 00:00:09,000
+The infant-cry gate fires on the first recording.
+Grounded Demo Baby matches begin to accumulate.
 
 3
-00:00:10,000 --> 00:00:15,000
-Only Demo Baby's history is searched.
-The ranking uses cry-pattern similarity and the current time.
+00:00:09,000 --> 00:00:18,000
+Some recordings do not select the profile,
+so the system keeps listening instead of forcing a result.
 
 4
-00:00:15,000 --> 00:00:22,000
-The best prior incident was at 6:45 PM.
-White noise was the last recorded action before the caregiver reported that the baby settled.
+00:00:18,000 --> 00:00:24,000
+Some recordings do not select the profile,
+so no result is forced.
 
 5
-00:00:22,000 --> 00:00:28,000
-The suggestion comes from that prior record.
-It does not claim why the baby is crying.
+00:00:24,000 --> 00:00:30,000
+Fresh grounded matches continue.
+The suggestion remains hidden until every gate is satisfied.
+
+6
+00:00:30,000 --> 00:00:43,000
+Observed latch at 30 seconds.
+What helped before: held baby upright.
+
+7
+00:00:43,000 --> 00:00:46,500
+History-based suggestion, not a diagnosis.

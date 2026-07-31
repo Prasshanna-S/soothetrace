@@ -49,6 +49,32 @@ class ProductServer:
             '{"name":"Cry Memory"}',
             encoding="utf-8",
         )
+        self.static_image_names = (
+            "avatar-baby.png",
+            "moment-saved.png",
+            "page-baby.png",
+            "page-history.png",
+            "action-bath.png",
+            "action-cuddle.png",
+            "action-diaper.png",
+            "action-feeding.png",
+            "action-medication.png",
+            "action-notes.png",
+            "action-play.png",
+            "action-sleeping.png",
+            "action-temp.png",
+            "action-tummy.png",
+            "action-walk.png",
+        )
+        self.static_image_body = bytes.fromhex(
+            "89504e470d0a1a0a0000000d494844520000000100000001"
+            "08060000001f15c4890000000d4944415408d763f8cfc0f0"
+            "1f00050001ff89993d1d0000000049454e44ae426082"
+        )
+        image_root = self.static_root / "img"
+        image_root.mkdir()
+        for name in self.static_image_names:
+            (image_root / name).write_bytes(self.static_image_body)
         self.db_path = str(root / "episodes.db")
         self.server = http_api.build_http_server(
             ("127.0.0.1", 0),
@@ -120,6 +146,23 @@ class HttpApiTests(unittest.TestCase):
         self.assertNotIn("access-control-allow-origin", health["headers"])
         self.assertEqual(200, page["status"])
         self.assertIn("content-security-policy", page["headers"])
+
+    def test_static_image_allowlist_serves_only_bundled_pngs(self):
+        for name in self.product.static_image_names:
+            with self.subTest(name=name):
+                response = self.product.request("GET", f"/img/{name}")
+                self.assertEqual(200, response["status"])
+                self.assertEqual("image/png", response["headers"]["content-type"])
+                self.assertEqual(self.product.static_image_body, response["body"])
+                self.assertEqual(
+                    "nosniff",
+                    response["headers"]["x-content-type-options"],
+                )
+
+        unknown = self.product.request("GET", "/img/not-allowlisted.png")
+        traversal = self.product.request("GET", "/img/%2e%2e/app.js")
+        self.assertEqual(404, unknown["status"])
+        self.assertEqual(404, traversal["status"])
 
     def test_health_reports_a_model_that_failed_to_warm_as_unavailable(self):
         from src import encoders, http_api
@@ -933,6 +976,72 @@ class CareSessionHttpApiTests(unittest.TestCase):
         self.assertNotIn("embedding", encoded)
         self.assertNotIn("source_path", encoded)
 
+    def test_care_decision_exposes_only_bounded_literal_caregiver_evidence(self):
+        from src import care_sessions, http_api
+
+        session = self._care_session()
+        internal = care_sessions.get(session["id"], self.product.db_path)
+        literal = "<b>literal caregiver words</b> " + ("x" * 300)
+        internal["decision"] = {
+            "id": 88,
+            "latched_at": "2026-07-30T20:15:15-04:00",
+            "profile": {
+                "id": session["profile"]["id"],
+                "display_name": session["profile"]["display_name"],
+            },
+            "guidance": {
+                "status": "grounded",
+                "recommendation": "Try what helped before.",
+            },
+            "basis": ["cry pattern was the strongest available signal"],
+            "scenarios": [
+                {
+                    "episode_id": 101,
+                    "started_at": "2026-07-27T20:04:00-04:00",
+                    "interventions": [
+                        {
+                            "order": 1,
+                            "action": "held baby upright",
+                            "evidence": "held baby upright",
+                        }
+                    ],
+                    "outcome": "The baby settled.",
+                    "outcome_src": "caregiver",
+                    "worked": True,
+                    "contributions": [
+                        "cry pattern was the strongest available signal"
+                    ],
+                    "caregiver_evidence": {
+                        "text": literal,
+                        "source": "captured_transcript",
+                        "full_transcript": "private transcript",
+                        "score": 0.99,
+                    },
+                }
+            ],
+        }
+
+        with patch.object(http_api.care_sessions, "get", return_value=internal):
+            response = self.product.request(
+                "GET",
+                f"/api/care-sessions/{session['id']}",
+            )
+
+        self.assertEqual(200, response["status"])
+        evidence = response["json"]["session"]["decision"]["scenarios"][0][
+            "caregiver_evidence"
+        ]
+        self.assertEqual(
+            {
+                "text": literal[:220],
+                "source": "captured_transcript",
+            },
+            evidence,
+        )
+        encoded = json.dumps(response["json"])
+        self.assertNotIn("full_transcript", encoded)
+        self.assertNotIn('"score"', encoded)
+
     def test_care_session_routes_require_exact_lengths_and_positive_ids(self):
         paths = (
             "/api/care-sessions/not-an-id",
@@ -1016,6 +1125,102 @@ class CareSessionHttpApiTests(unittest.TestCase):
             },
             storage_root=self.product.data_root.resolve(),
         )
+
+    def test_chunk_route_preserves_safe_decision_progress_only(self):
+        from src import care_sessions, http_api
+
+        session = self._care_session()
+        raw = b"progress-segment"
+        ingested = self._ingest_result(raw)
+        internal_result = {
+            "session": {
+                **care_sessions.get(session["id"], self.product.db_path),
+                "last_sequence": 7,
+            },
+            "chunk": {
+                "id": 91,
+                "sequence": 7,
+                "status": "matched_no_guidance",
+                "created_at": "2026-07-30T17:00:00-04:00",
+                "reason_codes": ["collecting_demo_evidence"],
+                "cry_presence": {
+                    "status": "infant_cry_detected",
+                    "label": "Infant-cry-like sound detected",
+                    "reason_codes": ["infant_cry_evidence_strong"],
+                    "analyzed_duration_s": 3.0,
+                    "analysis_view_count": 1,
+                    "model_version": "ast-audioset-baby-cry-v1",
+                    "_infant_score": 0.99,
+                },
+                "decision_progress": {
+                    "consistent_grounded_segments": 6,
+                    "required_consistent_grounded_segments": 6,
+                    "additional_confirmations": 5,
+                    "required_additional_confirmations": 5,
+                    "segments_seen": 7,
+                    "minimum_segments_before_decision": 7,
+                    "analyzed_audio_seconds": 21.0,
+                    "minimum_analyzed_audio_seconds": 20.0,
+                    "decision_eligible": True,
+                    "repeated_source": False,
+                    "label": "Infant cry detected. Suggestion is ready",
+                    "candidate_token": "private-candidate",
+                    "score": 0.99,
+                    "margin": 0.24,
+                },
+                "_demo_source_digest": "private-digest",
+                "_demo_duplicate_signature": [0.1, 0.2],
+            },
+        }
+        with (
+            patch.object(
+                http_api.audio_ingest,
+                "ingest_audio",
+                return_value=ingested,
+            ),
+            patch.object(
+                http_api.care_sessions,
+                "submit_chunk",
+                return_value=internal_result,
+            ),
+            patch.object(
+                http_api,
+                "_care_chunk_owns_ingest",
+                return_value=True,
+            ),
+        ):
+            response = self.product.request(
+                "POST",
+                f"/api/care-sessions/{session['id']}/chunks",
+                raw,
+                {
+                    "Content-Type": "audio/mp4",
+                    "Content-Length": str(len(raw)),
+                    "X-Capture-Sequence": "7",
+                },
+            )
+
+        self.assertEqual(201, response["status"], response)
+        progress = response["json"]["chunk"]["decision_progress"]
+        self.assertEqual(21.0, progress["analyzed_audio_seconds"])
+        self.assertEqual(20.0, progress["minimum_analyzed_audio_seconds"])
+        self.assertEqual(7, progress["segments_seen"])
+        self.assertTrue(progress["decision_eligible"])
+        self.assertFalse(progress["repeated_source"])
+        self.assertEqual(
+            "Infant cry detected. Suggestion is ready",
+            progress["label"],
+        )
+        encoded = json.dumps(response["json"])
+        for forbidden in (
+            "candidate_token",
+            "score",
+            "margin",
+            "digest",
+            "signature",
+            "_infant_score",
+        ):
+            self.assertNotIn(forbidden, encoded)
 
     def test_chunk_header_validation_happens_before_ingest(self):
         from src import http_api

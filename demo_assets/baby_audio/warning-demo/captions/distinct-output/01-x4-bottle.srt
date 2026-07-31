@@ -1,18 +1,23 @@
 1
-00:00:00,000 --> 00:00:05,000
-The infant-cry gate fired, and this X4 recording matched Demo Baby.
+00:00:00,000 --> 00:00:03,000
+Listening in 3-second recordings.
 
 2
-00:00:05,000 --> 00:00:11,000
-The app searched only this profile's history.
-Cry pattern and time of day were the active signals.
+00:00:03,000 --> 00:00:10,000
+Infant-cry-like sound detected.
+Profile evidence points to Demo Baby.
 
 3
-00:00:11,000 --> 00:00:18,000
-Two similar afternoon records say a bottle was offered,
-and the caregiver reported that the baby settled.
+00:00:10,000 --> 00:00:21,000
+Confirming fresh grounded matches.
+The 20-second listening gate remains active.
 
 4
-00:00:18,000 --> 00:00:24,000
+00:00:21,000 --> 00:00:33,000
 What helped before: offered bottle.
-This is a recorded-history suggestion, not a diagnosis.
+Supported by two synthetic history incidents.
+
+5
+00:00:33,000 --> 00:00:45,000
+Cry pattern and similar time of day were used.
+This is not a diagnosis.

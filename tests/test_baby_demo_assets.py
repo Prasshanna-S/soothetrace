@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import unittest
 import wave
 from pathlib import Path
@@ -124,7 +125,25 @@ class BabyDemoAssetTests(unittest.TestCase):
         )
         self.assertEqual(curated_declared, curated_group_wavs)
 
-    def test_showcase_has_three_distinct_verified_latching_sources(self):
+    def test_showcase_contract_describes_current_production_gate(self):
+        self.assertEqual(self.showcase["schema_version"], 2)
+        gate = self.showcase["production_gate"]
+        self.assertEqual(gate["segment_seconds"], 3)
+        self.assertEqual(gate["candidate_segments"], 1)
+        self.assertEqual(gate["additional_grounded_confirmations"], 5)
+        self.assertEqual(gate["required_grounded_segments"], 6)
+        self.assertEqual(gate["minimum_segments_before_suggestion"], 7)
+        self.assertEqual(gate["minimum_analyzed_audio_seconds"], 20.0)
+        self.assertEqual(
+            gate["observed_latch_audio_seconds"],
+            {"X4": 21, "X7": 30, "X8": 21},
+        )
+        self.assertTrue(gate["duplicate_guard"]["enabled"])
+        self.assertTrue(gate["duplicate_guard"]["exact_source_digest"])
+        self.assertTrue(gate["duplicate_guard"]["near_duplicate_signature"])
+        self.assertTrue(self.showcase["memory_design"]["synthetic_history"])
+
+    def test_showcase_has_three_current_verified_latching_sources(self):
         records = self.showcase["assets"]
         self.assertEqual([record["order"] for record in records], [1, 2, 3])
         self.assertEqual(
@@ -132,50 +151,119 @@ class BabyDemoAssetTests(unittest.TestCase):
             ["07-X4.wav", "13-X7.wav", "15-X8.wav"],
         )
         self.assertEqual(len({record["source_sha256"] for record in records}), 3)
+        self.assertEqual(
+            [record["observed_latch_audio_seconds"] for record in records],
+            [21, 30, 21],
+        )
         for record in records:
-            probe = record["six_second_quiet_probe"]
-            self.assertEqual(probe["cry_gate_status"], "infant_cry_detected")
-            self.assertEqual(probe["identity_status"], "match")
-            self.assertEqual(probe["profile"], "Demo Baby")
-            self.assertEqual(probe["chunk_status"], "guidance_latched")
-            for subtitle_key in ("subtitle", "distinct_output_spike_subtitle"):
+            self.assertNotIn("six_second_quiet_probe", record)
+            for subtitle_key in ("subtitle", "short_subtitle"):
                 subtitle = SHOWCASE_ROOT / record[subtitle_key]
                 self.assertTrue(subtitle.is_file(), record[subtitle_key])
 
-        distinct = self.showcase["validated_distinct_output_spike"]["result"]
-        self.assertEqual((distinct["passed"], distinct["tested"]), (3, 3))
+        acceptance = self.showcase["production_acceptance"]
+        self.assertFalse(acceptance["production_database_changed"])
+        result = acceptance["result"]
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual((result["passed"], result["tested"]), (3, 3))
+        self.assertEqual(result["distinct_recommendations"], 3)
         self.assertEqual(
-            [item["recommendation"] for item in distinct["outputs"]],
+            [item["recommendation"] for item in result["outputs"]],
             [
                 "What helped before: offered bottle.",
                 "What helped before: held baby upright.",
                 "What helped before: turned on white noise.",
             ],
         )
-
-        clean_clone = self.showcase["clean_clone_bootstrap_validation"]
-        self.assertEqual(clean_clone["confirmation_segments"], 4)
         self.assertEqual(
-            (
-                clean_clone["result"]["passed"],
-                clean_clone["result"]["tested"],
-            ),
-            (3, 3),
+            [item["processed_segments"] for item in result["outputs"]],
+            [7, 10, 7],
         )
-        for item in clean_clone["result"]["outputs"]:
+        self.assertEqual(
+            [item["cry_positive_segments"] for item in result["outputs"]],
+            [7, 10, 7],
+        )
+        self.assertEqual(
+            [item["first_cry_audio_seconds"] for item in result["outputs"]],
+            [3, 3, 3],
+        )
+        self.assertEqual(
+            [item["latch_audio_seconds"] for item in result["outputs"]],
+            [21, 30, 21],
+        )
+        self.assertEqual(
+            [item["action"] for item in result["outputs"]],
+            ["offered bottle", "held baby upright", "turned on white noise"],
+        )
+        for item in result["outputs"]:
+            self.assertEqual(item["profile"], "Demo Baby")
+            self.assertEqual(item["guidance_status"], "grounded")
+            self.assertEqual(item["support_count"], 2)
+            self.assertEqual(item["worked_outcomes"], 2)
             self.assertEqual(
-                item["chunk_statuses"],
+                item["basis"],
                 [
-                    "matched_no_guidance",
-                    "matched_no_guidance",
-                    "matched_no_guidance",
-                    "guidance_latched",
+                    "cry pattern was the strongest available signal",
+                    "occurred at a similar time of day",
                 ],
             )
-            self.assertEqual(
-                item["decision_present_by_segment"],
-                [False, False, False, True],
+            self.assertTrue(item["clean_demo_result"])
+
+    def test_showcase_subtitles_align_suggestions_with_observed_latches(self):
+        cases = (
+            (
+                21.0,
+                "What helped before: offered bottle.",
+                "captions/01-x4.srt",
+                "captions/distinct-output/01-x4-bottle.srt",
+            ),
+            (
+                30.0,
+                "What helped before: held baby upright.",
+                "captions/02-x7.srt",
+                "captions/distinct-output/02-x7-upright.srt",
+            ),
+            (
+                21.0,
+                "What helped before: turned on white noise.",
+                "captions/03-x8.srt",
+                "captions/distinct-output/03-x8-white-noise.srt",
+            ),
+        )
+
+        def timestamp_seconds(value):
+            match = re.fullmatch(
+                r"(\d\d):(\d\d):(\d\d),(\d\d\d)",
+                value,
             )
+            self.assertIsNotNone(match, value)
+            hour, minute, second, millisecond = map(int, match.groups())
+            self.assertLess(minute, 60)
+            self.assertLess(second, 60)
+            return hour * 3600 + minute * 60 + second + millisecond / 1000
+
+        for latch, suggestion, *relative_paths in cases:
+            for relative_path in relative_paths:
+                path = SHOWCASE_ROOT / relative_path
+                blocks = re.split(
+                    r"\n\s*\n",
+                    path.read_text(encoding="utf-8").strip(),
+                )
+                previous_end = 0.0
+                suggestion_starts = []
+                for expected_number, block in enumerate(blocks, 1):
+                    lines = block.splitlines()
+                    self.assertEqual(int(lines[0]), expected_number, path)
+                    start_raw, end_raw = lines[1].split(" --> ")
+                    start = timestamp_seconds(start_raw)
+                    end = timestamp_seconds(end_raw)
+                    self.assertGreaterEqual(start, previous_end, path)
+                    self.assertGreater(end, start, path)
+                    self.assertLessEqual(end, 46.5, path)
+                    if suggestion in "\n".join(lines[2:]):
+                        suggestion_starts.append(start)
+                    previous_end = end
+                self.assertEqual(suggestion_starts, [latch], path)
 
 
 if __name__ == "__main__":

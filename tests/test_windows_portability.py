@@ -148,13 +148,51 @@ class CryGateCachePortabilityTests(unittest.TestCase):
         self.cry_gate._EXTRACTOR = self.original_extractor
         self.cry_gate._MODEL = self.original_model
 
-    def test_cry_gate_cache_path_stays_beneath_configured_model_root(self):
-        from src import config
+    def test_explicit_model_directory_wins_over_standard_hf_cache(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            configured = Path(tempdir) / "configured"
+            standard = Path(tempdir) / "huggingface" / "hub"
+            with (
+                patch.dict(
+                    os.environ,
+                    {"IM_MODEL_DIR": str(configured)},
+                    clear=False,
+                ),
+                patch.object(
+                    self.cry_gate.config,
+                    "MODEL_DIR",
+                    str(configured),
+                ),
+                patch.object(
+                    self.cry_gate,
+                    "_huggingface_cache_dir",
+                    return_value=standard,
+                    create=True,
+                ),
+            ):
+                cache_path = self.cry_gate._model_cache_dir()
 
-        cache_path = self.cry_gate._model_cache_dir().resolve()
-        model_root = Path(config.MODEL_DIR).resolve()
+        self.assertEqual(configured.resolve(), cache_path.resolve())
 
-        self.assertTrue(cache_path.is_relative_to(model_root))
+    def test_default_model_directory_reuses_standard_hf_cache(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            standard = Path(tempdir) / "huggingface" / "hub"
+            with (
+                patch.dict(
+                    os.environ,
+                    {"IM_MODEL_DIR": ""},
+                    clear=False,
+                ),
+                patch.object(
+                    self.cry_gate,
+                    "_huggingface_cache_dir",
+                    return_value=standard,
+                    create=True,
+                ),
+            ):
+                cache_path = self.cry_gate._model_cache_dir()
+
+        self.assertEqual(standard.resolve(), cache_path.resolve())
 
     def test_cry_gate_loading_does_not_require_privileged_symlinks(self):
         labels = {
@@ -175,6 +213,11 @@ class CryGateCachePortabilityTests(unittest.TestCase):
 
         with (
             tempfile.TemporaryDirectory() as tempdir,
+            patch.dict(
+                os.environ,
+                {"IM_MODEL_DIR": tempdir},
+                clear=False,
+            ),
             patch.object(self.cry_gate.config, "MODEL_DIR", tempdir),
             patch.dict(sys.modules, {"transformers": fake_transformers}),
             patch.object(
@@ -226,6 +269,11 @@ class CryGateCachePortabilityTests(unittest.TestCase):
 
         with (
             tempfile.TemporaryDirectory() as tempdir,
+            patch.dict(
+                os.environ,
+                {"IM_MODEL_DIR": tempdir},
+                clear=False,
+            ),
             patch.object(self.cry_gate.config, "MODEL_DIR", tempdir),
             patch.dict(sys.modules, {"transformers": fake_transformers}),
         ):

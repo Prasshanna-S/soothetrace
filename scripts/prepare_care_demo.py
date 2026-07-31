@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src import config, fingerprint, identity, store  # noqa: E402
+from src import audio_ingest, config, fingerprint, identity, store  # noqa: E402
 
 
 SEED_VERSION = "demo-baby-distinct-memory-v1"
@@ -142,12 +142,45 @@ def _copy_if_needed(source: Path, target: Path) -> None:
     shutil.copyfile(source, target)
 
 
+def _copy_browser_normalized(
+    source: Path,
+    target: Path,
+    data_root: Path,
+) -> None:
+    """Copy the same identity WAV that a browser enrollment would persist."""
+    ingested = audio_ingest.ingest_audio(
+        source.read_bytes(),
+        "audio/wav",
+        capture_metadata={"capture_device_name": "validated fixed rig playback"},
+        storage_root=data_root,
+    )
+    identity_path = ingested.get("identity_path")
+    if (
+        ingested.get("status") != "ready"
+        or not isinstance(identity_path, str)
+        or not Path(identity_path).is_file()
+    ):
+        raise PrepareCareDemoError(
+            f"could not normalize enrollment {source.name}: "
+            f"{ingested.get('reason') or ingested.get('status') or 'unknown error'}"
+        )
+    capture_dir = Path(identity_path).resolve().parent
+    try:
+        _copy_if_needed(Path(identity_path), target)
+    finally:
+        managed_root = (data_root / "managed").resolve()
+        if capture_dir.parent == managed_root:
+            shutil.rmtree(capture_dir, ignore_errors=True)
+
+
 def _ensure_enrollments(
     profile: dict,
     asset_names: tuple[str, ...],
     assets_root: Path,
     data_root: Path,
     database: str,
+    *,
+    browser_normalized: bool = False,
 ) -> int:
     created = 0
     existing_hashes = {
@@ -158,16 +191,27 @@ def _ensure_enrollments(
     for asset_name in asset_names:
         source = assets_root / asset_name
         source_hash = _digest(source)
-        if source_hash in existing_hashes:
+        if not browser_normalized and source_hash in existing_hashes:
             continue
+        target_name = (
+            f"{Path(asset_name).stem}-browser-normalized.wav"
+            if browser_normalized
+            else Path(asset_name).name
+        )
         target = (
             data_root
             / "demo-bootstrap"
             / "enrollment"
             / profile["display_name"].casefold().replace(" ", "-")
-            / Path(asset_name).name
+            / target_name
         )
-        _copy_if_needed(source, target)
+        if browser_normalized:
+            _copy_browser_normalized(source, target, data_root)
+        else:
+            _copy_if_needed(source, target)
+        target_hash = _digest(target)
+        if target_hash in existing_hashes:
+            continue
         result = identity.enroll(
             profile["id"],
             str(target.resolve()),
@@ -177,10 +221,10 @@ def _ensure_enrollments(
         )
         if result.get("status") == "enrolled":
             created += 1
-            existing_hashes.add(source_hash)
+            existing_hashes.add(target_hash)
             continue
         if result.get("reason") == "duplicate_audio":
-            existing_hashes.add(source_hash)
+            existing_hashes.add(target_hash)
             continue
         raise PrepareCareDemoError(
             f"could not enroll {source.name} into {profile['display_name']}: "
@@ -358,6 +402,7 @@ def prepare_care_demo(
             fixture_root,
             managed_root,
             database,
+            browser_normalized=(name == LEARNING_PROFILE),
         )
         prepared_profiles[name] = identity.get_profile(profile["id"], database)
 

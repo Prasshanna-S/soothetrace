@@ -7,6 +7,7 @@ infant and does not infer a cause.
 from __future__ import annotations
 
 import math
+import os
 import threading
 from pathlib import Path
 
@@ -34,9 +35,26 @@ _MODEL = None
 _WARMED = False
 
 
+def _huggingface_cache_dir() -> Path:
+    """Return the platform cache used by Hugging Face downloads."""
+    try:
+        from huggingface_hub.constants import HF_HUB_CACHE
+    except (ImportError, AttributeError):
+        hf_home = os.environ.get("HF_HOME")
+        if hf_home:
+            return Path(hf_home).expanduser() / "hub"
+        xdg_cache = os.environ.get("XDG_CACHE_HOME")
+        if xdg_cache:
+            return Path(xdg_cache).expanduser() / "huggingface" / "hub"
+        return Path.home() / ".cache" / "huggingface" / "hub"
+    return Path(HF_HUB_CACHE).expanduser()
+
+
 def _model_cache_dir() -> Path:
-    """Return the cross-platform Hugging Face cache root for this model."""
-    return Path(config.MODEL_DIR)
+    """Resolve explicit persistent storage first, then the standard HF cache."""
+    if os.environ.get("IM_MODEL_DIR"):
+        return Path(config.MODEL_DIR).expanduser()
+    return _huggingface_cache_dir()
 
 
 def _label_index(model, label: str) -> int:

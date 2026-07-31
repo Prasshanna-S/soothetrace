@@ -39,6 +39,15 @@ experiments/result.json
 models/
 work/
 
+# Local-only documentation, private fixture packs, and release-review material.
+private/
+/AGENTS.md
+/.superpowers/
+/docs/MESSAGES.md
+/docs/TASKS.md
+/docs/CLAUDE*.md
+/docs/superpowers/
+
 # Every participant explicitly authorized public distribution of this exact demo cohort.
 # Keep this narrow exception. All other audio remains ignored.
 !demo_assets/
