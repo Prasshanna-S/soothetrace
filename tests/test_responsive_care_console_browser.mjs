@@ -238,6 +238,15 @@ try {
       header: rect("#page-listen > .page-head"),
       profile: rect("#profile-control"),
       health: rect("#health-pill"),
+      profileAlignment: (() => {
+        const artwork = document.querySelector("#profile-control .avatar img")
+          .getBoundingClientRect();
+        const text = document.querySelector("#profile-picker").getBoundingClientRect();
+        return {
+          artworkCenter: artwork.top + artwork.height / 2,
+          textCenter: text.top + text.height / 2,
+        };
+      })(),
       lineArtCount: document.querySelectorAll("#ambient .am").length,
       stickerStyles,
     };
@@ -346,6 +355,25 @@ try {
           children,
         };
       }),
+      hierarchy: cards.map((card) => {
+        const copy = card.querySelector(".record-copy");
+        const footer = copy && copy.querySelector(":scope > .record-footer");
+        const badge = footer && footer.querySelector(":scope > .badge");
+        const tags = footer && footer.querySelector(":scope > .record-tags");
+        const style = getComputedStyle(card);
+        const rect = card.getBoundingClientRect();
+        return {
+          synthetic: card.classList.contains("seeded"),
+          footerInsideCopy: Boolean(footer),
+          badgeCount: card.querySelectorAll(".badge").length,
+          tagsInsideFooter: Boolean(tags),
+          tagCount: card.querySelectorAll(".record-tags").length,
+          paddingTop: Number.parseFloat(style.paddingTop),
+          paddingBottom: Number.parseFloat(style.paddingBottom),
+          height: rect.height,
+          badgeBackground: badge ? getComputedStyle(badge).backgroundColor : "",
+        };
+      }),
       clipped,
       bodyWidth: document.body.scrollWidth,
       pageWidth: document.querySelector("#page-history").scrollWidth,
@@ -371,6 +399,29 @@ try {
       portraitHistory.listWidth <= portraitHistory.viewportWidth &&
       portraitHistory.documentWidth <= portraitHistory.viewportWidth,
     `portrait History clips or wraps outside its cards: ${JSON.stringify(portraitHistory)}`
+  );
+  const syntheticHistory = portraitHistory.hierarchy.find((card) => card.synthetic);
+  const caregiverHistory = portraitHistory.hierarchy.find((card) => !card.synthetic);
+  const artworkOffset = portrait.profileAlignment.textCenter -
+    portrait.profileAlignment.artworkCenter;
+  assert(
+    portraitHistory.hierarchy.every((card) =>
+      card.footerInsideCopy &&
+      card.badgeCount === 1 &&
+      card.tagsInsideFooter && card.tagCount === 1 &&
+      card.paddingTop === 16 &&
+      card.paddingBottom === 16
+    ) &&
+      syntheticHistory &&
+      caregiverHistory &&
+      syntheticHistory.height >= 150 &&
+      syntheticHistory.badgeBackground !== caregiverHistory.badgeBackground &&
+      artworkOffset >= 1.5 && artworkOffset <= 4.5,
+    "iPhone History hierarchy or profile artwork alignment regressed: " +
+      JSON.stringify({
+        hierarchy: portraitHistory.hierarchy,
+        artworkOffset,
+      })
   );
 
   await page.evaluate(() => { location.hash = "baby"; });

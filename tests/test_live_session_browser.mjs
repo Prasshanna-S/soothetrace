@@ -863,6 +863,38 @@ async function runAmbientMotionPreference(browser) {
   await installBrowserFakes(page);
   await installRoutes(page, requests);
   await page.goto("http://care.test/", { waitUntil: "domcontentloaded" });
+  const idleOrbScales = await page.evaluate(async () => {
+    const parseScale = (transform) => {
+      const match = /^scale\(([^)]+)\)$/.exec(transform);
+      return match ? Number(match[1]) : Number.NaN;
+    };
+    const samples = [];
+    const startedAt = performance.now();
+    await new Promise((resolve) => {
+      const sample = () => {
+        samples.push(parseScale(document.querySelector("#orb").style.transform));
+        if (performance.now() - startedAt >= 3600) resolve();
+        else requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+    return samples.filter(Number.isFinite);
+  });
+  const idleScaleRange = Math.max(...idleOrbScales) - Math.min(...idleOrbScales);
+  const idleScaleJump = idleOrbScales.slice(1).reduce(
+    (largest, scale, index) => Math.max(largest, Math.abs(scale - idleOrbScales[index])),
+    0
+  );
+  assert(
+    idleOrbScales.length > 1 &&
+      idleScaleRange >= 0.028 &&
+      idleScaleJump <= 0.012,
+    `idle orb breathing is too subtle or jumps between frames: ${JSON.stringify({
+      samples: idleOrbScales.length,
+      range: idleScaleRange,
+      largestJump: idleScaleJump,
+    })}`
+  );
   const ambient = await ambientMetrics(page);
   assert(
     ambient.opacity === "1" &&
