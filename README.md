@@ -63,50 +63,58 @@ biometric identity claim.
 
 ```mermaid
 flowchart TD
-    A["Phone microphone segment"] --> B["Complete browser segment"]
+    A["Infant profile microphone segment"] --> B["Complete browser segment"]
+    Z["Human Baby microphone or file upload"] --> B
     B --> C["Same-origin Python API"]
     C --> D["Validate size and MIME"]
-    D --> E["FFmpeg: 16 kHz mono PCM WAV"]
-    E --> F["AudioSet AST infant-cry gate"]
-    F -->|"No or uncertain cry evidence"| G["Keep listening, show no suggestion"]
-    F -->|"Infant-cry-like evidence"| H["Selected infant profile check"]
-    H --> I["Custom MFCC87 fingerprint"]
-    I --> J["Population z-score and cosine comparison"]
-    J -->|"Unresolved or wrong profile"| G
-    J -->|"Selected profile accepted"| K["Read only this profile's incidents"]
-    K --> L["Cry-pattern similarity"]
-    M["Current time"] --> N["Time-of-day similarity"]
-    O["Caregiver tags when supplied"] --> P["Caregiver-note overlap"]
-    L --> Q["Fixed context ranker"]
-    N --> Q
-    P --> Q
-    Q --> R["Grounded previous action and outcome"]
-    R --> S["Demo confirmation and duplicate guard"]
-    S --> T["Optional suggestion rail"]
-    T --> U["Caregiver records action, outcome, notes, and tags"]
-    U --> V["SQLite memory and managed audio"]
-    V --> K
+    D --> E["FFmpeg: canonical 16 kHz mono PCM WAV"]
+    E --> F["Fixed-RMS identity copy"]
+    E -->|"Infant profile mode"| G["AudioSet AST infant-cry gate"]
+    F -->|"Infant profile mode"| H["Custom MFCC87 extraction"]
+    H --> I["Population z-score and L2 normalization"]
+    I --> J["Cosine comparison with enrolled infant profiles"]
+    G -->|"No or uncertain cry evidence"| K["Keep listening, show no suggestion"]
+    G -->|"Infant-cry-like evidence"| L{"Selected infant profile accepted?"}
+    J --> L
+    L -->|"No or uncertain"| K
+    L -->|"Yes"| M["Read only this profile's incidents"]
+    M --> N["Cry-pattern similarity"]
+    O["Current time"] --> P["Time-of-day similarity"]
+    Q["Context or caregiver tags when supplied"] --> R["Tag overlap"]
+    N --> S["Fixed context ranker"]
+    P --> S
+    R --> S
+    S --> T["Grounded previous action and outcome"]
+    T --> U["Demo confirmation and duplicate guard"]
+    U --> V["Optional suggestion rail"]
+    V --> W["Caregiver records action, outcome, notes, and tags"]
+    W --> X["SQLite memory and managed audio"]
+    X --> M
 
-    Z["Human Baby microphone or file upload"] --> W["Human Baby branch"]
-    E --> W
-    W --> X["CryCeleb ECAPA embedding"]
-    X --> Y["Provisional or established session participant"]
+    F -->|"Human Baby mode"| Y["CryCeleb ECAPA embedding extraction"]
+    Y --> YA["L2 normalization"]
+    YA --> YB["Provisional or established session participant decision"]
 ```
 
-Time, tags, speech, notes, actions, and outcomes do not identify a baby. They
-are eligible only after the selected infant profile passes the acoustic check.
+Time, tags, speech, notes, actions, and outcomes do not identify a baby.
+Current time and explicit context or caregiver tags can rank incidents only
+after the selected infant profile passes the acoustic check. Transcript prose
+is supporting evidence and display content, not the 15% tag-overlap signal.
 
 ## How a care suggestion is produced
 
 1. **Ingest:** `src/audio_ingest.py` keeps the accepted source upload, creates a
-   canonical PCM WAV, and creates one fixed-RMS copy for acoustic comparison.
+   canonical PCM WAV for the cry gate, and creates one fixed-RMS identity copy
+   for MFCC87 or ECAPA feature extraction.
 2. **Cry presence:** `src/cry_gate.py` loads
    `MIT/ast-finetuned-audioset-10-10-0.4593` and evaluates the AudioSet labels
    `Baby cry, infant cry` and `Crying, sobbing`. It can detect, abstain, or fail
    closed.
 3. **Profile check:** infant profiles use the project-specific 87-dimensional
-   MFCC representation in `src/fingerprint.py`. Every vector is z-scored
-   against a stored 421-recording population baseline before cosine comparison.
+   MFCC representation in `src/fingerprint.py`, extracted from the fixed-RMS
+   identity copy. Every vector is z-scored against a stored 421-recording
+   population baseline and L2-normalized before cosine comparison and the
+   selected-profile decision.
 4. **Profile-only retrieval:** after a selected-profile match,
    `src/retrieve.py` ranks only that profile's prior incidents.
 5. **Context ranking:** available signals use fixed product weights:
@@ -115,7 +123,7 @@ are eligible only after the selected infant profile passes the acoustic check.
    |---|---:|---|
    | Cry-pattern similarity | 65% | Acoustic similarity to a previous incident |
    | Time of day | 20% | Cyclic similarity of local hour |
-   | Caregiver tags or notes | 15% | Jaccard overlap of supplied tags |
+   | Context or caregiver tags | 15% | Jaccard overlap of supplied context or caregiver tags |
 
    Missing signals are omitted and the remaining weights are renormalized.
    These values are not learned clinical weights and the result is not a
@@ -164,7 +172,7 @@ combines established audio tools with a custom care-memory and decision system.
 | MFCC87 | Project-built 87-dimensional acoustic representation, window aggregation, population normalization, comparison contract, and calibration workflow using standard signal-processing primitives |
 | Infant profile decision | Project-built enrollment, selected-profile comparison, retry, uncertainty, ordinal result bands, and abstention logic |
 | Care memory | Project-built profile-isolated retrieval, fixed cry/time/context ranker, grounded action selection, duplicate guard, and cumulative session latch |
-| Product experience | Project-built interface code and interaction flow for phone capture, three profile modes, caregiver follow-up, History, backend visualizer, allowlisted API, visitor isolation, and responsive layouts. Bundled artwork is not claimed as original until its provenance is recorded. |
+| Product experience | Project-built interface code and interaction flow for phone capture, three profile modes, caregiver follow-up, History, backend visualizer, allowlisted API, visitor isolation, and responsive layouts. Bundled artwork is documented separately and is not claimed as project-authored. |
 | Selected external foundations | The third-party AST checkpoint above, CryCeleb ECAPA for Human Baby, optional OpenAI transcription or local Whisper, FFmpeg, NumPy, SciPy, PyTorch, TorchAudio, SoundFile, Transformers, SpeechBrain, Hugging Face Hub, Cryptography, python-dotenv, and SQLite. See [THIRD_PARTY.md](THIRD_PARTY.md). |
 
 MFCC, pitch tracking, cosine comparison, and normalization are established
@@ -315,7 +323,8 @@ IM_MODEL_DIR=/var/data/models
 ```
 
 The hosted browser uses an anonymous short-lived visitor session. Each visitor
-receives a cloned demo database and isolated audio directory after consent.
+receives a cloned demo database and isolated audio directory before consent so
+the demo profiles can load. Recording mutations remain blocked until consent.
 Session data expires after one hour and can be deleted immediately from the
 interface.
 

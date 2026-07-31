@@ -45,6 +45,13 @@
     "history_count": 6,
     "synthetic_history": true,
     "disclosure": "All six prior incidents are clearly labeled synthetic demo memories.",
+    "showcase_assets_enrolled_for_identity": false,
+    "identity_enrollment_assets": [
+      "enrollment/demo-baby-x1.wav",
+      "enrollment/demo-baby-x2.wav",
+      "enrollment/demo-baby-x3.wav"
+    ],
+    "synthetic_retrieval_memory_seed": "The first 15 seconds of each X4, X7, and X8 showcase asset seed two clearly labeled synthetic retrieval memories. This is separate from identity enrollment.",
     "groups": [
       {
         "source_pattern": "X4",
@@ -82,7 +89,7 @@
       "duration and confirmation latch"
     ],
     "current_context": {
-      "hour_local": 17,
+      "hour_local": 20,
       "caregiver_tags": [],
       "care_events": [],
       "notes_component": "omitted because no current caregiver note was supplied",
@@ -234,7 +241,7 @@
       "path": "demo-baby-x8-extended-playback.wav",
       "source_recording": "data/audio/round2_h/15-X8.wav",
       "source_trial_role": "held_out_query_without_caregiver_speech",
-      "source_sha256": "66ac3230db9df5ddacf2057f9614f4b0741535f2794c019e6c2efc070da5d1",
+      "source_sha256": "66ac3230db9dfbd5ddacf2057f9614f4b0741535f2794c019e6c2efc070da5d1",
       "asset_sha256": "31b4f184db65b85f10e9acb95bc60c00b8013fee58f744acde806fde9c4a65f4",
       "format": {
         "duration_seconds": 45.0,

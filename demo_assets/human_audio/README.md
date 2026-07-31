@@ -1,8 +1,8 @@
 # Public Human Cry-Imitation Test Audio
 
 This directory contains the complete 10-recording cohort used by the incremental live-session
-evaluation. Every recorded participant agreed on 2026-07-30 to public distribution of these
-recordings.
+evaluation. The repository owner confirmed on 2026-07-30 that every recorded participant agreed
+to public distribution of these recordings.
 
 The files contain simulated crying by three adults. They are not infant recordings, do not
 establish infant identity performance, and are not medical training data. No separate download is
@@ -151,10 +151,14 @@ infant identity.
 ## Reproduce
 
 ```bash
-.venv/bin/python tools/live_session_eval.py manifest.json --mode one-person
-.venv/bin/python tools/live_session_eval.py manifest.json --mode staged
-.venv/bin/python tools/live_session_eval.py manifest.json --mode difficult
-.venv/bin/python tools/live_session_eval.py manifest.json --mode probes
+.venv/bin/python tools/live_session_eval.py \
+  demo_assets/human_audio/manifest.json --mode one-person
+.venv/bin/python tools/live_session_eval.py \
+  demo_assets/human_audio/manifest.json --mode staged
+.venv/bin/python tools/live_session_eval.py \
+  demo_assets/human_audio/manifest.json --mode difficult
+.venv/bin/python tools/live_session_eval.py \
+  demo_assets/human_audio/manifest.json --mode probes
 ```
 
 `--mode alternating` is a compatibility alias for `difficult`.

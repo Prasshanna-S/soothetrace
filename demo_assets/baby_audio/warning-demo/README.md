@@ -17,11 +17,19 @@ extends playback time. It does not create independent evidence.
 
 The `enrollment` folder contains three earlier Baby X captures for `Demo Baby`
 and three Baby Y captures for `Learning Baby`. The demo bootstrap uses those six
-recordings to prepare two ready profiles. X4, X7, and X8 remain query
-recordings, so the demo does not compare a query file with itself.
+recordings to prepare two ready profiles. X4, X7, and X8 are not enrolled for
+identity. Identity matching for `Demo Baby` uses X1, X2, and X3 instead.
+
+Separately, the demo bootstrap copies the first 15 seconds of each X4, X7, and
+X8 showcase asset to seed two clearly labeled synthetic retrieval memories per
+pattern. This deliberate care-memory setup lets the showcase surface three
+different history-based suggestions. It does not make the showcase assets
+identity enrollments.
 
 These files are controlled proof-of-concept fixtures. They do not establish
 population accuracy.
+
+See [PROVENANCE.md](PROVENANCE.md) before redistributing the audio.
 
 ## Current production gate
 
@@ -82,7 +90,8 @@ The demo bootstrap creates six clearly labeled synthetic history incidents for
 The verified run used two active ranking factors:
 
 - Cry-pattern similarity inside the selected profile.
-- Similar time of day.
+- Similar time of day. The fresh acceptance database stored local hour 20 for
+  the current context and all six synthetic history incidents.
 
 No current caregiver note, tag, or care event was supplied, so those components
 were omitted. In a real product, available caregiver notes, care events, time,

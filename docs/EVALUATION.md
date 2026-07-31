@@ -19,9 +19,9 @@ The gate and profile results are affected by room acoustics, playback device, mi
 
 ## Human-imitation cohort
 
-The separate human-imitation evaluation uses 10 correlated recordings from 3 consenting adults. It tests an open-session product path in which adults imitate cries. It is useful for checking that the implementation can create provisional participants, abstain, and avoid some wrong assignments in that small scenario.
+The separate human-imitation evaluation uses 10 correlated recordings from 3 adults. The repository owner confirmed on July 30, 2026 that every recorded participant agreed to public distribution of these recordings. The cohort tests an open-session product path in which adults imitate cries. It is useful for checking that the implementation can create provisional participants, abstain, and avoid some wrong assignments in that small scenario.
 
-It is not evidence of infant identity, voice-biometric performance, demographic fairness, real-world speaker recognition, or population accuracy. Human audio fixtures and detailed raw results require a separate privacy and release review before public distribution.
+It is not evidence of infant identity, voice-biometric performance, demographic fairness, real-world speaker recognition, or population accuracy. The reported distribution consent applies to this small fixture set. It does not make the cohort representative or suitable as a general-purpose biometric dataset.
 
 ## Interpretation rules
 

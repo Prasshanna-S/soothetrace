@@ -14,22 +14,25 @@ encryption at rest, or a complete privacy and security program.
 
 ```mermaid
 flowchart TD
-    A["Microphone or selected audio file"] --> B["Complete browser audio segment"]
+    A["Infant profile microphone or selected audio file"] --> B["Complete browser audio segment"]
+    AF["Human Baby microphone or selected audio file"] --> B
     B --> C["Same-origin Python API"]
     C --> D["Validate MIME and size"]
     D --> E["FFmpeg local decode to 16 kHz mono PCM WAV"]
     E --> F["Canonical audio retained in managed storage"]
-    E --> G["Fixed RMS identity copy"]
-    G --> H["AudioSet AST infant-cry gate"]
+    F --> G["Fixed RMS identity copy"]
+    F -->|"Infant profile mode"| H["AudioSet AST infant-cry gate"]
     H -->|"No or uncertain infant-cry-like evidence"| I["Keep listening and show no care suggestion"]
-    H -->|"Infant-cry-like evidence"| J["Selected infant profile check"]
-    J --> K["Custom MFCC87 representation"]
-    K --> L{"Selected infant profile accepted?"}
-    L -->|"No or uncertain"| M["Abstain, retry, or unresolved state"]
-    L -->|"Yes"| N["Read only this profile's prior incidents"]
+    G -->|"Infant profile mode"| J["Custom MFCC87 extraction"]
+    J --> K["Population z-score and L2 normalization"]
+    K --> L["Cosine comparison with enrolled infant profiles"]
+    H -->|"Infant-cry-like evidence"| M{"Selected infant profile accepted?"}
+    L --> M
+    M -->|"No or uncertain"| MA["Abstain, retry, or unresolved state"]
+    M -->|"Yes"| N["Read only this profile's prior incidents"]
     O["Current time"] --> P["Time-of-day similarity"]
-    Q["Caregiver tags"] --> R["Tag overlap"]
-    G --> S["Cry-pattern similarity"]
+    Q["Context or caregiver tags"] --> R["Tag overlap"]
+    K --> S["Cry-pattern similarity"]
     N --> S
     N --> T["Previous actions and caregiver-reported outcomes"]
     P --> U["Fixed incident ranking"]
@@ -45,16 +48,21 @@ flowchart TD
     AA --> AB["SQLite episode, metadata, and managed audio references"]
     AB --> N
 
-    E --> AC["Human Baby session branch"]
-    AC --> AD["CryCeleb ECAPA embedding"]
-    AD --> AE["Provisional or established session participant"]
+    G -->|"Human Baby mode"| AC["CryCeleb ECAPA embedding extraction"]
+    AC --> AD["L2 normalization"]
+    AD --> AE["Provisional or established session participant decision"]
 ```
 
-The diagram separates identity from retrieval intentionally. Current time, tags, transcripts, notes, previous actions, and outcomes never decide whose audio was recorded. They are eligible only after the selected profile passes the acoustic gate.
+The diagram separates identity from retrieval intentionally. Current time,
+explicit context or caregiver tags, transcripts, notes, previous actions, and
+outcomes never decide whose audio was recorded. Current time and explicit tags
+can rank incidents only after the selected profile passes the acoustic gate.
+Transcript prose can support stored action and outcome evidence, but it is not
+the 15% tag-overlap input.
 
 ## Audio ingest and storage
 
-`src/audio_ingest.py` accepts bounded supported audio uploads, retains source bytes, and uses local FFmpeg to create a 16 kHz mono PCM WAV. It creates a separate fixed-RMS identity WAV. No source separation, pitch processing, compression, or limiting is applied in the identity copy.
+`src/audio_ingest.py` accepts bounded supported audio uploads, retains source bytes, and uses local FFmpeg to create a 16 kHz mono PCM WAV. The canonical WAV is the input to the AST cry gate. A separate fixed-RMS identity WAV is the input to MFCC87 or ECAPA extraction. No source separation, pitch processing, compression, or limiting is applied in the identity copy.
 
 The prototype stores audio under the configured data root and persists application state in SQLite. Source paths, canonical paths, embeddings, digests, and private scoring information are implementation data. Public responses are allowlisted to avoid returning those internal details. This is not encrypted or authenticated storage.
 
@@ -88,7 +96,11 @@ Current source uses this path for the separate `human_imitation` mode, where adu
 
 ## Profile decision and abstention
 
-The server compares an input only with same-kind enrolled profiles. It can return a match, a weak or uncertain direction, a retry state, an unresolved state, or invalid input. A successful acoustic match is not a proof of identity. The current interface uses ordinal bands rather than presenting cosine similarity as a percentage confidence.
+Feature extraction and encoder-specific normalization happen before the profile
+decision. MFCC87 uses population z-scoring followed by L2 normalization. ECAPA
+uses L2 normalization without the MFCC87 population baseline.
+
+The server then compares an input only with same-kind enrolled profiles. It can return a match, a weak or uncertain direction, a retry state, an unresolved state, or invalid input. A successful acoustic match is not a proof of identity. The current interface uses ordinal bands rather than presenting cosine similarity as a percentage confidence.
 
 ## Retrieval and suggestion
 
@@ -98,7 +110,7 @@ Once an infant profile is accepted, `src/retrieve.py` reads only that profile's 
 |---|---:|---|
 | Cry-pattern similarity | 65% | Acoustic similarity to a prior incident |
 | Time of day | 20% | Cyclic similarity of local hour |
-| Caregiver tags | 15% | Jaccard overlap of supplied tags |
+| Context or caregiver tags | 15% | Jaccard overlap of supplied context or caregiver tags |
 
 When a signal is unavailable, it is omitted and the other available weights are renormalized. These values are product choices, not a learned clinical model, probability, or causal explanation. The output should be read as: "this recorded action helped in a prior, acoustically and contextually similar incident," not "this is the action that will help now."
 

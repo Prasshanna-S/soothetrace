@@ -30,8 +30,18 @@ Some baby rehearsal fixtures identify their source as the Donate-a-Cry corpus at
 
 ## Human audio and controlled baby demo audio
 
-The fixture manifests and adjacent README files record the current provenance and participant-distribution statements for the checked-in human and controlled baby demonstration media. The files are not covered by the project MIT licence. Reuse still requires review of those notices, source terms, consent scope, and any revocation process.
+The human fixture README records the repository owner's confirmation that all
+recorded adult participants agreed to public distribution. The controlled baby
+showcase notice records its fixed-rig capture lineage and the repository owner's
+instruction to publish the test files. Neither statement is an independent
+rights audit. The audio files are not covered by the project MIT licence. Reuse
+still requires review of the notices, upstream source terms, consent scope, and
+any withdrawal process.
 
 ## Visual assets
 
-The repository includes local interface artwork. Its provenance must be recorded before public release. Keep author-created assets with a clear copyright statement, or replace third-party assets with assets that have a documented compatible licence and attribution.
+The repository owner supplied the local interface artwork during the design
+collaboration. The exact creator, generation tool, and original licence were
+not recorded. [web/img/README.md](web/img/README.md) therefore excludes these
+assets from the project MIT licence and asks downstream users not to reuse them
+until provenance is clarified.

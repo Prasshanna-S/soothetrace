@@ -10,28 +10,29 @@ version, router, or venue network.
 
 ## One-time setup from a clean Mac
 
-The Mac needs Command Line Tools, Homebrew, internet access during provisioning, and enough disk
-space for the environment, public corpus, model checkpoint, managed audio, and optional browser
-automation. The phone and Mac must be on the same local network, and that network must permit them
-to reach each other.
+The Mac needs Command Line Tools, Homebrew, internet access during provisioning,
+and enough disk space for the environment, model checkpoints, managed audio,
+and optional browser automation. The phone and Mac must be on the same local
+network, and that network must permit them to reach each other.
 
 ```bash
 xcode-select -p
-brew install uv ffmpeg node
+brew install python@3.12 ffmpeg node
 git clone https://github.com/Prasshanna-S/soothetrace.git
-cd interaction-memory
-uv venv .venv --python 3.12
+cd soothetrace
+python3.12 -m venv .venv
 . .venv/bin/activate
-uv pip install -r requirements.txt
-git clone --depth 1 \
-  https://github.com/gveres/donateacry-corpus.git \
-  experiments/donateacry-corpus
-.venv/bin/python tools/build_baseline.py
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+.venv/bin/python -c "from scripts.hosted_entrypoint import ensure_population_baseline; ensure_population_baseline('data/episodes.db')"
+.venv/bin/python scripts/prepare_care_demo.py \
+  --db data/episodes.db \
+  --data-root data/audio
 ```
 
 If `xcode-select -p` reports missing tools, run `xcode-select --install`, complete the macOS
-installer, and repeat the checks. The baseline command must finish with `population baseline
-saved`. Do not install `librosa`.
+installer, and repeat the checks. The preparation command must report that
+`Demo Baby` and `Learning Baby` are ready. Do not install `librosa`.
 
 The optional browser interaction test also needs:
 
@@ -56,7 +57,7 @@ clone and provision the repository:
 
 ```powershell
 git clone https://github.com/Prasshanna-S/soothetrace.git
-Set-Location ".\interaction-memory"
+Set-Location ".\soothetrace"
 .\scripts\setup_windows.ps1 -InstallTools
 ```
 
@@ -90,7 +91,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup_windows.
 Wait for both encoder values to be `True`. In a second PowerShell window:
 
 ```powershell
-Set-Location ".\interaction-memory"
+Set-Location ".\soothetrace"
 .\scripts\run_windows.ps1 -Mode Health
 Start-Process "http://127.0.0.1:8000"
 ```
@@ -156,7 +157,7 @@ The page must load without a certificate warning before microphone permission is
   and reinstall it after any LAN IP change.
 - A checkout path containing spaces is supported. Invoke a quoted script path with the call
   operator, for example
-  `& "C:\Demo Files\interaction-memory\scripts\run_windows.ps1" -Mode Desktop`.
+  `& "C:\Demo Files\soothetrace\scripts\run_windows.ps1" -Mode Desktop`.
 
 ## Preflight evaluators and tests
 
@@ -179,7 +180,7 @@ Run the combined gate without overwriting the checked-in evidence:
 .venv/bin/python tools/live_session_eval.py \
   demo_assets/human_audio/manifest.json \
   --mode all \
-  --output /tmp/cry-memory-live-session-results.json
+  --output /tmp/soothetrace-live-session-results.json
 ```
 
 `--mode alternating` is an alias for `difficult`. Run the earlier named-profile evaluator in all
@@ -222,10 +223,10 @@ PowerShell verification block in the [`README`](../README.md#verification).
 ## Recommended presentation order
 
 1. Start the laptop server and let both encoders warm.
-2. Open the page on the iPhone and check that the header says `Local server ready`.
-3. Show the saved-file baby flow.
-4. Show the matched baby's prior caregiver history and evidence playback.
-5. Switch to Human cry imitation.
+2. Open the page on the iPhone and check that the health chip says `Ready`.
+3. Select `Demo Baby` and show the long-form microphone capture flow.
+4. Let the grounded suggestion appear, then show its supporting history.
+5. Switch to `Human Baby`.
 6. Start a clean human session.
 7. Let the automatic session register each person in turn.
 8. Pass the phone around and run blind turns.
@@ -243,7 +244,7 @@ PowerShell verification block in the [`README`](../README.md#verification).
 [ ] iPhone and laptop are on the same network.
 [ ] iPhone can open the HTTPS page.
 [ ] Microphone permission is allowed for the page.
-[ ] The three included baby-audio folders are available on the playback device.
+[ ] The three long-form files under warning-demo are available on the playback device.
 [ ] The three-profile human file demo has been reproduced.
 [ ] A clean backup of data/episodes.db exists.
 ```
@@ -343,46 +344,35 @@ For a laptop-only rehearsal that does not need phone microphone access, use:
 
 Open `http://127.0.0.1:8000` only on the Mac. The server rejects plain HTTP on a non-loopback host.
 
-## Baby flow with only two devices
+## Demo Baby flow with only two devices
 
-The repository includes three public rehearsal groups under
-[`demo_assets/baby_audio`](../demo_assets/baby_audio/README.md). Each folder has three enrollment
-clips, one held-out query, one retry, and one extra stress-test clip.
+The current browser uses the prepared `Demo Baby` and `Learning Baby` profiles.
+It does not expose the older Baby 1, Baby 2, and Baby 3 enrollment workflow.
+Use the three long-form query files under
+[`demo_assets/baby_audio/warning-demo`](../demo_assets/baby_audio/warning-demo/README.md).
 
-The current infant thresholds were calibrated on live room replay. Use the laptop browser and play
-the files from the phone into the laptop microphone, or use the phone browser and play the files
-from the laptop. Never play and record on the same device.
+Use the laptop browser and play a file from the phone into the laptop
+microphone, or use the phone browser and play the file from the laptop. Never
+play and record on the same device.
 
-1. Open Baby cry.
-2. Create profiles named Baby 1, Baby 2, and Baby 3.
-3. Fix the speaker volume, room position, device orientation, microphone, and distance.
-4. For each folder, replay files `01`, `02`, and `03` through that unchanged path and enroll the
-   three browser recordings into the matching profile.
-5. Seed clearly synthetic care history for the three demo profiles:
+1. Confirm that `scripts/prepare_care_demo.py` has completed successfully.
+2. Select `Demo Baby`.
+3. Fix the speaker volume, room position, device orientation, microphone, and
+   distance.
+4. Start listening, then play one long-form file from its beginning.
+5. Wait for the server-confirmed cry status and grounded suggestion.
+6. Open the supporting cards and History to show the synthetic source records.
+7. Stop, then save or discard the caregiver follow-up.
+8. Start a fresh session before playing the next file.
 
-   ```bash
-   .venv/bin/python scripts/seed_demo_memory.py
-   ```
+The verified audio-timeline latch points are 21 seconds for X4, 30 seconds for
+X7, and 21 seconds for X8. Browser upload and inference add processing time.
+Keep the full file playing until the suggestion appears.
 
-   On Windows:
-
-   ```powershell
-   & .\.venv\Scripts\python.exe .\scripts\seed_demo_memory.py
-   ```
-
-6. Replay file `04` through the same path and run a blind query.
-7. If the result asks for one retry, use that group's `05` file through the same fixed path.
-8. Keep file `06` unused for an additional stress test.
-9. If confirmed, reveal that profile's synthetic demo history, provenance label, and one
-   supporting incident.
-10. Save the current real outcome once.
-
-Do not enroll one profile through file upload and another through microphone capture. The raw
-8 kHz fixtures are useful ingest inputs, but direct-upload identity is not the calibrated
-demonstration. Each Baby 1, Baby 2, and Baby 3 folder has its own source app-install UUID, but those
-UUIDs are not verified infant identity labels. Never describe this fixture set as independent
-accuracy evidence. The seeded interventions and outcomes are synthetic presentation data, not
-evidence of real caregiver efficacy.
+The Baby 1, Baby 2, and Baby 3 folders are separate engineering fixtures. Their
+app-install UUIDs are not verified infant identity labels. Never describe them
+as independent accuracy evidence. The six Demo Baby interventions and outcomes
+are synthetic presentation data, not evidence of caregiver efficacy.
 
 ## Human participation flow
 
@@ -434,8 +424,9 @@ Do not describe a leaning result as a confirmed identity.
 
 ## If the network is unreliable
 
-The phone only needs a working local connection to the laptop. Upstream internet is not required
-for identity after dependencies and model files have been provisioned.
+The phone only needs a working local connection to the laptop. Upstream
+internet is not required for inference after dependencies and model files have
+been provisioned.
 
 If phone-to-laptop traffic is blocked by venue Wi-Fi:
 
@@ -466,8 +457,8 @@ second-person-03.m4a     -> Leaning Second person
 
 ```text
 [ ] Page loads on the phone.
-[ ] Health header says Local server ready.
-[ ] One saved audio file can be selected.
+[ ] Health chip says Ready.
+[ ] One long-form fixture can be played from the second device into the browser microphone.
 [ ] One microphone recording can be stopped and selected.
 [ ] Profile list loads.
 [ ] A human blind query shows Matched, Leaning, or Unresolved.

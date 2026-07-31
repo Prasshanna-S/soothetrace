@@ -195,10 +195,10 @@ Controlled sources:
 
 Describe this as a direction of travel, not verified identity.
 
-## Latest live evidence
+## Latest operator-observed live evidence
 
-On July 30, 2026, the physical iPhone and laptop path produced a successful
-Demo Baby result:
+On July 30, 2026, the operator reported that the physical iPhone and laptop
+path produced a successful Demo Baby result:
 
 - profile: Demo Baby;
 - 37 total received segments before Stop;
@@ -215,14 +215,16 @@ The same test first failed to open memory while Learning Baby was selected.
 That was correct behavior because Demo Baby audio must not open another
 profile's memory.
 
+This was a manual observation during the interactive session. No raw
+machine-readable log from that phone run is committed in the public repository.
+
 ## Engineering evidence
 
 These are controlled engineering checks, not population accuracy:
 
 | Check | Result |
 |---|---:|
-| Completed full Python regression | 443 passed, 9 intentional skips |
-| Post-review retrieval and care regression | 128 passed |
+| Completed full Python regression | 443 run, 9 intentional skips, 0 failures |
 | Contaminated-history long-form replay | X4, X7, and X8 all passed with distinct outputs |
 | Checked-in infant rehearsal fixtures | 14 of 18 accepted |
 | Adult cry imitations at infant gate | 10 of 10 rejected |
