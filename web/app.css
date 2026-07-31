@@ -737,6 +737,20 @@ body[data-mic="muted"] #rec-chip i { background: #D9A13C; animation: none; }
 #suggestion-rail { display: contents; }
 #rail-dots { display: none; }
 
+#btn-suggestion-evidence,
+#btn-close-suggestion-evidence {
+  display: none;
+}
+
+#suggestion-evidence-panel,
+.evidence-panel-body {
+  display: contents;
+}
+
+.evidence-panel-head {
+  display: none;
+}
+
 /* The guidance mega-tile follows the reference tile anatomy, scaled up:
    label top left, the words as the body, and a large icon in a soft white
    disc anchored bottom right. */
@@ -1355,24 +1369,63 @@ body[data-decision="latched"] #preview-bar {
   }
 
   /* ---- listening, nothing concluded: the orb holds the room ---- */
+  #page-listen[data-state="listening"][data-decision="none"] #orb-stage,
+  #page-listen[data-state="paused"][data-decision="none"] #orb-stage,
+  #page-listen[data-state="listening"][data-decision="dismissed"] #orb-stage,
+  #page-listen[data-state="paused"][data-decision="dismissed"] #orb-stage {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    align-items: center;
+    gap: clamp(16px, 4vw, 36px);
+  }
   #page-listen[data-state="listening"][data-decision="none"] #orb-wrap,
   #page-listen[data-state="paused"][data-decision="none"] #orb-wrap,
   #page-listen[data-state="listening"][data-decision="dismissed"] #orb-wrap,
   #page-listen[data-state="paused"][data-decision="dismissed"] #orb-wrap {
-    width: min(64vh, 276px);
-    transform: translateX(-22vw);
+    width: min(61vh, 270px);
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: center;
+    transform: none;
   }
   #page-listen[data-state="listening"] #analysis-status,
   #page-listen[data-state="paused"] #analysis-status {
-    position: fixed;
-    left: 65%;
-    bottom: calc(var(--sab) + 82px);
+    position: static;
     z-index: 29;
-    width: min(62vw, 360px);
-    transform: translateX(-50%);
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: center;
+    align-self: center;
+    width: min(100%, 330px);
+    transform: translateY(-33.5px);
+    text-align: center;
   }
 
-  /* ---- suggestion: a console-like memory trail ---- */
+  #page-listen[data-state="listening"][data-decision="none"] #analysis-status,
+  #page-listen[data-state="paused"][data-decision="none"] #analysis-status,
+  #page-listen[data-state="listening"][data-decision="dismissed"] #analysis-status,
+  #page-listen[data-state="paused"][data-decision="dismissed"] #analysis-status {
+    position: fixed;
+    left: calc(75.61vw - var(--sar) + 18px);
+    top: auto;
+    bottom: calc(50% - 11.5px);
+    width: min(330px, calc(50vw - var(--sar) - 20px));
+    transform: translateX(-50%);
+    line-height: 1.35;
+  }
+
+  /* Once listening starts, this is the idle action stack in-place: live text
+     replaces the consent line and Pause/Stop replace Start listening. */
+  body[data-session="listening"]:not([data-decision="latched"]) #ctl-capsule,
+  body[data-session="paused"]:not([data-decision="latched"]) #ctl-capsule {
+    left: calc(75.61vw - var(--sar) + 18px);
+    top: calc(50% + 47.9px);
+    bottom: auto;
+    transform: translate(-50%, -50%);
+    flex-direction: row;
+  }
+
+  /* ---- suggestion: one focused recommendation and one evidence layer ---- */
   body[data-session="listening"],
   body[data-session="paused"] {
     height: 100vh;
@@ -1400,75 +1453,85 @@ body[data-decision="latched"] #preview-bar {
   }
   #page-listen[data-decision="latched"] {
     display: grid;
-    grid-template-rows: 44px minmax(0, 1fr);
-    gap: 8px;
+    grid-template-columns: minmax(252px, .8fr) minmax(0, 1.45fr);
+    grid-template-rows: 54px minmax(0, 1fr);
+    gap: 8px clamp(18px, 3vw, 28px);
     min-height: 0;
     overflow: hidden;
   }
   #page-listen[data-decision="latched"] .page-head {
     grid-row: 1;
+    grid-column: 1 / 3;
     padding: 0;
-    min-height: 44px;
+    min-height: 54px;
   }
   #page-listen[data-decision="latched"] #health-pill { display: none; }
   #page-listen[data-decision="latched"] #suggestion-block {
     grid-row: 2;
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr) 18px;
-    gap: 6px;
+    grid-column: 2;
+    position: relative;
+    display: block;
     min-height: 0;
     overflow: hidden;
   }
   #page-listen[data-decision="latched"] #suggestion-toolbar {
-    min-height: 34px;
-    padding-right: 4px;
-  }
-  #page-listen[data-decision="latched"] #suggestion-toolbar p {
-    flex-direction: row;
-    align-items: baseline;
-    gap: 8px;
-  }
-  #page-listen[data-decision="latched"] #btn-dismiss-suggestion {
-    min-height: 34px;
-    padding-inline: 14px;
-  }
-  #page-listen[data-decision="latched"] #suggestion-rail {
-    display: flex;
-    min-width: 0;
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 8;
     min-height: 0;
-    gap: clamp(16px, 3vw, 28px);
-    padding: 0 9vw 0 4px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scroll-snap-type: x mandatory;
-    scroll-padding-inline: 4px;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-    touch-action: pan-x;
   }
-  #page-listen[data-decision="latched"] #suggestion-rail::-webkit-scrollbar {
+  #page-listen[data-decision="latched"]
+    #suggestion-block[data-evidence-open="true"] #suggestion-toolbar {
     display: none;
   }
-  #page-listen[data-decision="latched"] .rail-card {
-    flex: 0 0 min(72vw, 660px);
+  #page-listen[data-decision="latched"] #suggestion-toolbar p {
+    display: none;
+  }
+  #page-listen[data-decision="latched"] #btn-dismiss-suggestion {
+    min-height: 36px;
+    padding-inline: 13px;
+    background: rgba(255, 255, 255, .74);
+    border-color: rgba(31, 87, 72, .12);
+    color: var(--mint-ink);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+  }
+  #page-listen[data-decision="latched"] #suggestion-rail {
+    display: grid;
+    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+    width: 100%;
     height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    scroll-snap-type: none;
+    touch-action: manipulation;
+  }
+  #page-listen[data-decision="latched"] .rail-card {
+    flex: none;
+    width: auto;
+    height: auto;
     min-width: 0;
     min-height: 0;
-    overflow-y: auto;
-    scroll-snap-align: center;
-    scroll-snap-stop: always;
-    box-shadow: var(--edge);
+    overflow: visible;
+    scroll-snap-align: none;
+    box-shadow: none;
   }
   #page-listen[data-decision="latched"] #suggestion-card {
-    flex-basis: min(78vw, 720px);
-    padding: 16px 20px;
-    gap: 7px;
+    grid-area: 1 / 1;
+    width: 100%;
+    height: 100%;
+    padding: 40px 20px 12px;
+    gap: 5px;
     justify-content: center;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(26, 26, 24, .04),
+                0 18px 34px -24px rgba(31, 87, 72, .42);
   }
   #page-listen[data-decision="latched"] #g-recommendation {
     max-width: calc(100% - 126px);
     padding-right: 0;
-    font-size: clamp(26px, 7.6vh, 35px);
+    font-size: clamp(23px, 6.8vh, 33px);
     line-height: 1.08;
   }
   #page-listen[data-decision="latched"] #suggestion-art {
@@ -1482,110 +1545,196 @@ body[data-decision="latched"] #preview-bar {
   #page-listen[data-decision="latched"] #g-evidence-summary {
     max-width: calc(100% - 126px);
     padding-right: 0;
-    font-size: 12.5px;
-    line-height: 1.35;
+    font-size: 11.5px;
+    line-height: 1.25;
+  }
+
+  #page-listen[data-decision="latched"] #btn-suggestion-evidence {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: 7px;
+    min-height: 38px;
+    margin-top: 1px;
+    padding: 0 13px;
+    border: 1px solid rgba(31, 87, 72, .14);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .66);
+    color: var(--mint-ink);
+    font: 650 12.5px/1 var(--ui);
+    cursor: pointer;
+  }
+
+  #page-listen[data-decision="latched"] #suggestion-evidence-panel {
+    grid-area: 1 / 1;
+    display: none;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    padding: 14px 16px;
+    border: 1px solid var(--hair);
+    border-radius: 28px;
+    background: rgba(255, 255, 255, .94);
+    overflow: hidden;
+  }
+  #page-listen[data-decision="latched"]
+    #suggestion-evidence-panel[data-open="true"] {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  #page-listen[data-decision="latched"]
+    #suggestion-rail[data-evidence-open="true"] #suggestion-card {
+    display: none;
+  }
+
+  #page-listen[data-decision="latched"] .evidence-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex: none;
+  }
+  #page-listen[data-decision="latched"] .evidence-panel-head .card-kicker {
+    margin-bottom: 1px;
+  }
+  #page-listen[data-decision="latched"] .evidence-panel-head h3 {
+    margin: 0;
+    font: 600 19px/1.15 var(--display);
+    letter-spacing: -.02em;
+    color: var(--ink);
+  }
+  #page-listen[data-decision="latched"] #btn-close-suggestion-evidence {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 38px;
+    padding: 0 12px;
+    border: 1px solid var(--hair);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--ink-2);
+    font: 650 12px/1 var(--ui);
+    cursor: pointer;
+  }
+  #page-listen[data-decision="latched"] #btn-close-suggestion-evidence svg {
+    transform: rotate(90deg);
+  }
+
+  #page-listen[data-decision="latched"] .evidence-panel-body {
+    flex: 1 1 0;
+    display: grid;
+    grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 9px;
+    min-height: 0;
+    overflow: hidden;
   }
   #page-listen[data-decision="latched"] #interpretation-card,
   #page-listen[data-decision="latched"] #basis-card {
-    flex-basis: min(56vw, 500px);
-    padding: 16px 18px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
+    display: block;
+    padding: 12px 13px;
+    border-radius: 18px;
+    background: var(--bg);
   }
   #page-listen[data-decision="latched"] #g-interpretation {
-    font-size: 15px;
-    line-height: 1.45;
-  }
-  #page-listen[data-decision="latched"] .card-kicker { margin-bottom: 7px; }
-  #page-listen[data-decision="latched"] #basis-list { gap: 8px; }
-  #page-listen[data-decision="latched"] #basis-list li {
-    font-size: 13px; line-height: 1.35; gap: 10px; }
-  #page-listen[data-decision="latched"] #basis-list .bdisc {
-    width: 30px; height: 30px; }
-  #page-listen[data-decision="latched"] #basis-list .bdisc svg {
-    width: 16px; height: 16px; }
-  #page-listen[data-decision="latched"] #incidents-fold {
-    display: contents;
-  }
-  #page-listen[data-decision="latched"] #incidents-fold summary {
-    display: none;
-  }
-  #page-listen[data-decision="latched"] #incident-list {
-    display: contents;
-  }
-  #page-listen[data-decision="latched"] .incident {
-    flex: 0 0 min(58vw, 520px);
-    height: 100%;
-    padding: 18px 20px;
-    border-radius: 24px;
-    background: var(--surface);
-  }
-  #page-listen[data-decision="latched"] .incident .act {
-    font-size: 18px;
-  }
-  #page-listen[data-decision="latched"] .incident .meta,
-  #page-listen[data-decision="latched"] .incident .quote {
     font-size: 13px;
+    line-height: 1.38;
   }
-  #page-listen[data-decision="latched"] #suggestion-reminder {
-    flex-basis: min(48vw, 430px);
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    padding: 18px 20px;
+  #page-listen[data-decision="latched"] .card-kicker {
+    margin-bottom: 5px;
   }
-  #page-listen[data-decision="latched"] #suggestion-reminder p:last-child {
-    font-size: 15px;
-    line-height: 1.45;
-  }
-  #page-listen[data-decision="latched"] #rail-dots {
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  #page-listen[data-decision="latched"] #basis-list {
     gap: 6px;
   }
-  #page-listen[data-decision="latched"] #rail-dots button {
-    width: 16px;
-    height: 16px;
-    padding: 5px;
-    border: 0;
-    border-radius: 50%;
-    background: transparent;
-    cursor: pointer;
+  #page-listen[data-decision="latched"] #basis-list li {
+    gap: 8px;
+    font-size: 12px;
+    line-height: 1.3;
   }
-  #page-listen[data-decision="latched"] #rail-dots button::before {
-    content: "";
-    display: block;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--ink-3);
-    opacity: .45;
+  #page-listen[data-decision="latched"] #basis-list .bdisc {
+    width: 26px;
+    height: 26px;
   }
-  #page-listen[data-decision="latched"] #rail-dots button[aria-current="true"]::before {
-    width: 9px;
-    border-radius: 999px;
-    background: var(--peri-ink);
-    opacity: 1;
+  #page-listen[data-decision="latched"] #incidents-fold {
+    grid-column: 1 / 3;
+    grid-row: 2;
+    min-height: 0;
+    align-self: stretch;
+    border-radius: 18px;
+  }
+  #page-listen[data-decision="latched"] #incidents-fold[open] {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #page-listen[data-decision="latched"] #incidents-fold summary {
+    flex: none;
+    min-height: 40px;
+  }
+  #page-listen[data-decision="latched"] #incidents-fold[open] #incident-list {
+    flex: 0 0 auto;
+    height: calc(100% - 40px);
+    max-height: calc(100% - 40px);
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
+  #page-listen[data-decision="latched"] #suggestion-reminder {
+    display: none;
+  }
+  #page-listen[data-decision="latched"] #rail-dots {
+    display: none;
   }
 
-  /* recording controls share the header so the memory trail keeps its height */
+  /* The orb has its own column. It never competes with the header controls. */
   #page-listen[data-decision="latched"] #orb-stage {
-    position: absolute;
-    top: 1px;
-    right: 222px;
+    position: static;
+    grid-row: 2;
+    grid-column: 1;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(164px, 1fr) minmax(76px, .52fr);
+    align-items: center;
+    gap: 8px;
+    transform: none;
   }
-  #page-listen[data-decision="latched"] #orb-wrap { width: 42px; }
+  #page-listen[data-decision="latched"] #orb-wrap {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: center;
+    width: min(42vh, 172px);
+    transform: none;
+  }
+  #page-listen[data-decision="latched"] #analysis-status {
+    position: static;
+    display: block;
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: start;
+    width: 100%;
+    min-height: 22px;
+    transform: none;
+    color: var(--peri-ink);
+    font-weight: 600;
+    line-height: 1.25;
+    text-align: left;
+  }
+
+  /* Timer and controls use the same 52px band as the baby profile. */
   body[data-decision="latched"] #rec-chip {
-    top: calc(var(--sat) + 21px);
+    top: calc(var(--sat) + 28.5px);
     right: calc(var(--sar) + 148px);
   }
 
   body[data-decision="latched"] #ctl-capsule {
     left: auto;
     right: calc(var(--sar) + 18px);
-    top: calc(var(--sat) + 12px);
+    top: calc(var(--sat) + 16px);
     bottom: auto;
     transform: none;
     flex-direction: row;
@@ -1594,10 +1743,10 @@ body[data-decision="latched"] #preview-bar {
     gap: 6px;
   }
   body[data-decision="latched"] #ctl-capsule .cbtn {
-    width: 36px;
-    height: 36px;
-    min-width: 36px;
-    min-height: 36px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
   }
 
   /* ---- survey: two column form ---- */
@@ -1713,6 +1862,10 @@ body[data-decision="latched"] #preview-bar {
 }
 #page-listen[data-state="awaiting_outcome"] #suggestion-toolbar,
 #page-listen[data-state="awaiting_outcome"] #rail-dots {
+  display: none;
+}
+#page-listen[data-state="awaiting_outcome"] #btn-suggestion-evidence,
+#page-listen[data-state="saved"] #btn-suggestion-evidence {
   display: none;
 }
 #page-listen[data-state="awaiting_outcome"] #suggestion-rail {
@@ -3549,8 +3702,8 @@ body[data-decision="latched"] #preview-bar {
   #page-listen[data-state="paused"][data-decision="none"] #orb-wrap,
   #page-listen[data-state="listening"][data-decision="dismissed"] #orb-wrap,
   #page-listen[data-state="paused"][data-decision="dismissed"] #orb-wrap {
-    width: min(65vh, 292px);
-    transform: translateX(-24vw);
+    width: min(61vh, 270px);
+    transform: none;
   }
 
   #page-history,

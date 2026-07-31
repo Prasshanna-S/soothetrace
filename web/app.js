@@ -145,8 +145,12 @@ const ui = {
   suggestion: $("suggestion-block"),
   suggestionToolbar: $("suggestion-toolbar"),
   dismissSuggestion: $("btn-dismiss-suggestion"),
+  suggestionCard: $("suggestion-card"),
   suggestionRail: $("suggestion-rail"),
   railDots: $("rail-dots"),
+  suggestionEvidence: $("btn-suggestion-evidence"),
+  suggestionEvidencePanel: $("suggestion-evidence-panel"),
+  closeSuggestionEvidence: $("btn-close-suggestion-evidence"),
   gArt: $("suggestion-art"),
   gHeadline: $("g-headline"),
   gRecommendation: $("g-recommendation"),
@@ -2106,6 +2110,7 @@ function syncSuggestionPresentation() {
   ui.body.dataset.decision = decisionState;
   ui.dismissSuggestion.setAttribute("aria-expanded", visible ? "true" : "false");
   ui.reopenSuggestion.setAttribute("aria-expanded", visible ? "true" : "false");
+  if (!visible) setSuggestionEvidence(false);
   return visible;
 }
 
@@ -2129,6 +2134,7 @@ function setSessionState(name) {
   show(ui.outcomeForm, name === "awaiting_outcome");
   show(ui.savedBlock, name === "saved");
   const suggestionPresented = syncSuggestionPresentation();
+  if (!suggestionCanToggle(name)) setSuggestionEvidence(false);
   show(ui.recChip, name === "listening" || name === "paused");
   ui.recChip.setAttribute("aria-hidden", name === "idle" ? "true" : "false");
   setMicLive(live);
@@ -2494,6 +2500,7 @@ function clearDecisionPresentation() {
   ui.basisList.textContent = "";
   ui.incidentList.textContent = "";
   ui.railDots.textContent = "";
+  setSuggestionEvidence(false);
   setText($("incidents-count"), "0");
   show(ui.gArt, false);
 }
@@ -2540,6 +2547,18 @@ function railCards() {
     .filter((card) => !card.hidden);
 }
 
+function setSuggestionEvidence(open) {
+  const expanded = Boolean(open);
+  ui.suggestionEvidencePanel.dataset.open = expanded ? "true" : "false";
+  ui.suggestionRail.dataset.evidenceOpen = expanded ? "true" : "false";
+  ui.suggestion.dataset.evidenceOpen = expanded ? "true" : "false";
+  ui.suggestionEvidencePanel.setAttribute(
+    "aria-hidden",
+    LAND_MQ.matches && !expanded ? "true" : "false"
+  );
+  ui.suggestionEvidence.setAttribute("aria-expanded", expanded ? "true" : "false");
+}
+
 function updateRailPosition() {
   const cards = railCards();
   if (!cards.length) return;
@@ -2583,8 +2602,13 @@ function scrollRailTo(index) {
 }
 
 function buildRailNavigation() {
-  if (LAND_MQ.matches) ui.incidentsFold.open = true;
+  ui.incidentsFold.open = false;
+  setSuggestionEvidence(false);
   ui.railDots.textContent = "";
+  if (LAND_MQ.matches) {
+    state.railIndex = 0;
+    return;
+  }
   const cards = railCards();
   cards.forEach((card, index) => {
     const dot = document.createElement("button");
@@ -2600,6 +2624,7 @@ function buildRailNavigation() {
 
 function dismissGroundedSuggestion() {
   if (!state.decision || !suggestionCanToggle()) return;
+  setSuggestionEvidence(false);
   state.suggestionVisible = false;
   syncSuggestionPresentation();
   if (state.session === "listening") {
@@ -2617,7 +2642,7 @@ function reopenGroundedSuggestion() {
   syncSuggestionPresentation();
   if (state.session === "listening") orbState("grounded");
   else orbState("paused");
-  setAnalysis("", 0);
+  setAnalysis("Suggestion ready", 0);
   requestAnimationFrame(() => {
     scrollRailTo(state.railIndex);
     ui.dismissSuggestion.focus();
@@ -2667,7 +2692,7 @@ function latchDecision(decision) {
   buildRailNavigation();
   syncSuggestionPresentation();
   orbState("grounded");
-  setAnalysis("", 0);
+  setAnalysis("Suggestion ready", 0);
 }
 
 /* Each basis line gets a small icon disc in the reference row grammar. The
@@ -2995,8 +3020,15 @@ ui.suggestionRail.addEventListener("keydown", (event) => {
 });
 const syncRailForViewport = () => {
   if (!state.decision) return;
+  const evidenceHadFocus =
+    ui.suggestionEvidencePanel.dataset.open === "true" ||
+    ui.suggestionEvidencePanel.contains(document.activeElement);
   buildRailNavigation();
-  requestAnimationFrame(() => scrollRailTo(state.railIndex));
+  if (evidenceHadFocus) ui.suggestionCard.focus({ preventScroll: true });
+  requestAnimationFrame(() => {
+    scrollRailTo(state.railIndex);
+    if (evidenceHadFocus) ui.suggestionCard.focus({ preventScroll: true });
+  });
 };
 if (typeof LAND_MQ.addEventListener === "function") {
   LAND_MQ.addEventListener("change", syncRailForViewport);
@@ -3028,6 +3060,14 @@ document.addEventListener("visibilitychange", () => {
 ui.start.addEventListener("click", startListening);
 ui.dismissSuggestion.addEventListener("click", dismissGroundedSuggestion);
 ui.reopenSuggestion.addEventListener("click", reopenGroundedSuggestion);
+ui.suggestionEvidence.addEventListener("click", () => {
+  setSuggestionEvidence(true);
+  requestAnimationFrame(() => ui.closeSuggestionEvidence.focus());
+});
+ui.closeSuggestionEvidence.addEventListener("click", () => {
+  setSuggestionEvidence(false);
+  ui.suggestionEvidence.focus();
+});
 ui.pause.addEventListener("click", () => enterPaused(false));
 ui.resume.addEventListener("click", resumeListening);
 ui.stop.addEventListener("click", stopSession);

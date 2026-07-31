@@ -1484,6 +1484,16 @@ async function landscapeMetrics(page) {
         .slice(0, 12),
       controlsTop: Math.round(controls.top),
       controlsBottom: Math.round(controls.bottom),
+      controls: {
+        left: +controls.left.toFixed(1),
+        top: +controls.top.toFixed(1),
+        right: +controls.right.toFixed(1),
+        bottom: +controls.bottom.toFixed(1),
+        width: +controls.width.toFixed(1),
+        height: +controls.height.toFixed(1),
+        centerX: +(controls.left + controls.width / 2).toFixed(1),
+        centerY: +(controls.top + controls.height / 2).toFixed(1),
+      },
       profileCenter: Math.round(profile.top + profile.height / 2),
       recorderCenter: Math.round(recorder.top + recorder.height / 2),
       orb: {
@@ -1498,6 +1508,10 @@ async function landscapeMetrics(page) {
         top: +status.top.toFixed(1),
         right: +status.right.toFixed(1),
         bottom: +status.bottom.toFixed(1),
+        width: +status.width.toFixed(1),
+        height: +status.height.toFixed(1),
+        centerX: +(status.left + status.width / 2).toFixed(1),
+        centerY: +(status.top + status.height / 2).toFixed(1),
       },
       orbOverlapsStatus: intersects(orb, status),
       orbOverlapsControls: intersects(orb, controls),
@@ -1517,6 +1531,19 @@ async function runLandscapeListeningFit(browser, viewport) {
   await installRoutes(page, requests, { retryFirst: false, safeArea: true });
   await page.goto("http://care.test/", { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => !document.querySelector("#btn-start").disabled);
+  const idleAction = await page.evaluate(() => {
+    const rect = (selector) => {
+      const box = document.querySelector(selector).getBoundingClientRect();
+      return {
+        centerX: +(box.left + box.width / 2).toFixed(1),
+        centerY: +(box.top + box.height / 2).toFixed(1),
+      };
+    };
+    return {
+      label: rect("#consent-line"),
+      start: rect("#btn-start"),
+    };
+  });
   await page.click("#btn-start");
   await page.waitForSelector('body[data-session="listening"]');
   await page.waitForTimeout(700);
@@ -1540,7 +1567,7 @@ async function runLandscapeListeningFit(browser, viewport) {
     Math.abs(plain.profileCenter - plain.recorderCenter) <= 4,
     `landscape timer is not aligned with the baby profile: ${JSON.stringify(plain)}`
   );
-  const expectedOrbWidth = viewport.width === 932 ? 279.5 : 253.5;
+  const expectedOrbWidth = viewport.width === 932 ? 262.3 : 237.9;
   assert(
     Math.abs(plain.orb.width - expectedOrbWidth) <= 0.6,
     `landscape listening orb is not the intended larger size: ${JSON.stringify(plain)}`
@@ -1556,6 +1583,39 @@ async function runLandscapeListeningFit(browser, viewport) {
     !plain.orbOverlapsStatus && !plain.orbOverlapsControls,
     `landscape listening orb overlaps status or controls: ${JSON.stringify(plain)}`
   );
+  assert(
+    Math.abs(plain.status.centerX - plain.controls.centerX) <= 0.5 &&
+      Math.abs(plain.status.centerX - idleAction.label.centerX) <= 10 &&
+      Math.abs(plain.status.centerY - idleAction.label.centerY) <= 10 &&
+      Math.abs(plain.controls.centerX - idleAction.start.centerX) <= 10 &&
+      Math.abs(plain.controls.centerY - idleAction.start.centerY) <= 10,
+    `landscape live status and controls do not replace the idle action stack: ` +
+      `${JSON.stringify({ idleAction, plain })}`
+  );
+  const wrappedStatus = await page.evaluate(() => {
+    const status = document.querySelector("#analysis-status");
+    const controls = document.querySelector("#ctl-capsule");
+    status.textContent =
+      "Infant cry detected. Comparing this moment with earlier memories.";
+    const statusBox = status.getBoundingClientRect();
+    const controlsBox = controls.getBoundingClientRect();
+    status.textContent = "Listening";
+    return {
+      statusCenterX: +(statusBox.left + statusBox.width / 2).toFixed(1),
+      controlsCenterX:
+        +(controlsBox.left + controlsBox.width / 2).toFixed(1),
+      statusBottom: +statusBox.bottom.toFixed(1),
+      controlsTop: +controlsBox.top.toFixed(1),
+      statusHeight: +statusBox.height.toFixed(1),
+    };
+  });
+  assert(
+    Math.abs(wrappedStatus.statusCenterX - wrappedStatus.controlsCenterX) <= 0.5 &&
+      wrappedStatus.statusHeight > 30 &&
+      wrappedStatus.statusBottom <= wrappedStatus.controlsTop - 4,
+    `wrapped landscape status is not centered safely above the controls: ` +
+      JSON.stringify(wrappedStatus)
+  );
 
   await page.evaluate(() => setSessionState("paused"));
   await page.waitForTimeout(80);
@@ -1567,7 +1627,12 @@ async function runLandscapeListeningFit(browser, viewport) {
       paused.orb.right <= viewport.width &&
       paused.orb.bottom <= viewport.height &&
       !paused.orbOverlapsStatus &&
-      !paused.orbOverlapsControls,
+      !paused.orbOverlapsControls &&
+      Math.abs(paused.status.centerX - paused.controls.centerX) <= 0.5 &&
+      Math.abs(paused.status.centerX - idleAction.label.centerX) <= 10 &&
+      Math.abs(paused.status.centerY - idleAction.label.centerY) <= 10 &&
+      Math.abs(paused.controls.centerX - idleAction.start.centerX) <= 10 &&
+      Math.abs(paused.controls.centerY - idleAction.start.centerY) <= 10,
     `landscape paused orb does not fit safely: ${JSON.stringify(paused)}`
   );
   console.log(
@@ -1575,9 +1640,25 @@ async function runLandscapeListeningFit(browser, viewport) {
       JSON.stringify({ viewport, expectedOrbWidth, listening: plain, paused })
   );
   await page.evaluate(() => setSessionState("listening"));
+  const multiIncidentDecision = {
+    ...decision,
+    guidance: {
+      ...decision.guidance,
+      support_count: 4,
+    },
+    scenarios: Array.from({ length: 4 }, (_, index) => ({
+      ...decision.scenarios[0],
+      episode_id: 101 + index,
+      started_at: `2026-07-${String(20 + index).padStart(2, "0")}T20:15:00-04:00`,
+      interventions: decision.scenarios[0].interventions.map((item) => ({
+        ...item,
+        action: `${item.action} ${index + 1}`,
+      })),
+    })),
+  };
   await page.evaluate((serverDecision) => {
     window.latchDecision(serverDecision);
-  }, decision);
+  }, multiIncidentDecision);
   await page.waitForTimeout(80);
   const latched = await landscapeMetrics(page);
   assert(
@@ -1595,34 +1676,163 @@ async function runLandscapeListeningFit(browser, viewport) {
     `landscape suggestion text is behind controls: ${JSON.stringify(latched)}`
   );
 
-  const rail = await page.evaluate(() => {
-    const node = document.querySelector("#suggestion-rail");
-    const cards = Array.from(node.querySelectorAll(".rail-card"))
-      .filter((card) => getComputedStyle(card).display !== "none");
+  const focused = await page.evaluate(() => {
+    const rect = (selector) => {
+      const node = document.querySelector(selector);
+      if (!node) return null;
+      const box = node.getBoundingClientRect();
+      return {
+        left: +box.left.toFixed(1),
+        top: +box.top.toFixed(1),
+        right: +box.right.toFixed(1),
+        bottom: +box.bottom.toFixed(1),
+        width: +box.width.toFixed(1),
+        height: +box.height.toFixed(1),
+        centerX: +(box.left + box.width / 2).toFixed(1),
+        centerY: +(box.top + box.height / 2).toFixed(1),
+      };
+    };
+    const intersects = (left, right) => !(
+      left.right <= right.left ||
+      left.left >= right.right ||
+      left.bottom <= right.top ||
+      left.top >= right.bottom
+    );
+    const rail = document.querySelector("#suggestion-rail");
+    const majorSelectors = [
+      "#suggestion-card",
+      "#interpretation-card",
+      "#basis-card",
+      "#incidents-fold",
+      "#suggestion-reminder",
+    ];
+    const visibleMajor = majorSelectors.filter((selector) => {
+      const node = document.querySelector(selector);
+      if (!node) return false;
+      const style = getComputedStyle(node);
+      const box = node.getBoundingClientRect();
+      return style.display !== "none" && style.visibility !== "hidden" &&
+        Number(style.opacity) !== 0 && box.width > 1 && box.height > 1;
+    });
+    const profile = rect("#profile-control");
+    const timer = rect("#rec-chip");
+    const controls = rect("#ctl-capsule");
+    const orb = rect("#orb-wrap");
+    const status = rect("#analysis-status");
+    const card = rect("#suggestion-card");
     return {
-      clientWidth: node.clientWidth,
-      scrollWidth: node.scrollWidth,
-      snap: getComputedStyle(node).scrollSnapType,
-      cards: cards.length,
-      dots: document.querySelectorAll("#rail-dots button").length,
+      profile,
+      timer,
+      controls,
+      orb,
+      status,
+      card,
+      rail: rect("#suggestion-rail"),
+      evidenceButton: rect("#btn-suggestion-evidence"),
+      evidencePanel: rect("#suggestion-evidence-panel"),
+      evidenceOpen: document.querySelector("#suggestion-evidence-panel")
+        ?.dataset.open || "",
+      visibleMajor,
+      railClientWidth: rail.clientWidth,
+      railScrollWidth: rail.scrollWidth,
+      railSnap: getComputedStyle(rail).scrollSnapType,
+      orbOverlapsTimer: intersects(orb, timer),
+      orbOverlapsControls: intersects(orb, controls),
+      orbOverlapsCard: intersects(orb, card),
     };
   });
   assert(
-    rail.scrollWidth > rail.clientWidth &&
-      rail.snap.includes("x") &&
-      rail.cards >= 5 &&
-      rail.dots === rail.cards,
-    `landscape memory rail is incomplete at ${viewport.width}x${viewport.height}: ` +
-      JSON.stringify(rail)
+    focused.evidenceButton &&
+      focused.visibleMajor.length === 1 &&
+      focused.visibleMajor[0] === "#suggestion-card" &&
+      focused.railScrollWidth <= focused.railClientWidth + 1 &&
+      !focused.railSnap.includes("x"),
+    `landscape suggestion is not a single focused card at ` +
+      `${viewport.width}x${viewport.height}: ${JSON.stringify(focused)}`
   );
-
-  await page.focus("#suggestion-rail");
-  await page.keyboard.press("End");
-  await page.waitForTimeout(80);
   assert(
-    await page.locator("#suggestion-rail").evaluate((node) => node.scrollLeft > 0),
-    `keyboard navigation did not move the memory rail at ${viewport.width}x${viewport.height}`
+    Math.abs(focused.profile.centerY - focused.timer.centerY) <= 4 &&
+      Math.abs(focused.profile.centerY - focused.controls.centerY) <= 4,
+    `latched timer and controls do not share the profile alignment band at ` +
+      `${viewport.width}x${viewport.height}: ${JSON.stringify(focused)}`
   );
+  assert(
+    focused.orb.width >= 160 &&
+      focused.status.left >= focused.orb.right + 4 &&
+      Math.abs(focused.orb.centerY - focused.status.centerY) <= 4 &&
+      focused.status.width > 1 &&
+      !focused.orbOverlapsTimer &&
+      !focused.orbOverlapsControls &&
+      !focused.orbOverlapsCard,
+    `latched orb does not own a clear aligned column at ` +
+      `${viewport.width}x${viewport.height}: ${JSON.stringify(focused)}`
+  );
+  if (process.env.CAPTURE_LATCHED_UI === "1") {
+    await page.screenshot({
+      path: `/private/tmp/soothetrace-latched-${viewport.width}x${viewport.height}.png`,
+    });
+  }
+
+  await page.click("#btn-suggestion-evidence");
+  const evidenceOpen = await page.evaluate(() => ({
+    open: document.querySelector("#suggestion-evidence-panel").dataset.open,
+    panelVisible: document.querySelector("#suggestion-evidence-panel")
+      .getBoundingClientRect().width > 1,
+    cardVisible: document.querySelector("#suggestion-card")
+      .getBoundingClientRect().width > 1,
+    focus: document.activeElement?.id || "",
+  }));
+  assert(
+    evidenceOpen.open === "true" &&
+      evidenceOpen.panelVisible &&
+      !evidenceOpen.cardVisible &&
+      evidenceOpen.focus === "btn-close-suggestion-evidence",
+    `evidence control did not replace the focused suggestion: ` +
+      JSON.stringify(evidenceOpen)
+  );
+  await page.click("#incidents-fold summary");
+  const incidentScroll = await page.locator("#incident-list").evaluate((node) => {
+    const geometry = (element) => {
+      const box = element.getBoundingClientRect();
+      return {
+        top: +box.top.toFixed(1),
+        bottom: +box.bottom.toFixed(1),
+        height: +box.height.toFixed(1),
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+        minHeight: getComputedStyle(element).minHeight,
+        overflowY: getComputedStyle(element).overflowY,
+      };
+    };
+    const before = node.scrollTop;
+    node.scrollTop = Math.max(1, node.scrollHeight - node.clientHeight);
+    return {
+      before,
+      after: node.scrollTop,
+      clientHeight: node.clientHeight,
+      scrollHeight: node.scrollHeight,
+      overflowY: getComputedStyle(node).overflowY,
+      touchAction: getComputedStyle(node).touchAction,
+      panel: geometry(document.querySelector("#suggestion-evidence-panel")),
+      body: geometry(document.querySelector(".evidence-panel-body")),
+      fold: geometry(document.querySelector("#incidents-fold")),
+    };
+  });
+  assert(
+    incidentScroll.scrollHeight > incidentScroll.clientHeight &&
+      incidentScroll.after > incidentScroll.before &&
+      ["auto", "scroll"].includes(incidentScroll.overflowY) &&
+      incidentScroll.touchAction.includes("pan-y"),
+    `supporting incidents are not a touch-scroll region: ` +
+      JSON.stringify(incidentScroll)
+  );
+  if (process.env.CAPTURE_LATCHED_UI === "1") {
+    await page.screenshot({
+      path:
+        `/private/tmp/soothetrace-evidence-${viewport.width}x${viewport.height}.png`,
+    });
+  }
+  await page.click("#btn-close-suggestion-evidence");
 
   await page.click("#btn-dismiss-suggestion");
   const dismissed = await page.evaluate(() => ({
@@ -1662,6 +1872,41 @@ async function runLandscapeListeningFit(browser, viewport) {
       reopened.reopenHidden &&
       reopened.session === "listening",
     `reopen did not restore the retained suggestion: ${JSON.stringify(reopened)}`
+  );
+
+  await page.click("#btn-suggestion-evidence");
+  await page.setViewportSize({ width: 430, height: 932 });
+  await page.waitForTimeout(100);
+  const rotationFocus = await page.evaluate(() => ({
+    focus: document.activeElement?.id || "",
+    evidenceOpen: document.querySelector("#suggestion-evidence-panel").dataset.open,
+  }));
+  assert(
+    rotationFocus.focus === "suggestion-card" &&
+      rotationFocus.evidenceOpen === "false",
+    `rotation lost focus when closing the evidence layer: ` +
+      JSON.stringify(rotationFocus)
+  );
+  await page.setViewportSize(viewport);
+  await page.waitForTimeout(100);
+  await page.click("#btn-suggestion-evidence");
+  await page.click("#btn-stop");
+  await page.waitForSelector('body[data-session="awaiting_outcome"]');
+  const stopped = await page.evaluate(() => ({
+    evidenceOpen: document.querySelector("#suggestion-evidence-panel").dataset.open,
+    evidenceVisible:
+      document.querySelector("#suggestion-evidence-panel").getBoundingClientRect().width > 1,
+    evidenceButtonVisible:
+      document.querySelector("#btn-suggestion-evidence").getBoundingClientRect().width > 1,
+    summaryVisible:
+      document.querySelector("#suggestion-card").getBoundingClientRect().width > 1,
+  }));
+  assert(
+    stopped.evidenceOpen === "false" &&
+      !stopped.evidenceVisible &&
+      !stopped.evidenceButtonVisible &&
+      stopped.summaryVisible,
+    `Stop did not restore the post-session summary: ${JSON.stringify(stopped)}`
   );
   await page.close();
 }
@@ -1728,7 +1973,9 @@ async function measurePortraitToLandscapeSuggestion(browser, viewport) {
 
   const layout = await page.evaluate(() => {
     const rect = (selector) => {
-      const box = document.querySelector(selector).getBoundingClientRect();
+      const node = document.querySelector(selector);
+      if (!node) return null;
+      const box = node.getBoundingClientRect();
       return {
         top: Math.round(box.top),
         right: Math.round(box.right),
@@ -1736,15 +1983,34 @@ async function measurePortraitToLandscapeSuggestion(browser, viewport) {
         left: Math.round(box.left),
         width: Math.round(box.width),
         height: Math.round(box.height),
+        centerX: Math.round(box.left + box.width / 2),
+        centerY: Math.round(box.top + box.height / 2),
       };
     };
     const rail = document.querySelector("#suggestion-rail");
+    const visibleCards = Array.from(rail.querySelectorAll(".rail-card"))
+      .filter((card) => {
+        const box = card.getBoundingClientRect();
+        const style = getComputedStyle(card);
+        return style.display !== "none" && style.visibility !== "hidden" &&
+          box.width > 1 && box.height > 1;
+      }).length;
     return {
       viewport: { width: innerWidth, height: innerHeight },
       shell: rect("#app-shell"),
       page: rect("#page-listen"),
+      profile: rect("#profile-control"),
+      timer: rect("#rec-chip"),
+      controls: rect("#ctl-capsule"),
+      orb: rect("#orb-wrap"),
+      status: rect("#analysis-status"),
       suggestion: rect("#suggestion-block"),
       rail: rect("#suggestion-rail"),
+      card: rect("#suggestion-card"),
+      headline: rect("#g-headline"),
+      recommendation: rect("#g-recommendation"),
+      foot: rect("#suggestion-card .g-foot"),
+      evidenceButton: rect("#btn-suggestion-evidence"),
       documentScrollHeight: document.documentElement.scrollHeight,
       bodyScrollHeight: document.body.scrollHeight,
       pageClientHeight: document.querySelector("#page-listen").clientHeight,
@@ -1752,8 +2018,7 @@ async function measurePortraitToLandscapeSuggestion(browser, viewport) {
       railClientWidth: rail.clientWidth,
       railScrollWidth: rail.scrollWidth,
       railSnap: getComputedStyle(rail).scrollSnapType,
-      visibleCards: Array.from(rail.querySelectorAll(".rail-card"))
-        .filter((card) => getComputedStyle(card).display !== "none").length,
+      visibleCards,
     };
   });
 
@@ -1889,11 +2154,36 @@ try {
       rotationFailures.push(`${label} clips the rotated suggestion`);
     }
     if (
-      layout.railScrollWidth <= layout.railClientWidth ||
-      !layout.railSnap.includes("x") ||
-      layout.visibleCards < 6
+      layout.railScrollWidth > layout.railClientWidth + 1 ||
+      layout.railSnap.includes("x") ||
+      layout.visibleCards !== 1 ||
+      !layout.evidenceButton
     ) {
-      rotationFailures.push(`${label} does not expose the full horizontal memory rail`);
+      rotationFailures.push(`${label} does not expose one focused suggestion card`);
+    }
+    if (
+      Math.abs(layout.profile.centerY - layout.timer.centerY) > 4 ||
+      Math.abs(layout.profile.centerY - layout.controls.centerY) > 4 ||
+      layout.status.left < layout.orb.right + 4 ||
+      Math.abs(layout.orb.centerY - layout.status.centerY) > 4 ||
+      layout.orb.width < 160 ||
+      layout.orb.right > layout.card.left
+    ) {
+      rotationFailures.push(`${label} does not align the top band and orb column`);
+    }
+    const cardChildren = [
+      layout.headline,
+      layout.recommendation,
+      layout.foot,
+      layout.evidenceButton,
+    ].filter(Boolean);
+    if (cardChildren.some((child) =>
+      child.left < layout.card.left - 1 ||
+      child.right > layout.card.right + 1 ||
+      child.top < layout.card.top - 1 ||
+      child.bottom > layout.card.bottom + 1
+    )) {
+      rotationFailures.push(`${label} clips suggestion content inside the main card`);
     }
     if (
       dismissed.overlap ||
